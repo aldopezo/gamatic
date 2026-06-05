@@ -10,7 +10,7 @@ import { getDatabase } from "firebase/database";
 const firebaseConfig = {
   apiKey: "AIzaSyAiaZSf-2XTspGxUOm4n8NIgptQbhPQ_Zw",
   authDomain: "gamatic-8b1e1.firebaseapp.com",
-  databaseURL: "PEGA_AQUI_TU_databaseURL",
+  databaseURL: "https://gamatic-8b1e1-default-rtdb.firebaseio.com",
   projectId: "gamatic-8b1e1",
   storageBucket: "gamatic-8b1e1.firebasestorage.app",
   messagingSenderId: "745573846023",
