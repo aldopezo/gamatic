@@ -161,6 +161,14 @@ const css=`
   .role-card .role-icon{font-size:28px;line-height:1}
   .role-card h4{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap}
   .role-card p{font-size:10px;color:var(--muted);line-height:1.3}
+  @media(max-width:500px){
+    .role-grid{grid-template-columns:1fr;gap:10px}
+    .role-card{flex-direction:row;padding:14px 18px;text-align:left;gap:16px;align-items:center}
+    .role-card .role-icon{font-size:34px;flex-shrink:0}
+    .role-card h4{font-size:15px;margin-bottom:2px}
+    .role-card p{font-size:12px}
+    .login-card{padding:28px 20px}
+  }
   .mes-nav{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:6px 12px;margin-bottom:16px}
   .mes-nav span{font-weight:700;font-size:13px;flex:1;text-align:center}
   .mes-nav button{background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;border-radius:6px;display:flex}
