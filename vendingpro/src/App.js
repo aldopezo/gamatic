@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
 import { db } from "./firebase";
-import { ref, onValue, set, push } from "firebase/database";
+import { ref, onValue, set, push, remove } from "firebase/database";
 
-const SEED = {
-  productos: {
+// ─── CREDENCIALES ──────────────────────────────────────────────────────────────
+const CLAVES = { admin:"123", abastecedor:"", almacenero:"" };
+
+const SEED={
+  productos:{
     p1:{id:"p1",nombre:"Coca Cola 500ml",costo:2.5,margen:40,precioVenta:3.50,proveedor:"Coca-Cola SAC"},
     p2:{id:"p2",nombre:"Agua San Luis 600ml",costo:1.2,margen:50,precioVenta:1.80,proveedor:"Backus"},
     p3:{id:"p3",nombre:"Snickers",costo:1.8,margen:45,precioVenta:2.60,proveedor:"Mars Inc."},
@@ -23,7 +26,7 @@ const SEED = {
     s2:{id:"s2",productoId:"p2",cantidad:60,minimo:15},
     s3:{id:"s3",productoId:"p3",cantidad:35,minimo:8},
   },
-  traslados:{},ventas:{},cobranzas:{},
+  traslados:{},ventas:{},cobranzas:{},gastos:{},
   horario:{lunes:{maquinas:[]},martes:{maquinas:[]},miercoles:{maquinas:[]},jueves:{maquinas:[]},viernes:{maquinas:[]},sabado:{maquinas:[]},domingo:{maquinas:[]}},
 };
 
@@ -33,8 +36,9 @@ const objToArr=(o)=>o?Object.values(o):[];
 const uid=()=>push(ref(db,"_tmp")).key;
 const mesActual=()=>new Date().toISOString().slice(0,7);
 const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-const nombreMes=(ym)=>{const[y,m]=ym.split("-");return `${MESES[parseInt(m)-1]} ${y}`;};
+const nombreMes=(ym)=>{const[y,m]=ym.split("-");return`${MESES[parseInt(m)-1]} ${y}`;};
 
+// ─── ÍCONOS ────────────────────────────────────────────────────────────────────
 const Icon=({name,size=18})=>{
   const p={
     machine:<path d="M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2zm7 4v6m-3-3h6" strokeLinecap="round" strokeLinejoin="round"/>,
@@ -58,12 +62,14 @@ const Icon=({name,size=18})=>{
     close:<path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round"/>,
     chevL:<path d="M15 19l-7-7 7-7" strokeLinecap="round" strokeLinejoin="round"/>,
     chevR:<path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round"/>,
+    bolt:<path d="M13 10V3L4 14h7v7l9-11h-7z" strokeLinecap="round" strokeLinejoin="round"/>,
+    lock:<path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" strokeLinecap="round" strokeLinejoin="round"/>,
+    warehouse:<path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" strokeLinecap="round" strokeLinejoin="round"/>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{p[name]}</svg>;
 };
 
-// Logo usando la imagen real (PNG en base64-like via img tag con la URL del logo)
-const GamaticLogo=({collapsed=false})=>(
+const GamaticLogo=()=>(
   <div style={{display:"flex",alignItems:"center",gap:8,overflow:"hidden"}}>
     <svg width="32" height="32" viewBox="0 0 100 100" fill="none">
       <rect x="10" y="5" width="58" height="78" rx="6" stroke="#f59e0b" strokeWidth="5" fill="none"/>
@@ -76,10 +82,11 @@ const GamaticLogo=({collapsed=false})=>(
       <circle cx="39" cy="93" r="5" fill="#f59e0b"/>
       <path d="M20 93 Q39 100 58 93" stroke="#f59e0b" strokeWidth="4" fill="none" strokeLinecap="round"/>
     </svg>
-    {!collapsed&&<span style={{fontWeight:900,fontSize:20,color:"#f59e0b",letterSpacing:2,fontFamily:"Arial Black,sans-serif",whiteSpace:"nowrap"}}>GAMATIC</span>}
+    <span style={{fontWeight:900,fontSize:20,color:"#f59e0b",letterSpacing:2,fontFamily:"Arial Black,sans-serif",whiteSpace:"nowrap"}}>GAMATIC</span>
   </div>
 );
 
+// ─── CSS ───────────────────────────────────────────────────────────────────────
 const css=`
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
   :root{--bg:#0a0e1a;--surface:#111827;--surface2:#1a2235;--border:#1e2d45;--accent:#f59e0b;--accent2:#3b82f6;--green:#10b981;--red:#ef4444;--text:#f1f5f9;--muted:#64748b;--radius:12px;}
@@ -87,9 +94,7 @@ const css=`
   body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
   h1,h2,h3,h4{font-family:'Syne',sans-serif}
   .app{display:flex;min-height:100vh;position:relative}
-
-  /* SIDEBAR DESKTOP */
-  .sidebar{width:240px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .2s;z-index:50}
+  .sidebar{width:240px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;z-index:50}
   .sidebar-logo{padding:18px 16px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;min-height:64px}
   .sidebar-role{margin:10px 12px;background:var(--surface2);border-radius:8px;padding:7px 11px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;overflow:hidden;white-space:nowrap}
   .sidebar-role span{color:var(--accent);font-weight:600}
@@ -98,13 +103,9 @@ const css=`
   .nav-item:hover{color:var(--text);background:var(--surface2)}
   .nav-item.active{color:var(--accent);background:rgba(245,158,11,.08);border-left-color:var(--accent)}
   .nav-section{padding:12px 18px 4px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden}
-  .logout-btn{padding:14px 18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer;color:var(--muted);font-size:13px;transition:color .15s;white-space:nowrap}
+  .logout-btn{padding:14px 18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer;color:var(--muted);font-size:13px;transition:color .15s}
   .logout-btn:hover{color:var(--red)}
-
-  /* MOBILE OVERLAY */
   .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:49;backdrop-filter:blur(2px)}
-
-  /* MAIN */
   .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
   .topbar{padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;height:56px;gap:10px}
   .topbar h1{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -112,41 +113,31 @@ const css=`
   .hamburger{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px;border-radius:8px;display:none;flex-shrink:0}
   .hamburger:hover{background:var(--surface2);color:var(--text)}
   .content{flex:1;padding:16px;overflow-y:auto}
-
-  /* CARDS */
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
   .card-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
   .card-value{font-size:20px;font-family:'Syne',sans-serif;font-weight:700}
   .card-value.green{color:var(--green)}.card-value.amber{color:var(--accent)}.card-value.blue{color:var(--accent2)}.card-value.red{color:var(--red)}
   .card-sub{font-size:11px;color:var(--muted);margin-top:3px}
-
-  /* SECTION */
   .section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
   .section-header{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}
   .section-header h3{font-size:13px;font-weight:700}
-
-  /* TABLE — scroll horizontal en móvil */
   .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   table{width:100%;border-collapse:collapse;font-size:12px;min-width:480px}
   th{text-align:left;padding:8px 14px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface2);border-bottom:1px solid var(--border)}
   td{padding:10px 14px;border-bottom:1px solid var(--border);color:var(--text)}
   tr:last-child td{border-bottom:none}
   tr:hover td{background:rgba(255,255,255,.02)}
-
   .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600}
   .badge.green{background:rgba(16,185,129,.15);color:var(--green)}
   .badge.red{background:rgba(239,68,68,.15);color:var(--red)}
   .badge.amber{background:rgba(245,158,11,.15);color:var(--accent)}
   .badge.blue{background:rgba(59,130,246,.15);color:var(--accent2)}
-
   .btn{display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;transition:all .15s}
   .btn-primary{background:var(--accent);color:#000}.btn-primary:hover{background:#d97706}
   .btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}.btn-secondary:hover{background:var(--border)}
-  .btn-danger{background:rgba(239,68,68,.15);color:var(--red)}
+  .btn-danger{background:rgba(239,68,68,.15);color:var(--red)}.btn-danger:hover{background:rgba(239,68,68,.28)}
   .btn-sm{padding:3px 9px;font-size:11px}
-
-  /* MODAL */
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:flex-end;justify-content:center;z-index:100;backdrop-filter:blur(4px)}
   .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:22px 20px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto}
   .modal h3{font-size:16px;font-weight:700;margin-bottom:16px}
@@ -161,10 +152,8 @@ const css=`
   .prod-row select,.prod-row input{padding:8px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;width:100%}
   .prod-row select:focus,.prod-row input:focus{border-color:var(--accent)}
   .add-prod-btn{background:rgba(245,158,11,.12);border:1px dashed var(--accent);border-radius:8px;padding:7px;color:var(--accent);cursor:pointer;font-size:12px;font-weight:600;width:100%;display:flex;align-items:center;justify-content:center;gap:5px;transition:background .15s}
-
-  /* LOGIN */
   .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:16px}
-  .login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:32px 24px;width:100%;max-width:400px}
+  .login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:32px 24px;width:100%;max-width:420px}
   .login-logo{text-align:center;margin-bottom:24px}
   .login-logo p{color:var(--muted);font-size:13px;margin-top:8px}
   .role-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:20px}
@@ -173,20 +162,10 @@ const css=`
   .role-card.selected{border-color:var(--accent);background:rgba(245,158,11,.08)}
   .role-card h4{font-size:13px;font-weight:700;margin-bottom:3px}
   .role-card p{font-size:11px;color:var(--muted)}
-
-  /* FILTRO FECHA */
-  .filtro-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-  .filtro-bar select,.filtro-bar input{padding:7px 11px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none}
-  .filtro-bar select:focus,.filtro-bar input:focus{border-color:var(--accent)}
-  .filtro-label{font-size:11px;color:var(--muted);font-weight:600}
-
-  /* MES NAVEGACION */
   .mes-nav{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:6px 12px;margin-bottom:18px}
   .mes-nav span{font-weight:700;font-size:14px;flex:1;text-align:center}
   .mes-nav button{background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;border-radius:6px;display:flex;align-items:center}
   .mes-nav button:hover{background:var(--border);color:var(--text)}
-
-  /* RENTABILIDAD */
   .profit-card{border-radius:var(--radius);padding:16px;margin-bottom:12px}
   .profit-positive{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3)}
   .profit-negative{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3)}
@@ -197,8 +176,6 @@ const css=`
   .spinner{animation:spin 1s linear infinite;color:var(--accent)}
   @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   .syncing{position:fixed;bottom:16px;right:16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px;z-index:200}
-
-  /* HORARIO */
   .horario-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:4px}
   .dia-col{background:var(--surface2);border:1px solid var(--border);border-radius:9px;overflow:hidden}
   .dia-header{padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;background:rgba(245,158,11,.1);color:var(--accent);border-bottom:1px solid var(--border)}
@@ -208,17 +185,14 @@ const css=`
   .precio-estimado{font-size:11px;color:var(--muted);text-decoration:line-through}
   .precio-real{font-size:13px;font-weight:700;color:var(--green)}
   .info-box{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:9px;padding:9px 13px;font-size:12px;color:var(--accent2);margin-bottom:11px}
-
-  /* RESPONSIVE */
+  .edit-banner{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--accent);margin-bottom:14px}
+  .confirm-modal{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.3);border-radius:14px;padding:24px;text-align:center}
   @media(min-width:768px){
     .hamburger{display:none!important}
     .topbar{padding:0 24px;height:60px}
     .topbar h1{font-size:18px}
     .topbar-date{display:block}
     .content{padding:22px 24px}
-    .cards{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
-    .card{padding:18px}
-    .card-value{font-size:22px}
     .modal-overlay{align-items:center}
     .modal{border-radius:16px;padding:26px;width:90%}
     table{font-size:13px}
@@ -232,9 +206,11 @@ const css=`
     .hamburger{display:flex!important}
     .horario-grid{grid-template-columns:repeat(4,1fr)}
     .form-row{grid-template-columns:1fr}
+    .role-grid{grid-template-columns:1fr 1fr}
   }
 `;
 
+// ─── FIREBASE HOOK ──────────────────────────────────────────────────────────────
 function useFirebase(){
   const [data,setData]=useState(null);
   const [syncing,setSyncing]=useState(false);
@@ -251,32 +227,64 @@ function useFirebase(){
         traslados:objToArr(val.traslados),
         ventas:objToArr(val.ventas),
         cobranzas:objToArr(val.cobranzas),
+        gastos:objToArr(val.gastos||{}),
         horario:val.horario||SEED.horario,
       });
     });
   },[]);
   const save=async(path,id,value)=>{setSyncing(true);await set(ref(db,`gamatic/${path}/${id}`),value);setSyncing(false);};
   const saveMulti=async(ops)=>{setSyncing(true);for(const[path,id,value]of ops)await set(ref(db,`gamatic/${path}/${id}`),value);setSyncing(false);};
-  return{data,save,saveMulti,syncing};
+  const del=async(path,id)=>{setSyncing(true);await remove(ref(db,`gamatic/${path}/${id}`));setSyncing(false);};
+  return{data,save,saveMulti,del,syncing};
 }
 
-// ── MES NAV ──
+// ─── HELPERS ───────────────────────────────────────────────────────────────────
 function MesNav({mes,setMes}){
   const prev=()=>{const[y,m]=mes.split("-").map(Number);const d=new Date(y,m-2);setMes(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);};
   const next=()=>{const[y,m]=mes.split("-").map(Number);const d=new Date(y,m);setMes(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);};
-  const esActual=mes===mesActual();
+  const ea=mes===mesActual();
   return(
     <div className="mes-nav">
       <button onClick={prev}><Icon name="chevL" size={16}/></button>
       <span>{nombreMes(mes)}</span>
-      <button onClick={next} disabled={esActual} style={{opacity:esActual?.3:1}}><Icon name="chevR" size={16}/></button>
+      <button onClick={next} disabled={ea} style={{opacity:ea?.3:1}}><Icon name="chevR" size={16}/></button>
     </div>
   );
 }
 
-// ── LOGIN ──
+function ConfirmDelete({texto,onConfirm,onCancel}){
+  return(
+    <div className="modal-overlay">
+      <div className="modal" style={{maxWidth:360}}>
+        <div className="confirm-modal">
+          <div style={{fontSize:32,marginBottom:12}}>🗑️</div>
+          <h3 style={{marginBottom:8,color:"var(--red)"}}>Eliminar</h3>
+          <p style={{fontSize:13,color:"var(--muted)",marginBottom:20}}>{texto}</p>
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <button className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
+            <button className="btn btn-danger" onClick={onConfirm}>Sí, eliminar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOGIN ──────────────────────────────────────────────────────────────────────
 function LoginScreen({onLogin}){
   const [role,setRole]=useState("admin");
+  const [clave,setClave]=useState("");
+  const [error,setError]=useState("");
+  const ROLES=[
+    ["admin","🔐","Administrador","Gestión total"],
+    ["abastecedor","🔧","Abastecedor","Operaciones de campo"],
+    ["almacenero","🏭","Almacenero","Gestión de almacén"],
+  ];
+  const intentarIngresar=()=>{
+    const claveRequerida=CLAVES[role];
+    if(claveRequerida&&clave!==claveRequerida){setError("Clave incorrecta");return;}
+    setError("");onLogin(role);
+  };
   return(
     <div className="login-screen">
       <div className="login-card">
@@ -285,93 +293,91 @@ function LoginScreen({onLogin}){
           <p>Sistema de gestión de máquinas expendedoras</p>
         </div>
         <p style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>Selecciona tu perfil:</p>
-        <div className="role-grid">
-          {[["admin","👤","Administrador","Gestión total del sistema"],["abastecedor","🔧","Abastecedor","Operaciones de campo"]].map(([r,ico,lbl,sub])=>(
-            <div key={r} className={`role-card ${role===r?"selected":""}`} onClick={()=>setRole(r)}>
-              <div style={{fontSize:26,marginBottom:5}}>{ico}</div>
+        <div className="role-grid" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
+          {ROLES.map(([r,ico,lbl,sub])=>(
+            <div key={r} className={`role-card ${role===r?"selected":""}`} onClick={()=>{setRole(r);setClave("");setError("");}}>
+              <div style={{fontSize:22,marginBottom:4}}>{ico}</div>
               <h4>{lbl}</h4><p>{sub}</p>
             </div>
           ))}
         </div>
-        <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={()=>onLogin(role)}>
-          Ingresar como {role==="admin"?"Administrador":"Abastecedor"}
+        {CLAVES[role]&&(
+          <div className="form-group" style={{marginBottom:12}}>
+            <label>Clave de acceso</label>
+            <input type="password" value={clave} onChange={e=>{setClave(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentarIngresar()} placeholder="Ingresa la clave..." autoFocus/>
+            {error&&<div style={{color:"var(--red)",fontSize:12,marginTop:6}}>⚠️ {error}</div>}
+          </div>
+        )}
+        <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={intentarIngresar}>
+          <Icon name="lock" size={15}/>Ingresar
         </button>
       </div>
     </div>
   );
 }
 
-// ── DASHBOARD ──
+// ─── DASHBOARD ──────────────────────────────────────────────────────────────────
 function Dashboard({data}){
   const [mes,setMes]=useState(mesActual());
-  const ventasMes=data.ventas.filter(v=>v.fecha&&v.fecha.startsWith(mes));
-  const cobranzasMes=data.cobranzas.filter(c=>c.fecha&&c.fecha.startsWith(mes));
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const ventasMes=data.ventas.filter(v=>v.fecha&&v.fecha.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
+  const cobranzasMes=data.cobranzas.filter(c=>c.fecha&&c.fecha.startsWith(mes)&&maqActivas.find(m=>m.id===c.maquinaId));
+  const gastosMes=data.gastos.filter(g=>g.fecha&&g.fecha.startsWith(mes));
   const totalVentas=ventasMes.reduce((s,v)=>s+(v.ingreso||0),0);
   const totalCobr=cobranzasMes.reduce((s,c)=>s+(c.monto||0),0);
-  const totalAlq=data.maquinas.reduce((s,m)=>s+(m.alquiler||0),0);
+  const totalAlq=maqActivas.reduce((s,m)=>s+(m.alquiler||0),0);
+  const totalGastos=gastosMes.reduce((s,g)=>s+(g.monto||0),0);
   const costoProds=ventasMes.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
-  const utilidad=totalVentas-costoProds-totalAlq;
+  const utilidad=totalVentas-costoProds-totalAlq-totalGastos;
   const stockBajo=data.stock.filter(s=>s.cantidad<=s.minimo);
-
-  // avance del mes dia a dia
   const diasConVentas=[...new Set(ventasMes.map(v=>v.fecha))].sort();
-  const acumulado=diasConVentas.map(d=>{
-    const hasta=ventasMes.filter(v=>v.fecha<=d);
-    return{fecha:d,total:hasta.reduce((s,v)=>s+(v.ingreso||0),0)};
-  });
-
+  const acumulado=diasConVentas.map(d=>({fecha:d,total:ventasMes.filter(v=>v.fecha<=d).reduce((s,v)=>s+(v.ingreso||0),0)}));
   return(
     <div>
       {stockBajo.length>0&&<div className="alert-box"><Icon name="alert" size={14}/>{stockBajo.length} producto(s) con stock bajo mínimo</div>}
       <MesNav mes={mes} setMes={setMes}/>
       <div className="cards">
-        {[["Ventas",fmt(totalVentas),"green",`${ventasMes.length} registros`],
-          ["Cobranza",fmt(totalCobr),"amber",`${cobranzasMes.length} visitas`],
-          ["Alquiler",fmt(totalAlq),"blue",`${data.maquinas.length} máquinas`],
-          ["Utilidad",fmt(utilidad),utilidad>=0?"green":"red","ventas − costos − alquiler"],
-        ].map(([l,v,c,s])=>(
+        {[["Ventas",fmt(totalVentas),"green",`${ventasMes.length} registros`],["Cobranza",fmt(totalCobr),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(totalAlq),"blue",`${maqActivas.length} activas`],["Gastos extras",fmt(totalGastos),"red",`${gastosMes.length} registros`],["Utilidad",fmt(utilidad),utilidad>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
           <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{s}</div></div>
         ))}
       </div>
-
       {acumulado.length>0&&(
         <div className="section" style={{marginBottom:16}}>
           <div className="section-header"><h3>Avance de ventas — {nombreMes(mes)}</h3></div>
           <div style={{padding:14}}>
             {acumulado.map((a,i)=>{
               const pct=totalVentas>0?(a.total/totalVentas*100):0;
-              return(
-                <div key={i} style={{marginBottom:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
-                    <span style={{color:"var(--muted)"}}>{a.fecha}</span>
-                    <span style={{color:"var(--green)",fontWeight:600}}>{fmt(a.total)}</span>
-                  </div>
-                  <div style={{height:6,background:"var(--surface2)",borderRadius:4,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${pct}%`,background:"var(--green)",borderRadius:4,transition:"width .3s"}}/>
-                  </div>
+              return(<div key={i} style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+                  <span style={{color:"var(--muted)"}}>{a.fecha}</span>
+                  <span style={{color:"var(--green)",fontWeight:600}}>{fmt(a.total)}</span>
                 </div>
-              );
+                <div style={{height:6,background:"var(--surface2)",borderRadius:4,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${pct}%`,background:"var(--green)",borderRadius:4,transition:"width .3s"}}/>
+                </div>
+              </div>);
             })}
           </div>
         </div>
       )}
-
       <div className="section">
-        <div className="section-header"><h3>Rendimiento por máquina — {nombreMes(mes)}</h3></div>
+        <div className="section-header"><h3>Rendimiento — {nombreMes(mes)}</h3></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Máquina</th><th>Ubicación</th><th>Ventas</th><th>Alquiler</th><th>Rentabilidad</th></tr></thead>
+            <thead><tr><th>Máquina</th><th>Ubicación</th><th>Ventas</th><th>Alquiler</th><th>Gastos</th><th>Rentabilidad</th></tr></thead>
             <tbody>
-              {data.maquinas.map(m=>{
+              {maqActivas.map(m=>{
                 const vm=ventasMes.filter(v=>v.maquinaId===m.id);
                 const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
                 const cost=vm.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
-                const rent=ing-cost-(m.alquiler||0);
+                const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
+                const rent=ing-cost-(m.alquiler||0)-gm;
                 return(<tr key={m.id}>
                   <td><strong>{m.nombre}</strong></td>
                   <td style={{color:"var(--muted)",fontSize:11}}>{m.ubicacion}</td>
                   <td>{fmt(ing)}</td>
                   <td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>
+                  <td style={{color:"var(--red)"}}>{gm>0?fmt(gm):"—"}</td>
                   <td><span className={`badge ${rent>=0?"green":"red"}`}>{fmt(rent)}</span></td>
                 </tr>);
               })}
@@ -383,18 +389,21 @@ function Dashboard({data}){
   );
 }
 
-// ── RENTABILIDAD ──
+// ─── RENTABILIDAD ────────────────────────────────────────────────────────────────
 function Rentabilidad({data}){
   const [mes,setMes]=useState(mesActual());
-  const ventasMes=data.ventas.filter(v=>v.fecha&&v.fecha.startsWith(mes));
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const ventasMes=data.ventas.filter(v=>v.fecha&&v.fecha.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
+  const gastosMes=data.gastos.filter(g=>g.fecha&&g.fecha.startsWith(mes));
   return(
     <div>
       <MesNav mes={mes} setMes={setMes}/>
-      {data.maquinas.map(m=>{
+      {maqActivas.map(m=>{
         const vm=ventasMes.filter(v=>v.maquinaId===m.id);
         const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
         const cost=vm.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
-        const util=ing-cost-(m.alquiler||0);
+        const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
+        const util=ing-cost-(m.alquiler||0)-gm;
         const roi=ing>0?((util/ing)*100).toFixed(1):0;
         const tipo=util>50?"positive":util>=0?"neutral":"negative";
         return(
@@ -404,7 +413,7 @@ function Rentabilidad({data}){
               <span className={`badge ${tipo==="positive"?"green":tipo==="negative"?"red":"amber"}`}>ROI: {roi}%</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
-              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod.",fmt(cost),"var(--muted)"],["Alquiler",fmt(m.alquiler),"var(--red)"],["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
+              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod.",fmt(cost),"var(--muted)"],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
                 <div key={l} style={{background:"rgba(0,0,0,.2)",padding:"8px 10px",borderRadius:8}}>
                   <div style={{fontSize:9,color:"var(--muted)",marginBottom:2,textTransform:"uppercase"}}>{l}</div>
                   <div style={{fontSize:14,fontWeight:700,color:c,fontFamily:"'Syne',sans-serif"}}>{v}</div>
@@ -414,7 +423,7 @@ function Rentabilidad({data}){
             <div style={{padding:"7px 10px",background:"rgba(0,0,0,.2)",borderRadius:8,fontSize:12}}>
               {util>=100&&"✅ Muy rentable — considera expandir"}
               {util>=0&&util<100&&"⚠️ Rentable con margen ajustado"}
-              {util<0&&"❌ No rentable — revisar alquiler o ubicación"}
+              {util<0&&"❌ No rentable — revisar alquiler o gastos"}
             </div>
           </div>
         );
@@ -423,49 +432,120 @@ function Rentabilidad({data}){
   );
 }
 
-// ── PRODUCTOS (Admin) ──
-function Productos({data,save}){
+// ─── GASTOS ADICIONALES ──────────────────────────────────────────────────────────
+function GastosAdicionales({data,save,del}){
+  const [modal,setModal]=useState(false);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [form,setForm]=useState({descripcion:"",maquinaId:"",monto:"",fecha:today()});
+  const [mes,setMes]=useState(mesActual());
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const doSave=()=>{
+    if(!form.descripcion||!form.monto)return;
+    const id=uid();
+    save("gastos",id,{id,descripcion:form.descripcion,maquinaId:form.maquinaId||null,monto:+form.monto,fecha:form.fecha});
+    setModal(false);setForm({descripcion:"",maquinaId:"",monto:"",fecha:today()});
+  };
+  const gastosMes=data.gastos.filter(g=>g.fecha&&g.fecha.startsWith(mes));
+  const totalMes=gastosMes.reduce((s,g)=>s+(g.monto||0),0);
+  return(
+    <div>
+      <MesNav mes={mes} setMes={setMes}/>
+      <div className="cards">
+        <div className="card"><div className="card-label">Total gastos {nombreMes(mes)}</div><div className="card-value red">{fmt(totalMes)}</div><div className="card-sub">{gastosMes.length} registros</div></div>
+      </div>
+      <div className="section">
+        <div className="section-header"><h3>Gastos adicionales — {nombreMes(mes)}</h3><button className="btn btn-primary btn-sm" onClick={()=>setModal(true)}><Icon name="plus" size={13}/> Agregar</button></div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Fecha</th><th>Descripción</th><th>Máquina</th><th>Monto</th><th></th></tr></thead>
+            <tbody>
+              {gastosMes.length===0?<tr><td colSpan={5} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin gastos en {nombreMes(mes)}</td></tr>
+              :[...gastosMes].reverse().map(g=>{
+                const maq=data.maquinas.find(m=>m.id===g.maquinaId);
+                return(<tr key={g.id}>
+                  <td style={{color:"var(--muted)"}}>{g.fecha}</td>
+                  <td><strong>{g.descripcion}</strong></td>
+                  <td style={{color:"var(--muted)"}}>{maq?maq.nombre:"General (todas)"}</td>
+                  <td style={{color:"var(--red)",fontWeight:700}}>{fmt(g.monto)}</td>
+                  <td><button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(g)}><Icon name="trash" size={12}/></button></td>
+                </tr>);
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {modal&&<div className="modal-overlay"><div className="modal">
+        <h3>Agregar gasto adicional</h3>
+        <div className="form-group"><label>Descripción</label><input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} placeholder="Ej: Servicio de luz, mantenimiento..."/></div>
+        <div className="form-group">
+          <label>Máquina (opcional — dejar vacío si aplica a todas)</label>
+          <select value={form.maquinaId} onChange={e=>setForm({...form,maquinaId:e.target.value})}>
+            <option value="">General (todas las máquinas)</option>
+            {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Monto (S/)</label><input type="number" step="0.01" value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})}/></div>
+          <div className="form-group"><label>Fecha</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
+        </div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Guardar</button></div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar el gasto "${confirmDel.descripcion}" de ${fmt(confirmDel.monto)}?`} onConfirm={()=>{del("gastos",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+// ─── PRODUCTOS ──────────────────────────────────────────────────────────────────
+function Productos({data,save,del,soloEditar=false}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [precioEdit,setPrecioEdit]=useState("");
+  const [confirmDel,setConfirmDel]=useState(null);
   const [form,setForm]=useState({nombre:"",costo:"",margen:"",precioVenta:"",proveedor:""});
   const est=(c,m)=>c&&m?(+c*(1+ +m/100)).toFixed(2):"";
+  const abrirNuevo=()=>{setForm({nombre:"",costo:"",margen:"",precioVenta:"",proveedor:""});setEditando(null);setModal(true);};
+  const abrirEditar=(p)=>{setForm({nombre:p.nombre,costo:String(p.costo),margen:String(p.margen),precioVenta:String(p.precioVenta||""),proveedor:p.proveedor});setEditando(p);setModal(true);};
   const doSave=()=>{
     if(!form.nombre||!form.costo)return;
     const e=parseFloat(est(form.costo,form.margen));
-    const id=uid();
-    save("productos",id,{id,nombre:form.nombre,costo:+form.costo,margen:+form.margen,precioVenta:form.precioVenta?+form.precioVenta:e,proveedor:form.proveedor});
-    setModal(false);setForm({nombre:"",costo:"",margen:"",precioVenta:"",proveedor:""});
+    if(editando) save("productos",editando.id,{...editando,nombre:form.nombre,costo:+form.costo,margen:+form.margen,precioVenta:form.precioVenta?+form.precioVenta:e,proveedor:form.proveedor});
+    else{const id=uid();save("productos",id,{id,nombre:form.nombre,costo:+form.costo,margen:+form.margen,precioVenta:form.precioVenta?+form.precioVenta:e,proveedor:form.proveedor});}
+    setModal(false);setEditando(null);
   };
-  const guardarPrecio=(p)=>{save("productos",p.id,{...p,precioVenta:+precioEdit});setEditando(null);};
+  const guardarPrecio=(p)=>{save("productos",p.id,{...p,precioVenta:+precioEdit});setPrecioEdit("");setEditando(null);};
   return(
     <div>
       <div className="section">
-        <div className="section-header"><h3>Catálogo de productos</h3><button className="btn btn-primary btn-sm" onClick={()=>setModal(true)}><Icon name="plus" size={13}/> Agregar</button></div>
+        <div className="section-header"><h3>Catálogo de productos</h3><button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Producto</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Estimado</th><th>Precio venta</th></tr></thead>
+            <thead><tr><th>Producto</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Estimado</th><th>Precio venta</th><th>Acciones</th></tr></thead>
             <tbody>
               {data.productos.map(p=>{
                 const e=(p.costo*(1+p.margen/100)).toFixed(2);
+                const editandoPrecio=editando===p.id&&!modal;
                 return(<tr key={p.id}>
                   <td><strong>{p.nombre}</strong></td>
                   <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
                   <td>{fmt(p.costo)}</td>
                   <td><span className="badge amber">{p.margen}%</span></td>
                   <td><span className="precio-estimado">S/ {e}</span></td>
+                  <td>{editandoPrecio
+                    ?<div style={{display:"flex",gap:5,alignItems:"center"}}>
+                        <input type="number" step="0.10" value={precioEdit} onChange={ev=>setPrecioEdit(ev.target.value)} style={{width:75,padding:"4px 7px",background:"var(--surface2)",border:"1px solid var(--accent)",borderRadius:7,color:"var(--text)",fontSize:12}}/>
+                        <button className="btn btn-primary btn-sm" onClick={()=>guardarPrecio(p)}>OK</button>
+                        <button className="btn btn-secondary btn-sm" onClick={()=>setEditando(null)}>✕</button>
+                      </div>
+                    :<div style={{display:"flex",alignItems:"center",gap:7}}>
+                        <span className="precio-real">{fmt(p.precioVenta||e)}</span>
+                        <button className="btn btn-secondary btn-sm" onClick={()=>{setEditando(p.id);setPrecioEdit(p.precioVenta||e);}}><Icon name="edit" size={12}/></button>
+                      </div>
+                  }</td>
                   <td>
-                    {editando===p.id
-                      ?<div style={{display:"flex",gap:5,alignItems:"center"}}>
-                          <input type="number" step="0.10" value={precioEdit} onChange={e=>setPrecioEdit(e.target.value)} style={{width:75,padding:"4px 7px",background:"var(--surface2)",border:"1px solid var(--accent)",borderRadius:7,color:"var(--text)",fontSize:12}}/>
-                          <button className="btn btn-primary btn-sm" onClick={()=>guardarPrecio(p)}>OK</button>
-                          <button className="btn btn-secondary btn-sm" onClick={()=>setEditando(null)}>✕</button>
-                        </div>
-                      :<div style={{display:"flex",alignItems:"center",gap:7}}>
-                          <span className="precio-real">{fmt(p.precioVenta||e)}</span>
-                          <button className="btn btn-secondary btn-sm" onClick={()=>{setEditando(p.id);setPrecioEdit(p.precioVenta||e);}}><Icon name="edit" size={12}/></button>
-                        </div>
-                    }
+                    <div style={{display:"flex",gap:5}}>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/></button>
+                      {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={12}/></button>}
+                    </div>
                   </td>
                 </tr>);
               })}
@@ -474,22 +554,24 @@ function Productos({data,save}){
         </div>
       </div>
       {modal&&<div className="modal-overlay"><div className="modal">
-        <h3>Nuevo producto</h3>
+        <h3>{editando?"Editar producto":"Nuevo producto"}</h3>
+        {editando&&<div className="edit-banner">✏️ Editando: <strong>{editando.nombre}</strong></div>}
         <div className="form-group"><label>Nombre</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Coca Cola 500ml"/></div>
         <div className="form-row">
           <div className="form-group"><label>Costo (S/)</label><input type="number" step="0.01" value={form.costo} onChange={e=>setForm({...form,costo:e.target.value})}/></div>
           <div className="form-group"><label>Margen (%)</label><input type="number" value={form.margen} onChange={e=>setForm({...form,margen:e.target.value})}/></div>
         </div>
         {form.costo&&form.margen&&<div className="info-box">Precio estimado: <strong>S/ {est(form.costo,form.margen)}</strong></div>}
-        <div className="form-group"><label>Precio real de venta (puedes redondearlo)</label><input type="number" step="0.10" value={form.precioVenta} onChange={e=>setForm({...form,precioVenta:e.target.value})} placeholder={`Ej: ${est(form.costo,form.margen)||"2.50"}`}/></div>
+        <div className="form-group"><label>Precio real de venta</label><input type="number" step="0.10" value={form.precioVenta} onChange={e=>setForm({...form,precioVenta:e.target.value})} placeholder={`Ej: ${est(form.costo,form.margen)||"2.50"}`}/></div>
         <div className="form-group"><label>Proveedor</label>
           <select value={form.proveedor} onChange={e=>setForm({...form,proveedor:e.target.value})}>
             <option value="">Seleccionar...</option>
             {data.proveedores.map(p=><option key={p.id} value={p.nombre}>{p.nombre}</option>)}
           </select>
         </div>
-        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Guardar</button></div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button></div>
       </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar el producto "${confirmDel.nombre}"? Esto no afectará los registros históricos.`} onConfirm={()=>{del("productos",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
 }
@@ -505,11 +587,7 @@ function ListaPrecios({data}){
             <thead><tr><th>Producto</th><th>Proveedor</th><th>Precio de venta</th></tr></thead>
             <tbody>
               {data.productos.map(p=>(
-                <tr key={p.id}>
-                  <td><strong>{p.nombre}</strong></td>
-                  <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
-                  <td><span className="precio-real">{fmt(p.precioVenta||(p.costo*(1+p.margen/100)))}</span></td>
-                </tr>
+                <tr key={p.id}><td><strong>{p.nombre}</strong></td><td style={{color:"var(--muted)"}}>{p.proveedor}</td><td><span className="precio-real">{fmt(p.precioVenta||(p.costo*(1+p.margen/100)))}</span></td></tr>
               ))}
             </tbody>
           </table>
@@ -519,9 +597,11 @@ function ListaPrecios({data}){
   );
 }
 
-function Proveedores({data,save}){
+// ─── PROVEEDORES ─────────────────────────────────────────────────────────────────
+function Proveedores({data,save,del,soloEditar=false}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
   const EF={nombre:"",contacto:"",telefono:""};
   const [form,setForm]=useState(EF);
   const abrirNuevo=()=>{setForm(EF);setEditando(null);setModal(true);};
@@ -546,7 +626,12 @@ function Proveedores({data,save}){
                   <td>{p.contacto}</td>
                   <td style={{color:"var(--muted)"}}>{p.telefono}</td>
                   <td><span className="badge blue">{data.productos.filter(pr=>pr.proveedor===p.nombre).length}</span></td>
-                  <td><button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/> Editar</button></td>
+                  <td>
+                    <div style={{display:"flex",gap:5}}>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/></button>
+                      {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={12}/></button>}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -555,112 +640,90 @@ function Proveedores({data,save}){
       </div>
       {modal&&<div className="modal-overlay"><div className="modal">
         <h3>{editando?"Editar proveedor":"Nuevo proveedor"}</h3>
-        {editando&&<div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:9,padding:"8px 12px",fontSize:12,color:"var(--accent)",marginBottom:14}}>Editando: <strong>{editando.nombre}</strong></div>}
+        {editando&&<div className="edit-banner">Editando: <strong>{editando.nombre}</strong></div>}
         <div className="form-group"><label>Empresa</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})}/></div>
         <div className="form-row">
           <div className="form-group"><label>Contacto</label><input value={form.contacto} onChange={e=>setForm({...form,contacto:e.target.value})}/></div>
           <div className="form-group"><label>Teléfono</label><input value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})}/></div>
         </div>
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button>
-        </div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button></div>
       </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar el proveedor "${confirmDel.nombre}"?`} onConfirm={()=>{del("proveedores",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
 }
 
-function Maquinas({data,save,esAdmin}){
+// ─── MÁQUINAS ────────────────────────────────────────────────────────────────────
+function Maquinas({data,save,del,esAdmin,soloEditar=false}){
   const [modal,setModal]=useState(false);
-  const [editando,setEditando]=useState(null); // maquina seleccionada para editar
-  const FORM_EMPTY={nombre:"",ubicacion:"",alquiler:""};
-  const [form,setForm]=useState(FORM_EMPTY);
-
-  const abrirNueva=()=>{setForm(FORM_EMPTY);setEditando(null);setModal(true);};
-  const abrirEditar=(m)=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:m.alquiler});setEditando(m);setModal(true);};
-
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const EF={nombre:"",ubicacion:"",alquiler:""};
+  const [form,setForm]=useState(EF);
+  const abrirNueva=()=>{setForm(EF);setEditando(null);setModal(true);};
+  const abrirEditar=(m)=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler)});setEditando(m);setModal(true);};
   const doSave=()=>{
     if(!form.nombre||!form.ubicacion)return;
-    if(editando){
-      // Editar existente — conserva id y activa original
-      save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler});
-    } else {
-      // Nueva máquina
-      const id=uid();
-      save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,activa:true});
-    }
-    setModal(false);setForm(FORM_EMPTY);setEditando(null);
+    if(editando) save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler});
+    else{const id=uid();save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,activa:true});}
+    setModal(false);setForm(EF);setEditando(null);
   };
-
   const toggleActiva=(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
-
+  const puedeVer=esAdmin||soloEditar;
   return(
     <div>
       <div className="section">
         <div className="section-header">
           <h3>Máquinas registradas</h3>
-          {esAdmin&&<button className="btn btn-primary btn-sm" onClick={abrirNueva}><Icon name="plus" size={13}/> Agregar</button>}
+          <button className="btn btn-primary btn-sm" onClick={abrirNueva}><Icon name="plus" size={13}/> Agregar</button>
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Máquina</th><th>Ubicación</th>{esAdmin&&<th>Alquiler/mes</th>}<th>Estado</th>{esAdmin&&<th>Acciones</th>}</tr></thead>
+            <thead><tr><th>Máquina</th><th>Ubicación</th>{puedeVer&&<th>Alquiler/mes</th>}<th>Estado</th><th>Acciones</th></tr></thead>
             <tbody>
               {data.maquinas.map(m=>(
                 <tr key={m.id}>
                   <td><strong>{m.nombre}</strong></td>
                   <td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}</td>
-                  {esAdmin&&<td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>}
+                  {puedeVer&&<td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>}
                   <td>
-                    {esAdmin
-                      ? <div
-                          onClick={()=>toggleActiva(m)}
-                          title={m.activa?"Clic para desactivar":"Clic para activar"}
-                          style={{display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer",padding:"3px 8px",borderRadius:20,fontSize:10,fontWeight:700,background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)",userSelect:"none",transition:"all .2s"}}>
-                          <span style={{width:7,height:7,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>
-                          {m.activa?"Activa":"Inactiva"}
-                        </div>
-                      : <span className={`badge ${m.activa?"green":"red"}`}>{m.activa?"Activa":"Inactiva"}</span>
-                    }
+                    <div onClick={()=>toggleActiva(m)} title={m.activa?"Clic para desactivar":"Clic para activar"}
+                      style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",transition:"all .2s",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}>
+                      <span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>
+                      {m.activa?"Activa":"Inactiva"}
+                    </div>
                   </td>
-                  {esAdmin&&(
-                    <td>
-                      <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(m)} style={{gap:4}}>
-                        <Icon name="edit" size={12}/> Editar
-                      </button>
-                    </td>
-                  )}
+                  <td>
+                    <div style={{display:"flex",gap:5}}>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(m)}><Icon name="edit" size={12}/> Editar</button>
+                      {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(m)}><Icon name="trash" size={12}/></button>}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
-
-      {modal&&esAdmin&&<div className="modal-overlay"><div className="modal">
+      {modal&&<div className="modal-overlay"><div className="modal">
         <h3>{editando?"Editar máquina":"Nueva máquina"}</h3>
-        {editando&&(
-          <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:9,padding:"8px 12px",fontSize:12,color:"var(--accent)",marginBottom:14}}>
-            Editando: <strong>{editando.nombre}</strong>
-          </div>
-        )}
+        {editando&&<div className="edit-banner">✏️ Editando: <strong>{editando.nombre}</strong></div>}
         <div className="form-group"><label>Nombre / Código</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Máquina D4"/></div>
         <div className="form-group"><label>Ubicación</label><input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: CC Real Plaza - Piso 2"/></div>
         <div className="form-group"><label>Alquiler mensual (S/)</label><input type="number" step="0.01" value={form.alquiler} onChange={e=>setForm({...form,alquiler:e.target.value})}/></div>
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear máquina"}</button>
-        </div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear"}</button></div>
       </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar la máquina "${confirmDel.nombre}"? Los registros históricos se conservarán.`} onConfirm={()=>{del("maquinas",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
 }
 
-function Stock({data,save}){
+// ─── STOCK ────────────────────────────────────────────────────────────────────────
+function Stock({data,save,soloLectura=false}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const EF={productoId:"",cantidad:"",minimo:""};
   const [form,setForm]=useState(EF);
-
   const abrirNuevo=()=>{setForm(EF);setEditando(null);setModal(true);};
   const abrirEditar=(s)=>{
     const prod=data.productos.find(p=>p.id===s.productoId);
@@ -669,13 +732,9 @@ function Stock({data,save}){
   };
   const doSave=()=>{
     if(editando){
-      // Editar stock existente — también actualizar nombre en productos si cambió
       save("stock",editando.id,{...editando,cantidad:+form.cantidad,minimo:+form.minimo});
-      // Si el nombre cambió, actualizar el producto también
       const prod=data.productos.find(p=>p.id===editando.productoId);
-      if(prod&&form.nombreProducto&&form.nombreProducto!==prod.nombre){
-        save("productos",prod.id,{...prod,nombre:form.nombreProducto});
-      }
+      if(prod&&form.nombreProducto&&form.nombreProducto!==prod.nombre) save("productos",prod.id,{...prod,nombre:form.nombreProducto});
     } else {
       if(!form.productoId||!form.cantidad)return;
       const existe=data.stock.find(s=>s.productoId===form.productoId);
@@ -684,14 +743,17 @@ function Stock({data,save}){
     }
     setModal(false);setForm(EF);setEditando(null);
   };
-
   return(
     <div>
       <div className="section">
-        <div className="section-header"><h3>Stock del almacén</h3><button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Entrada</button></div>
+        <div className="section-header">
+          <h3>Stock del almacén</h3>
+          {!soloLectura&&<button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Entrada</button>}
+        </div>
+        {soloLectura&&<div className="info-box" style={{margin:"12px 16px 0"}}>Vista de consulta — solo lectura</div>}
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Producto</th><th>Cantidad</th><th>Mínimo</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>Producto</th><th>Cantidad</th><th>Mínimo</th><th>Estado</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
             <tbody>
               {data.stock.map(s=>{
                 const prod=data.productos.find(p=>p.id===s.productoId);
@@ -701,51 +763,46 @@ function Stock({data,save}){
                   <td style={{fontSize:16,fontWeight:700,color:bajo?"var(--red)":"var(--text)"}}>{s.cantidad}</td>
                   <td style={{color:"var(--muted)"}}>{s.minimo}</td>
                   <td><span className={`badge ${bajo?"red":s.cantidad>s.minimo*2?"green":"amber"}`}>{bajo?"Stock bajo":s.cantidad>s.minimo*2?"OK":"Moderado"}</span></td>
-                  <td><button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(s)}><Icon name="edit" size={12}/> Editar</button></td>
+                  {!soloLectura&&<td><button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(s)}><Icon name="edit" size={12}/> Editar</button></td>}
                 </tr>);
               })}
             </tbody>
           </table>
         </div>
       </div>
-      {modal&&<div className="modal-overlay"><div className="modal">
+      {!soloLectura&&modal&&<div className="modal-overlay"><div className="modal">
         <h3>{editando?"Editar stock":"Entrada de stock"}</h3>
-        {editando&&<div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:9,padding:"8px 12px",fontSize:12,color:"var(--accent)",marginBottom:14}}>Editando producto en stock</div>}
+        {editando&&<div className="edit-banner">Editando producto en stock</div>}
         {editando
-          ? <>
-              <div className="form-group"><label>Nombre del producto</label><input value={form.nombreProducto||""} onChange={e=>setForm({...form,nombreProducto:e.target.value})}/></div>
-              <div className="form-row">
-                <div className="form-group"><label>Cantidad en stock</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})}/></div>
-                <div className="form-group"><label>Stock mínimo</label><input type="number" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})}/></div>
-              </div>
-            </>
-          : <>
-              <div className="form-group"><label>Producto</label>
-                <select value={form.productoId} onChange={e=>setForm({...form,productoId:e.target.value})}>
-                  <option value="">Seleccionar...</option>
-                  {data.productos.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
-                </select>
-              </div>
-              <div className="form-row">
-                <div className="form-group"><label>Cantidad a ingresar</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})}/></div>
-                <div className="form-group"><label>Stock mínimo</label><input type="number" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})} placeholder="10"/></div>
-              </div>
-            </>
+          ?<><div className="form-group"><label>Nombre del producto</label><input value={form.nombreProducto||""} onChange={e=>setForm({...form,nombreProducto:e.target.value})}/></div>
+             <div className="form-row">
+               <div className="form-group"><label>Cantidad en stock</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})}/></div>
+               <div className="form-group"><label>Stock mínimo</label><input type="number" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})}/></div>
+             </div></>
+          :<><div className="form-group"><label>Producto</label>
+               <select value={form.productoId} onChange={e=>setForm({...form,productoId:e.target.value})}>
+                 <option value="">Seleccionar...</option>
+                 {data.productos.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+               </select>
+             </div>
+             <div className="form-row">
+               <div className="form-group"><label>Cantidad</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})}/></div>
+               <div className="form-group"><label>Stock mínimo</label><input type="number" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})} placeholder="10"/></div>
+             </div></>
         }
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Registrar"}</button>
-        </div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Registrar"}</button></div>
       </div></div>}
     </div>
   );
 }
 
+// ─── TRASLADOS ───────────────────────────────────────────────────────────────────
 function Traslados({data,save,saveMulti,usuario}){
   const [modal,setModal]=useState(false);
   const [maquinaId,setMaquinaId]=useState("");
   const [items,setItems]=useState([{productoId:"",cantidad:""}]);
   const [mes,setMes]=useState(mesActual());
+  const maqActivas=data.maquinas.filter(m=>m.activa);
   const addItem=()=>setItems(i=>[...i,{productoId:"",cantidad:""}]);
   const removeItem=idx=>setItems(i=>i.filter((_,j)=>j!==idx));
   const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>j===idx?{...r,[f]:v}:r));
@@ -796,20 +853,15 @@ function Traslados({data,save,saveMulti,usuario}){
       </div>
       {modal&&<div className="modal-overlay"><div className="modal">
         <h3>Registrar traslado</h3>
-        <div className="form-group"><label>Máquina destino</label>
+        <div className="form-group"><label>Máquina destino (solo activas)</label>
           <select value={maquinaId} onChange={e=>setMaquinaId(e.target.value)}>
-            <option value="">Seleccionar máquina...</option>
-            {data.maquinas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+            <option value="">Seleccionar...</option>
+            {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
           </select>
         </div>
         <div className="form-group">
           <label>Productos trasladados</label>
           <div style={{background:"var(--surface2)",borderRadius:9,padding:10,border:"1px solid var(--border)"}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 80px 32px",gap:7,marginBottom:6}}>
-              <span style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase"}}>Producto</span>
-              <span style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase"}}>Cant.</span>
-              <span/>
-            </div>
             {items.map((it,idx)=>(
               <div key={idx} className="prod-row">
                 <select value={it.productoId} onChange={e=>setItem(idx,"productoId",e.target.value)}>
@@ -829,20 +881,19 @@ function Traslados({data,save,saveMulti,usuario}){
   );
 }
 
+// ─── VENTAS ──────────────────────────────────────────────────────────────────────
 function Ventas({data,save}){
   const [modal,setModal]=useState(false);
   const [editandoVenta,setEditandoVenta]=useState(null);
   const [maquinaId,setMaquinaId]=useState("");
   const [items,setItems]=useState([{productoId:"",cantidad:""}]);
   const [mes,setMes]=useState(mesActual());
-  // form edición individual
   const [formEdit,setFormEdit]=useState({fecha:"",maquinaId:"",productoId:"",cantidad:"",ingreso:""});
-
+  const maqActivas=data.maquinas.filter(m=>m.activa);
   const addItem=()=>setItems(i=>[...i,{productoId:"",cantidad:""}]);
   const removeItem=idx=>setItems(i=>i.filter((_,j)=>j!==idx));
   const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>j===idx?{...r,[f]:v}:r));
   const totalModal=items.reduce((s,it)=>{const p=data.productos.find(p=>p.id===it.productoId);return s+(p&&it.cantidad?(p.precioVenta||(p.costo*(1+p.margen/100)))* +it.cantidad:0);},0);
-
   const doSave=async()=>{
     if(!maquinaId)return;
     const valid=items.filter(it=>it.productoId&&it.cantidad);
@@ -855,14 +906,12 @@ function Ventas({data,save}){
     }
     setModal(false);setMaquinaId("");setItems([{productoId:"",cantidad:""}]);
   };
-
   const abrirEditar=(v)=>{setFormEdit({fecha:v.fecha,maquinaId:v.maquinaId,productoId:v.productoId,cantidad:String(v.cantidad),ingreso:String(v.ingreso)});setEditandoVenta(v);};
   const doGuardarEdicion=()=>{
     if(!editandoVenta)return;
     save("ventas",editandoVenta.id,{...editandoVenta,fecha:formEdit.fecha,maquinaId:formEdit.maquinaId,productoId:formEdit.productoId,cantidad:+formEdit.cantidad,ingreso:+formEdit.ingreso});
     setEditandoVenta(null);
   };
-
   const ventasMes=data.ventas.filter(v=>v.fecha&&v.fecha.startsWith(mes));
   const grupos={};
   [...ventasMes].reverse().forEach(v=>{
@@ -907,14 +956,12 @@ function Ventas({data,save}){
           </table>
         </div>
       </div>
-
-      {/* Modal nueva venta */}
       {modal&&<div className="modal-overlay"><div className="modal">
         <h3>Registrar ventas del día</h3>
-        <div className="form-group"><label>Máquina</label>
+        <div className="form-group"><label>Máquina (solo activas)</label>
           <select value={maquinaId} onChange={e=>setMaquinaId(e.target.value)}>
-            <option value="">Seleccionar máquina...</option>
-            {data.maquinas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+            <option value="">Seleccionar...</option>
+            {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
           </select>
         </div>
         <div className="form-group">
@@ -941,13 +988,9 @@ function Ventas({data,save}){
         {totalModal>0&&<div style={{padding:"8px 12px",background:"rgba(16,185,129,.1)",borderRadius:8,fontSize:13,color:"var(--green)",fontWeight:700,marginBottom:3}}>Total: {fmt(totalModal)}</div>}
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Registrar</button></div>
       </div></div>}
-
-      {/* Modal editar venta individual */}
       {editandoVenta&&<div className="modal-overlay"><div className="modal">
-        <h3>Editar registro de venta</h3>
-        <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:9,padding:"8px 12px",fontSize:12,color:"var(--accent)",marginBottom:14}}>
-          Editando venta del {editandoVenta.fecha}
-        </div>
+        <h3>Editar venta</h3>
+        <div className="edit-banner">Editando venta del {editandoVenta.fecha}</div>
         <div className="form-group"><label>Fecha</label><input type="date" value={formEdit.fecha} onChange={e=>setFormEdit({...formEdit,fecha:e.target.value})}/></div>
         <div className="form-group"><label>Máquina</label>
           <select value={formEdit.maquinaId} onChange={e=>setFormEdit({...formEdit,maquinaId:e.target.value})}>
@@ -963,22 +1006,20 @@ function Ventas({data,save}){
           <div className="form-group"><label>Cantidad</label><input type="number" value={formEdit.cantidad} onChange={e=>setFormEdit({...formEdit,cantidad:e.target.value})}/></div>
           <div className="form-group"><label>Ingreso (S/)</label><input type="number" step="0.01" value={formEdit.ingreso} onChange={e=>setFormEdit({...formEdit,ingreso:e.target.value})}/></div>
         </div>
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={()=>setEditandoVenta(null)}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doGuardarEdicion}>Guardar cambios</button>
-        </div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEditandoVenta(null)}>Cancelar</button><button className="btn btn-primary" onClick={doGuardarEdicion}>Guardar cambios</button></div>
       </div></div>}
     </div>
   );
 }
 
+// ─── COBRANZAS ───────────────────────────────────────────────────────────────────
 function Cobranzas({data,save,usuario}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [form,setForm]=useState({maquinaId:"",monto:""});
   const [formEdit,setFormEdit]=useState({fecha:"",maquinaId:"",monto:""});
   const [mes,setMes]=useState(mesActual());
-
+  const maqActivas=data.maquinas.filter(m=>m.activa);
   const doSave=()=>{
     if(!form.maquinaId||!form.monto)return;
     const id=uid();
@@ -991,7 +1032,6 @@ function Cobranzas({data,save,usuario}){
     save("cobranzas",editando.id,{...editando,fecha:formEdit.fecha,maquinaId:formEdit.maquinaId,monto:+formEdit.monto});
     setEditando(null);
   };
-
   const cobranzasMes=data.cobranzas.filter(c=>c.fecha&&c.fecha.startsWith(mes));
   const totalMes=cobranzasMes.reduce((s,c)=>s+(c.monto||0),0);
   return(
@@ -1022,26 +1062,20 @@ function Cobranzas({data,save,usuario}){
           </table>
         </div>
       </div>
-
-      {/* Modal nueva cobranza */}
       {modal&&<div className="modal-overlay"><div className="modal">
         <h3>Registrar dinero recogido</h3>
-        <div className="form-group"><label>Máquina</label>
+        <div className="form-group"><label>Máquina (solo activas)</label>
           <select value={form.maquinaId} onChange={e=>setForm({...form,maquinaId:e.target.value})}>
             <option value="">Seleccionar...</option>
-            {data.maquinas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+            {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
           </select>
         </div>
         <div className="form-group"><label>Monto recogido (S/)</label><input type="number" step="0.01" value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})}/></div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Registrar</button></div>
       </div></div>}
-
-      {/* Modal editar cobranza */}
       {editando&&<div className="modal-overlay"><div className="modal">
         <h3>Editar cobranza</h3>
-        <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:9,padding:"8px 12px",fontSize:12,color:"var(--accent)",marginBottom:14}}>
-          Editando cobranza del {editando.fecha}
-        </div>
+        <div className="edit-banner">Editando cobranza del {editando.fecha}</div>
         <div className="form-group"><label>Fecha</label><input type="date" value={formEdit.fecha} onChange={e=>setFormEdit({...formEdit,fecha:e.target.value})}/></div>
         <div className="form-group"><label>Máquina</label>
           <select value={formEdit.maquinaId} onChange={e=>setFormEdit({...formEdit,maquinaId:e.target.value})}>
@@ -1049,18 +1083,15 @@ function Cobranzas({data,save,usuario}){
           </select>
         </div>
         <div className="form-group"><label>Monto (S/)</label><input type="number" step="0.01" value={formEdit.monto} onChange={e=>setFormEdit({...formEdit,monto:e.target.value})}/></div>
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={()=>setEditando(null)}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doGuardarEdicion}>Guardar cambios</button>
-        </div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEditando(null)}>Cancelar</button><button className="btn btn-primary" onClick={doGuardarEdicion}>Guardar cambios</button></div>
       </div></div>}
     </div>
   );
 }
 
+// ─── HORARIO ─────────────────────────────────────────────────────────────────────
 const DIAS=["lunes","martes","miercoles","jueves","viernes","sabado","domingo"];
 const DIAS_L={lunes:"Lun",martes:"Mar",miercoles:"Mié",jueves:"Jue",viernes:"Vie",sabado:"Sáb",domingo:"Dom"};
-
 function HorarioAdmin({data,save}){
   const [editando,setEditando]=useState(false);
   const [draft,setDraft]=useState(null);
@@ -1090,17 +1121,15 @@ function HorarioAdmin({data,save}){
         <h3>Editar horario semanal</h3>
         <p style={{fontSize:12,color:"var(--muted)",marginBottom:14}}>Toca para asignar o quitar una máquina de cada día.</p>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-          {DIAS.map(dia=>(
-            <div key={dia}>
-              <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:"var(--accent)",marginBottom:7,textAlign:"center"}}>{DIAS_L[dia]}</div>
-              {data.maquinas.map(m=>{
-                const sel=(draft[dia]?.maquinas||[]).includes(m.id);
-                return(<div key={m.id} onClick={()=>toggleMaq(dia,m.id)} style={{padding:"5px 7px",borderRadius:7,marginBottom:5,cursor:"pointer",fontSize:11,background:sel?"rgba(245,158,11,.15)":"var(--surface2)",border:`1px solid ${sel?"var(--accent)":"var(--border)"}`,color:sel?"var(--accent)":"var(--muted)",textAlign:"center",transition:"all .15s"}}>
-                  {m.nombre}
-                </div>);
-              })}
-            </div>
-          ))}
+          {DIAS.map(dia=>(<div key={dia}>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:"var(--accent)",marginBottom:7,textAlign:"center"}}>{DIAS_L[dia]}</div>
+            {data.maquinas.map(m=>{
+              const sel=(draft[dia]?.maquinas||[]).includes(m.id);
+              return(<div key={m.id} onClick={()=>toggleMaq(dia,m.id)} style={{padding:"5px 7px",borderRadius:7,marginBottom:5,cursor:"pointer",fontSize:11,background:sel?"rgba(245,158,11,.15)":"var(--surface2)",border:`1px solid ${sel?"var(--accent)":"var(--border)"}`,color:sel?"var(--accent)":"var(--muted)",textAlign:"center",transition:"all .15s"}}>
+                {m.nombre}
+              </div>);
+            })}
+          </div>))}
         </div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEditando(false)}>Cancelar</button><button className="btn btn-primary" onClick={guardar}>Guardar</button></div>
       </div></div>}
@@ -1125,8 +1154,7 @@ function MiHorario({data}){
         <div style={{padding:14}}>
           <div className="horario-grid">
             {DIAS.map(dia=>{
-              const maqIds=horario[dia]?.maquinas||[];
-              const esHoy=dia===diaActual;
+              const maqIds=horario[dia]?.maquinas||[];const esHoy=dia===diaActual;
               return(<div key={dia} className="dia-col" style={esHoy?{border:"1px solid var(--accent)"}:{}}>
                 <div className="dia-header" style={esHoy?{background:"rgba(245,158,11,.25)"}:{}}>{DIAS_L[dia]}{esHoy&&" ★"}</div>
                 <div className="dia-body">
@@ -1141,57 +1169,81 @@ function MiHorario({data}){
   );
 }
 
-const ADMIN_NAV=[{section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},{id:"horario",label:"Horario semanal",icon:"calendar"},{section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},{section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"stock",label:"Stock almacén",icon:"stock"},{id:"traslados",label:"Traslados",icon:"transfer"},{id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"}];
-const ABASTECEDOR_NAV=[{section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},{section:"Operaciones"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"cobranzas",label:"Cobranza",icon:"money"},{id:"traslados",label:"Traslados",icon:"transfer"},{section:"Consultas"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"stock",label:"Stock almacén",icon:"stock"},{id:"maquinas",label:"Mis máquinas",icon:"machine"}];
-const TITLES={dashboard:"Dashboard",rentabilidad:"Rentabilidad",horario:"Horario semanal",mihorario:"Mi horario",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",precios:"Precios de venta"};
+// ─── NAVEGACIÓN POR ROL ─────────────────────────────────────────────────────────
+const ADMIN_NAV=[
+  {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
+  {id:"horario",label:"Horario semanal",icon:"calendar"},{id:"gastos",label:"Gastos adicionales",icon:"bolt"},
+  {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
+  {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"stock",label:"Stock almacén",icon:"stock"},
+  {id:"traslados",label:"Traslados",icon:"transfer"},{id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"},
+];
+const ABASTECEDOR_NAV=[
+  {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
+  {section:"Operaciones"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"cobranzas",label:"Cobranza",icon:"money"},
+  {id:"traslados",label:"Traslados",icon:"transfer"},
+  {section:"Consultas"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"stock",label:"Stock almacén",icon:"stock"},{id:"maquinas",label:"Mis máquinas",icon:"machine"},
+];
+const ALMACENERO_NAV=[
+  {section:"Almacén"},{id:"stock",label:"Stock almacén",icon:"stock"},
+  {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
+  {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},
+];
+const TITLES={
+  dashboard:"Dashboard",rentabilidad:"Rentabilidad",horario:"Horario semanal",mihorario:"Mi horario",
+  gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
+  stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",precios:"Precios de venta",
+};
+const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
+const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭"};
 
+// ─── APP ──────────────────────────────────────────────────────────────────────────
 export default function App(){
-  const{data,save,saveMulti,syncing}=useFirebase();
-  const[usuario,setUsuario]=useState(null);
-  const[tab,setTab]=useState("dashboard");
-  const[sidebarOpen,setSidebarOpen]=useState(false);
+  const{data,save,saveMulti,del,syncing}=useFirebase();
+  const [usuario,setUsuario]=useState(null);
+  const [tab,setTab]=useState("dashboard");
+  const [sidebarOpen,setSidebarOpen]=useState(false);
 
   const cerrarSidebar=()=>setSidebarOpen(false);
   const navegar=(id)=>{setTab(id);cerrarSidebar();};
 
   if(!data)return(<><style>{css}</style><div className="loading"><div className="spinner"><Icon name="spin" size={42}/></div><p>Conectando con la base de datos...</p></div></>);
-  if(!usuario)return(<><style>{css}</style><LoginScreen onLogin={(role)=>{setUsuario(role);setTab(role==="admin"?"dashboard":"mihorario");}}/></>);
+  if(!usuario)return(<><style>{css}</style><LoginScreen onLogin={(role)=>{setUsuario(role);setTab(role==="admin"?"dashboard":role==="almacenero"?"stock":"mihorario");}}/></>);
 
   const esAdmin=usuario==="admin";
-  const nav=esAdmin?ADMIN_NAV:ABASTECEDOR_NAV;
-  const nombreUsuario=esAdmin?"Administrador":"Abastecedor";
+  const esAlmacenero=usuario==="almacenero";
+  const nav=esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV;
+  const nombreUsuario=ROL_NOMBRE[usuario]||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
 
   const renderContent=()=>{
     switch(tab){
-      case "dashboard":    return<Dashboard data={data}/>;
-      case "rentabilidad": return<Rentabilidad data={data}/>;
-      case "horario":      return<HorarioAdmin data={data} save={save}/>;
-      case "mihorario":    return<MiHorario data={data}/>;
-      case "productos":    return<Productos data={data} save={save}/>;
-      case "precios":      return<ListaPrecios data={data}/>;
-      case "proveedores":  return<Proveedores data={data} save={save}/>;
-      case "maquinas":     return<Maquinas data={data} save={save} esAdmin={esAdmin}/>;
-      case "stock":        return<Stock data={data} save={save}/>;
-      case "traslados":    return<Traslados data={data} save={save} saveMulti={saveMulti} usuario={nombreUsuario}/>;
-      case "ventas":       return<Ventas data={data} save={save}/>;
-      case "cobranzas":    return<Cobranzas data={data} save={save} usuario={nombreUsuario}/>;
-      default:return null;
+      case "dashboard":    return <Dashboard data={data}/>;
+      case "rentabilidad": return <Rentabilidad data={data}/>;
+      case "horario":      return <HorarioAdmin data={data} save={save}/>;
+      case "mihorario":    return <MiHorario data={data}/>;
+      case "gastos":       return <GastosAdicionales data={data} save={save} del={del}/>;
+      case "productos":    return <Productos data={data} save={save} del={del} soloEditar={esAlmacenero}/>;
+      case "precios":      return <ListaPrecios data={data}/>;
+      case "proveedores":  return <Proveedores data={data} save={save} del={del} soloEditar={esAlmacenero}/>;
+      case "maquinas":     return <Maquinas data={data} save={save} del={del} esAdmin={esAdmin} soloEditar={esAlmacenero}/>;
+      case "stock":        return <Stock data={data} save={save} soloLectura={usuario==="abastecedor"} soloEditar={false}/>;
+      case "traslados":    return <Traslados data={data} save={save} saveMulti={saveMulti} usuario={nombreUsuario}/>;
+      case "ventas":       return <Ventas data={data} save={save}/>;
+      case "cobranzas":    return <Cobranzas data={data} save={save} usuario={nombreUsuario}/>;
+      default: return null;
     }
   };
 
   return(
     <><style>{css}</style>
     <div className="app">
-      {/* overlay móvil */}
       <div className={`sidebar-overlay ${sidebarOpen?"open":""}`} onClick={cerrarSidebar}/>
-
       <aside className={`sidebar ${sidebarOpen?"open":""}`}>
         <div className="sidebar-logo">
           <GamaticLogo/>
           <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4,display:"flex"}} onClick={cerrarSidebar}><Icon name="close" size={18}/></button>
         </div>
-        <div className="sidebar-role">{esAdmin?"👤":"🔧"} <span>{nombreUsuario}</span></div>
+        <div className="sidebar-role">{ROL_ICONO[usuario]} <span>{nombreUsuario}</span></div>
         <nav className="nav">
           {nav.map((item,i)=>item.section
             ?<div key={i} className="nav-section">{item.section}</div>
@@ -1200,7 +1252,6 @@ export default function App(){
         </nav>
         <div className="logout-btn" onClick={()=>setUsuario(null)}><Icon name="logout" size={15}/> Cerrar sesión</div>
       </aside>
-
       <main className="main">
         <div className="topbar">
           <button className="hamburger" onClick={()=>setSidebarOpen(true)}><Icon name="menu" size={22}/></button>
