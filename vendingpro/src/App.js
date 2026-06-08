@@ -748,7 +748,7 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
 }
 
 // ─── TRASLADOS con fecha, edición y borrado ─────────────────────────────────────
-function Traslados({data,save,saveMulti,del,usuario,esAdmin=false}){
+function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=false}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
@@ -790,10 +790,11 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false}){
   return(
     <div>
       <MesNav mes={mes} setMes={setMes}/>
+      {soloLectura&&<div className="view-only-badge"><Icon name="lock" size={14}/> Solo visualización — no puedes registrar traslados</div>}
       <div className="section">
-        <div className="section-header"><h3>Traslados — {nombreMes(mes)}</h3><button className="btn btn-primary btn-sm" onClick={()=>setModal(true)}><Icon name="plus" size={13}/> Registrar</button></div>
+        <div className="section-header"><h3>Traslados — {nombreMes(mes)}</h3>{!soloLectura&&<button className="btn btn-primary btn-sm" onClick={()=>setModal(true)}><Icon name="plus" size={13}/> Registrar</button>}</div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Fecha</th><th>Máquina</th><th>Producto</th><th>Cantidad</th><th>Responsable</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Máquina</th><th>Producto</th><th>Cantidad</th><th>Responsable</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
           <tbody>
             {Object.values(grupos).length===0
               ?<tr><td colSpan={6} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin traslados en {nombreMes(mes)}</td></tr>
@@ -806,10 +807,10 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false}){
                   <td>{prod?.nombre||"—"}</td>
                   <td><span className="badge blue">{t.cantidad} uds</span></td>
                   <td style={{color:"var(--muted)"}}>{t.responsable}</td>
-                  <td><div style={{display:"flex",gap:5}}>
+                  {!soloLectura&&<td><div style={{display:"flex",gap:5}}>
                     <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(t)}><Icon name="edit" size={12}/></button>
                     {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(t)}><Icon name="trash" size={12}/></button>}
-                  </div></td>
+                  </div></td>}
                 </tr>);
               })
             }
@@ -1096,25 +1097,114 @@ function Cobranzas({data,save,del,usuario,esAdmin=false}){
 // ─── HORARIO ─────────────────────────────────────────────────────────────────────
 const DIAS=["lunes","martes","miercoles","jueves","viernes","sabado","domingo"];
 const DL={lunes:"Lun",martes:"Mar",miercoles:"Mié",jueves:"Jue",viernes:"Vie",sabado:"Sáb",domingo:"Dom"};
+
 function HorarioAdmin({data,save}){
-  const [ed,setEd]=useState(false);const [draft,setDraft]=useState(null);
-  const abrir=()=>{const d={};DIAS.forEach(dia=>{d[dia]={maquinas:(data.horario[dia]?.maquinas||[]).slice()};});setDraft(d);setEd(true);};
-  const tog=(dia,id)=>setDraft(p=>{const l=[...(p[dia]?.maquinas||[])];const i=l.indexOf(id);if(i>=0)l.splice(i,1);else l.push(id);return{...p,[dia]:{maquinas:l}};});
+  const [ed,setEd]=useState(false);
+  const [draft,setDraft]=useState(null);
+  const [comentarioModal,setComentarioModal]=useState(null); // {dia, maqId}
+  const [textoComentario,setTextoComentario]=useState("");
+
+  const abrir=()=>{
+    const d={};
+    DIAS.forEach(dia=>{d[dia]={maquinas:(data.horario[dia]?.maquinas||[]).slice(),comentarios:{...(data.horario[dia]?.comentarios||{})},mensajeGeneral:data.horario[dia]?.mensajeGeneral||""};});
+    setDraft(d);setEd(true);
+  };
+  const tog=(dia,id)=>setDraft(p=>{const l=[...(p[dia]?.maquinas||[])];const i=l.indexOf(id);if(i>=0)l.splice(i,1);else l.push(id);return{...p,[dia]:{...p[dia],maquinas:l}};});
+  const setMsg=(dia,val)=>setDraft(p=>({...p,[dia]:{...p[dia],mensajeGeneral:val}}));
   const guardar=async()=>{for(const dia of DIAS)await save("horario",dia,draft[dia]);setEd(false);};
+
+  // Comentario por maquina en el listado (no en el modal de edicion)
+  const abrirComentario=(dia,maqId)=>{
+    const actual=(data.horario[dia]?.comentarios||{})[maqId]||"";
+    setTextoComentario(actual);
+    setComentarioModal({dia,maqId});
+  };
+  const guardarComentario=async()=>{
+    if(!comentarioModal)return;
+    const{dia,maqId}=comentarioModal;
+    const diaActual=data.horario[dia]||{maquinas:[],comentarios:{},mensajeGeneral:""};
+    const nuevosComentarios={...(diaActual.comentarios||{}), [maqId]:textoComentario};
+    await save("horario",dia,{...diaActual,comentarios:nuevosComentarios});
+    setComentarioModal(null);setTextoComentario("");
+  };
+
   const h=data.horario||{};
   return(
     <div>
       <div className="section">
         <div className="section-header"><h3>Horario semanal del abastecedor</h3><button className="btn btn-primary btn-sm" onClick={abrir}><Icon name="edit" size={13}/> Editar</button></div>
-        <div style={{padding:12}}><div className="horario-grid">{DIAS.map(dia=>{const ids=h[dia]?.maquinas||[];return(<div key={dia} className="dia-col"><div className="dia-header">{DL[dia]}</div><div className="dia-body">{ids.length===0?<div className="dia-empty">Libre</div>:ids.map(id=>{const m=data.maquinas.find(m=>m.id===id);return<div key={id} className="dia-maq">📍 {m?.nombre||id}</div>;})}</div></div>);})}</div></div>
-      </div>
-      {ed&&draft&&<div className="modal-overlay"><div className="modal" style={{maxWidth:580}}>
-        <h3>Editar horario semanal</h3>
-        <p style={{fontSize:12,color:"var(--muted)",marginBottom:13}}>Toca para asignar o quitar una máquina de cada día.</p>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-          {DIAS.map(dia=>(<div key={dia}><div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",color:"var(--accent)",marginBottom:6,textAlign:"center"}}>{DL[dia]}</div>{data.maquinas.map(m=>{const sel=(draft[dia]?.maquinas||[]).includes(m.id);return(<div key={m.id} onClick={()=>tog(dia,m.id)} style={{padding:"4px 6px",borderRadius:6,marginBottom:4,cursor:"pointer",fontSize:11,background:sel?"rgba(245,158,11,.15)":"var(--surface2)",border:`1px solid ${sel?"var(--accent)":"var(--border)"}`,color:sel?"var(--accent)":"var(--muted)",textAlign:"center",transition:"all .12s"}}>{m.nombre}</div>);})}</div>))}
+        <div style={{padding:12}}>
+          <div className="horario-grid">
+            {DIAS.map(dia=>{
+              const ids=h[dia]?.maquinas||[];
+              const comentarios=h[dia]?.comentarios||{};
+              const msgGeneral=h[dia]?.mensajeGeneral||"";
+              return(
+                <div key={dia} className="dia-col">
+                  <div className="dia-header">{DL[dia]}</div>
+                  <div className="dia-body">
+                    {msgGeneral&&<div style={{fontSize:9,background:"rgba(245,158,11,.12)",border:"1px solid rgba(245,158,11,.3)",borderRadius:4,padding:"3px 6px",marginBottom:4,color:"var(--accent)"}}>{msgGeneral}</div>}
+                    {ids.length===0?<div className="dia-empty">Libre</div>:ids.map(id=>{
+                      const m=data.maquinas.find(m=>m.id===id);
+                      const com=comentarios[id]||"";
+                      return(
+                        <div key={id} style={{marginBottom:4}}>
+                          <div className="dia-maq" style={{cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onClick={()=>abrirComentario(dia,id)}>
+                            <span>📍 {m?.nombre||id}</span>
+                            <span style={{fontSize:9,color:"var(--accent)",opacity:.7}}>✏️</span>
+                          </div>
+                          {com&&<div style={{fontSize:9,color:"var(--accent2)",padding:"2px 5px",fontStyle:"italic",background:"rgba(59,130,246,.08)",borderRadius:4,marginTop:2}}>{com}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEd(false)}>Cancelar</button><button className="btn btn-primary" onClick={guardar}>Guardar</button></div>
+      </div>
+
+      {/* Modal editar horario */}
+      {ed&&draft&&<div className="modal-overlay"><div className="modal" style={{maxWidth:600}}>
+        <h3>Editar horario semanal</h3>
+        <p style={{fontSize:12,color:"var(--muted)",marginBottom:13}}>Toca las máquinas para asignar/quitar. Agrega un mensaje general por día (opcional).</p>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+          {DIAS.map(dia=>(
+            <div key={dia}>
+              <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",color:"var(--accent)",marginBottom:5,textAlign:"center"}}>{DL[dia]}</div>
+              {data.maquinas.map(m=>{
+                const sel=(draft[dia]?.maquinas||[]).includes(m.id);
+                return(<div key={m.id} onClick={()=>tog(dia,m.id)} style={{padding:"4px 6px",borderRadius:6,marginBottom:4,cursor:"pointer",fontSize:10,background:sel?"rgba(245,158,11,.15)":"var(--surface2)",border:`1px solid ${sel?"var(--accent)":"var(--border)"}`,color:sel?"var(--accent)":"var(--muted)",textAlign:"center",transition:"all .12s"}}>{m.nombre}</div>);
+              })}
+              <input
+                value={draft[dia]?.mensajeGeneral||""}
+                onChange={e=>setMsg(dia,e.target.value)}
+                placeholder="Mensaje..."
+                style={{width:"100%",padding:"4px 6px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text)",fontSize:10,outline:"none",marginTop:4}}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEd(false)}>Cancelar</button><button className="btn btn-primary" onClick={guardar}>Guardar horario</button></div>
+      </div></div>}
+
+      {/* Modal comentario por maquina */}
+      {comentarioModal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:380}}>
+        <h3>Comentario para máquina</h3>
+        {(()=>{const{dia,maqId}=comentarioModal;const m=data.maquinas.find(m=>m.id===maqId);return(
+          <div>
+            <div className="edit-banner">📍 {m?.nombre} — {DL[dia]}</div>
+            <div className="form-group">
+              <label>Instrucción o comentario para el abastecedor</label>
+              <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)} placeholder="Ej: Llevar productos adicionales, revisar dispensador..." style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",minHeight:90,resize:"vertical"}}/>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={()=>setComentarioModal(null)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={guardarComentario}>Guardar comentario</button>
+            </div>
+          </div>
+        );})()}
       </div></div>}
     </div>
   );
@@ -1123,13 +1213,63 @@ function HorarioAdmin({data,save}){
 function MiHorario({data}){
   const de=["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
   const da=de[new Date().getDay()];const h=data.horario||{};const mh=h[da]?.maquinas||[];
+  const comentariosHoy=h[da]?.comentarios||{};
+  const msgHoy=h[da]?.mensajeGeneral||"";
   return(
     <div>
+      {/* Resumen de hoy */}
       <div style={{marginBottom:14,background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.25)",borderRadius:12,padding:14}}>
         <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}><Icon name="calendar" size={14}/><span style={{fontWeight:700,fontSize:14}}>Hoy — {da.charAt(0).toUpperCase()+da.slice(1)}</span></div>
-        {mh.length===0?<p style={{color:"var(--muted)",fontSize:13}}>No tienes máquinas asignadas hoy.</p>:mh.map(id=>{const m=data.maquinas.find(m=>m.id===id);return<div key={id} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:9,padding:"9px 13px",marginBottom:7,display:"flex",alignItems:"center",gap:9}}><Icon name="location" size={14}/><div><div style={{fontWeight:700,fontSize:13}}>{m?.nombre}</div><div style={{fontSize:11,color:"var(--muted)"}}>{m?.ubicacion}</div></div></div>;})}
+        {msgHoy&&<div style={{background:"rgba(245,158,11,.15)",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,padding:"8px 12px",fontSize:12,color:"var(--accent)",marginBottom:10,display:"flex",alignItems:"center",gap:6}}><span>📢</span>{msgHoy}</div>}
+        {mh.length===0
+          ?<p style={{color:"var(--muted)",fontSize:13}}>No tienes máquinas asignadas hoy.</p>
+          :mh.map(id=>{
+            const m=data.maquinas.find(m=>m.id===id);
+            const com=comentariosHoy[id]||"";
+            return(
+              <div key={id} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:9,padding:"10px 13px",marginBottom:7}}>
+                <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:com?6:0}}>
+                  <Icon name="location" size={14}/>
+                  <div><div style={{fontWeight:700,fontSize:13}}>{m?.nombre}</div><div style={{fontSize:11,color:"var(--muted)"}}>{m?.ubicacion}</div></div>
+                </div>
+                {com&&<div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:7,padding:"6px 10px",fontSize:12,color:"var(--accent2)",display:"flex",alignItems:"flex-start",gap:6}}><span>💬</span><span>{com}</span></div>}
+              </div>
+            );
+          })
+        }
       </div>
-      <div className="section"><div className="section-header"><h3>Mi horario semanal</h3></div><div style={{padding:12}}><div className="horario-grid">{DIAS.map(dia=>{const ids=h[dia]?.maquinas||[];const esh=dia===da;return(<div key={dia} className="dia-col" style={esh?{border:"1px solid var(--accent)"}:{}}><div className="dia-header" style={esh?{background:"rgba(245,158,11,.25)"}:{}}>{DL[dia]}{esh&&" ★"}</div><div className="dia-body">{ids.length===0?<div className="dia-empty">Libre</div>:ids.map(id=>{const m=data.maquinas.find(m=>m.id===id);return<div key={id} className="dia-maq">📍 {m?.nombre||id}</div>;})}</div></div>);})}</div></div></div>
+
+      {/* Semana completa */}
+      <div className="section">
+        <div className="section-header"><h3>Mi horario semanal</h3></div>
+        <div style={{padding:12}}>
+          <div className="horario-grid">
+            {DIAS.map(dia=>{
+              const ids=h[dia]?.maquinas||[];const esh=dia===da;
+              const coms=h[dia]?.comentarios||{};
+              const msg=h[dia]?.mensajeGeneral||"";
+              return(
+                <div key={dia} className="dia-col" style={esh?{border:"1px solid var(--accent)"}:{}}>
+                  <div className="dia-header" style={esh?{background:"rgba(245,158,11,.25)"}:{}}>{DL[dia]}{esh&&" ★"}</div>
+                  <div className="dia-body">
+                    {msg&&<div style={{fontSize:9,background:"rgba(245,158,11,.12)",borderRadius:4,padding:"2px 5px",marginBottom:4,color:"var(--accent)"}}>{msg}</div>}
+                    {ids.length===0?<div className="dia-empty">Libre</div>:ids.map(id=>{
+                      const m=data.maquinas.find(m=>m.id===id);
+                      const com=coms[id]||"";
+                      return(
+                        <div key={id} style={{marginBottom:3}}>
+                          <div className="dia-maq">📍 {m?.nombre||id}</div>
+                          {com&&<div style={{fontSize:9,color:"var(--accent2)",padding:"2px 5px",fontStyle:"italic",background:"rgba(59,130,246,.08)",borderRadius:3,marginTop:1}}>💬 {com}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1151,7 +1291,7 @@ const ABASTECEDOR_NAV=[
 const ALMACENERO_NAV=[
   {section:"Almacén"},{id:"stock",label:"Stock almacén",icon:"stock"},
   {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
-  {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},
+  {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"traslados",label:"Traslados",icon:"transfer"},
 ];
 const TITLES={
   dashboard:"Dashboard",rentabilidad:"Rentabilidad",horario:"Horario semanal",mihorario:"Mi horario",
@@ -1188,7 +1328,7 @@ export default function App(){
     case "proveedores":  return <Proveedores data={data} save={save} del={del} soloEditar={esAlmacenero}/>;
     case "maquinas":     return <Maquinas data={data} save={save} del={del} esAdmin={esAdmin} esAbastecedor={esAbastecedor} soloEditar={esAlmacenero}/>;
     case "stock":        return <Stock data={data} save={save} del={del} soloLectura={false} esAdmin={esAdmin}/>;
-    case "traslados":    return <Traslados data={data} save={save} saveMulti={saveMulti} del={del} usuario={nombreUsuario} esAdmin={esAdmin}/>;
+    case "traslados":    return <Traslados data={data} save={save} saveMulti={saveMulti} del={del} usuario={nombreUsuario} esAdmin={esAdmin} soloLectura={esAlmacenero}/>;
     case "ventas":       return <Ventas data={data} save={save} del={del} esAdmin={esAdmin}/>;
     case "cobranzas":    return <Cobranzas data={data} save={save} del={del} usuario={nombreUsuario} esAdmin={esAdmin}/>;
     default: return null;
