@@ -572,6 +572,7 @@ function Productos({data,save,del,soloEditar=false}){
         </div>
         {form.costo&&form.margen&&<div className="info-box">Precio estimado: <strong>S/ {est(form.costo,form.margen)}</strong></div>}
         <div className="form-group"><label>Precio real de venta (puedes redondearlo)</label><input type="number" step="0.10" value={form.precioVenta} onChange={e=>setForm({...form,precioVenta:e.target.value})} placeholder={`Ej: ${est(form.costo,form.margen)||"2.50"}`}/></div>
+        <div className="form-group"><label>Precio económico (S/) — opcional</label><input type="number" step="0.10" value={form.precioEco||""} onChange={e=>setForm({...form,precioEco:e.target.value})} placeholder="Ej: 2.80 (para máquinas con precios reducidos)"/></div>
         <div className="form-group"><label>Proveedor</label>
           <select value={form.proveedor} onChange={e=>setForm({...form,proveedor:e.target.value})}>
             <option value="">Seleccionar...</option>
@@ -1570,16 +1571,22 @@ function ProductosEco({data,save,del}){
 function ListaPreciosEco({data}){
   return(
     <div>
-      <div className="info-box">Precios económicos de venta — lista independiente para máquinas con precios reducidos.</div>
+      <div className="info-box">Lista de precios económicos — todos los productos con su precio reducido configurado.</div>
       <div className="section">
         <div className="section-header"><h3>Lista de precios económica</h3></div>
         <div className="table-wrap"><table>
           <thead><tr><th>Producto</th><th>Proveedor</th><th>Precio económico</th></tr></thead>
           <tbody>
-            {data.productosEco.length===0?<tr><td colSpan={3} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin productos económicos configurados</td></tr>
-            :data.productosEco.map(p=>(
-              <tr key={p.id}><td><strong>{p.nombre}</strong></td><td style={{color:"var(--muted)"}}>{p.proveedor}</td><td><span className="precio-real">{fmt(p.precioVenta)}</span></td></tr>
-            ))}
+            {data.productos.filter(p=>p.precioEco).length===0
+              ?<tr><td colSpan={3} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin precios económicos. El administrador puede agregarlos en Productos.</td></tr>
+              :data.productos.filter(p=>p.precioEco).map(p=>(
+                <tr key={p.id}>
+                  <td><strong>{p.nombre}</strong></td>
+                  <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
+                  <td><span className="precio-eco">{fmt(p.precioEco)}</span></td>
+                </tr>
+              ))
+            }
           </tbody>
         </table></div>
       </div>
@@ -1594,22 +1601,28 @@ const ADMIN_NAV=[
   {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"stock",label:"Stock almacén",icon:"stock"},
   {id:"traslados",label:"Traslados",icon:"transfer"},{id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"},
+  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},{id:"sugerencias",label:"Sugerencias",icon:"suggest"},
 ];
 const ABASTECEDOR_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
   {section:"Operaciones"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"cobranzas",label:"Cobranza",icon:"money"},
-  {id:"traslados",label:"Traslados",icon:"transfer"},
+  {id:"traslados",label:"Traslados",icon:"transfer"},{id:"devoluciones",label:"Devoluciones",icon:"devolver"},
+  {id:"sugerencias",label:"Sugerencias",icon:"suggest"},
   {section:"Consultas"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"preciosEco",label:"Precios económicos",icon:"pricetag"},{id:"stock",label:"Stock almacén",icon:"stock"},{id:"maquinas",label:"Mis máquinas",icon:"machine"},
 ];
 const ALMACENERO_NAV=[
+  {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
   {section:"Almacén"},{id:"stock",label:"Stock almacén",icon:"stock"},
   {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"traslados",label:"Traslados",icon:"transfer"},
+  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},{id:"sugerencias",label:"Sugerencias",icon:"suggest"},
 ];
 const TITLES={
   dashboard:"Dashboard",rentabilidad:"Rentabilidad",horario:"Horario semanal",mihorario:"Mi horario",
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
-  stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",precios:"Precios de venta",
+  stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
+  precios:"Precios de venta",preciosEco:"Lista de precios económica",
+  devoluciones:"Devoluciones",sugerencias:"Sugerencias",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -1634,7 +1647,7 @@ export default function App(){
     case "dashboard":    return <Dashboard data={data}/>;
     case "rentabilidad": return <Rentabilidad data={data}/>;
     case "horario":      return <HorarioAdmin data={data} save={save}/>;
-    case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor}/>;
+    case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor||esAdmin}/>;
     case "gastos":       return <GastosAdicionales data={data} save={save} del={del}/>;
     case "productos":    return <Productos data={data} save={save} del={del} soloEditar={esAlmacenero}/>;
     case "precios":      return <ListaPrecios data={data}/>;
@@ -1644,6 +1657,9 @@ export default function App(){
     case "traslados":    return <Traslados data={data} save={save} saveMulti={saveMulti} del={del} usuario={nombreUsuario} esAdmin={esAdmin} soloLectura={esAlmacenero}/>;
     case "ventas":       return <Ventas data={data} save={save} del={del} esAdmin={esAdmin}/>;
     case "cobranzas":    return <Cobranzas data={data} save={save} del={del} usuario={nombreUsuario} esAdmin={esAdmin}/>;
+    case "preciosEco":   return <ListaPreciosEco data={data}/>;
+    case "devoluciones": return <Devoluciones data={data} save={save} del={del} soloLectura={esAlmacenero} esAdmin={esAdmin} puedeEditar={esAdmin||esAbastecedor}/>;
+    case "sugerencias":  return <Sugerencias data={data} save={save} del={del} soloLectura={esAlmacenero}/>;
     default: return null;
   }};
   return(
