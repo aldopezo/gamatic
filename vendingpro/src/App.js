@@ -1308,8 +1308,7 @@ function MiHorario({data,save,puedeComentarMaq=false}){
           </div>
         </div>
       </div>
-    </div>
-      {comModal&&(esAdmin||esAbastecedor)&&<div className="modal-overlay"><div className="modal" style={{maxWidth:380}}>
+      {comModal&&puedeComentarMaq&&<div className="modal-overlay"><div className="modal" style={{maxWidth:380}}>
         <h3>Comentario para máquina</h3>
         {(()=>{const{dia,maqId}=comModal;const m=data.maquinas.find(m=>m.id===maqId);return(
           <div>
