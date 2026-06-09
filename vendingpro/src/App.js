@@ -6,9 +6,9 @@ const CLAVES = { admin:"123", abastecedor:"", almacenero:"" };
 
 const SEED={
   productos:{
-    p1:{id:"p1",nombre:"Coca Cola 500ml",costo:2.5,margen:40,precioVenta:3.50,proveedor:"Coca-Cola SAC",fecha:"2026-01-01"},
-    p2:{id:"p2",nombre:"Agua San Luis 600ml",costo:1.2,margen:50,precioVenta:1.80,proveedor:"Backus",fecha:"2026-01-01"},
-    p3:{id:"p3",nombre:"Snickers",costo:1.8,margen:45,precioVenta:2.60,proveedor:"Mars Inc.",fecha:"2026-01-01"},
+    p1:{id:"p1",nombre:"Coca Cola 500ml",costo:2.5,margen:40,precioVenta:3.50,precioEco:2.80,proveedor:"Coca-Cola SAC",fecha:"2026-01-01"},
+    p2:{id:"p2",nombre:"Agua San Luis 600ml",costo:1.2,margen:50,precioVenta:1.80,precioEco:1.50,proveedor:"Backus",fecha:"2026-01-01"},
+    p3:{id:"p3",nombre:"Snickers",costo:1.8,margen:45,precioVenta:2.60,precioEco:2.20,proveedor:"Mars Inc.",fecha:"2026-01-01"},
   },
   proveedores:{
     v1:{id:"v1",nombre:"Coca-Cola SAC",contacto:"Juan Pérez",telefono:"999-111-222"},
@@ -25,7 +25,7 @@ const SEED={
     s2:{id:"s2",productoId:"p2",cantidad:60,minimo:15},
     s3:{id:"s3",productoId:"p3",cantidad:35,minimo:8},
   },
-  traslados:{},ventas:{},cobranzas:{},gastos:{},
+  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},productosEco:{},
   horario:{lunes:{maquinas:[]},martes:{maquinas:[]},miercoles:{maquinas:[]},jueves:{maquinas:[]},viernes:{maquinas:[]},sabado:{maquinas:[]},domingo:{maquinas:[]}},
 };
 
@@ -64,6 +64,9 @@ const Icon=({name,size=18})=>{
     bolt:"M13 10V3L4 14h7v7l9-11h-7z",
     lock:"M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z",
     filter:"M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z",
+    suggest:"M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
+    return2:"M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 2 2 2-2 2 2 2-2 4 2z",
+    pricetag:"M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z",
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]}/></svg>;
 };
@@ -195,10 +198,16 @@ const css=`
   .dia-empty{font-size:9px;color:var(--muted);padding:3px 5px;font-style:italic}
   .precio-estimado{font-size:11px;color:var(--muted);text-decoration:line-through}
   .precio-real{font-size:13px;font-weight:700;color:var(--green)}
+  .precio-eco{font-size:13px;font-weight:700;color:var(--accent2)}
   .info-box{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:9px;padding:9px 13px;font-size:12px;color:var(--accent2);margin-bottom:11px}
   .edit-banner{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--accent);margin-bottom:14px}
   .confirm-modal{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.3);border-radius:14px;padding:24px;text-align:center}
   .view-only-badge{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:8px 13px;font-size:12px;color:var(--accent2);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+  .maq-check{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px}
+  .maq-check-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;transition:background .12s}
+  .maq-check-item:hover{background:rgba(245,158,11,.08)}
+  .maq-check-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+  .maq-check-item.checked{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3)}
   @media(min-width:768px){
     .hamburger{display:none!important}
     .topbar{padding:0 24px;height:60px}
@@ -236,6 +245,8 @@ function useFirebase(){
         maquinas:objToArr(val.maquinas),stock:objToArr(val.stock),
         traslados:objToArr(val.traslados),ventas:objToArr(val.ventas),
         cobranzas:objToArr(val.cobranzas),gastos:objToArr(val.gastos||{}),
+        sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),
+        productosEco:objToArr(val.productosEco||{}),
         horario:val.horario||SEED.horario,
       });
     });
@@ -499,14 +510,14 @@ function Productos({data,save,del,soloEditar=false}){
   const [precioEdit,setPrecioEdit]=useState("");
   const [editandoPrecioId,setEditandoPrecioId]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
-  const [form,setForm]=useState({nombre:"",costo:"",margen:"",precioVenta:"",proveedor:"",fecha:today()});
+  const [form,setForm]=useState({nombre:"",costo:"",margen:"",precioVenta:"",precioEco:"",proveedor:"",fecha:today()});
   const est=(c,m)=>c&&m?(+c*(1+ +m/100)).toFixed(2):"";
   const abrirNuevo=()=>{setForm({nombre:"",costo:"",margen:"",precioVenta:"",proveedor:"",fecha:today()});setEditando(null);setModal(true);};
-  const abrirEditar=(p)=>{setForm({nombre:p.nombre,costo:String(p.costo),margen:String(p.margen),precioVenta:String(p.precioVenta||""),proveedor:p.proveedor,fecha:p.fecha||today()});setEditando(p);setModal(true);};
+  const abrirEditar=(p)=>{setForm({nombre:p.nombre,costo:String(p.costo),margen:String(p.margen),precioVenta:String(p.precioVenta||""),precioEco:String(p.precioEco||""),proveedor:p.proveedor,fecha:p.fecha||today()});setEditando(p);setModal(true);};
   const doSave=()=>{
     if(!form.nombre||!form.costo)return;
     const e=parseFloat(est(form.costo,form.margen));
-    const obj={nombre:form.nombre,costo:+form.costo,margen:+form.margen,precioVenta:form.precioVenta?+form.precioVenta:e,proveedor:form.proveedor,fecha:form.fecha};
+    const obj={nombre:form.nombre,costo:+form.costo,margen:+form.margen,precioVenta:form.precioVenta?+form.precioVenta:e,precioEco:form.precioEco?+form.precioEco:null,proveedor:form.proveedor,fecha:form.fecha};
     if(editando)save("productos",editando.id,{...editando,...obj});
     else{const id=uid();save("productos",id,{id,...obj});}
     setModal(false);setEditando(null);
@@ -517,7 +528,7 @@ function Productos({data,save,del,soloEditar=false}){
       <div className="section">
         <div className="section-header"><h3>Catálogo de productos</h3><button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Producto</th><th>Fecha</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Estimado</th><th>Precio venta</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Producto</th><th>Fecha</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Estimado</th><th>Precio venta</th><th>Precio económico</th><th>Acciones</th></tr></thead>
           <tbody>{data.productos.map(p=>{
             const e=(p.costo*(1+p.margen/100)).toFixed(2);
             const epId=editandoPrecioId===p.id;
@@ -539,6 +550,7 @@ function Productos({data,save,del,soloEditar=false}){
                     <button className="btn btn-secondary btn-sm" onClick={()=>{setEditandoPrecioId(p.id);setPrecioEdit(p.precioVenta||e);}}><Icon name="edit" size={11}/></button>
                   </div>
               }</td>
+              <td>{p.precioEco?<span className="precio-eco">{fmt(p.precioEco)}</span>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
               <td><div style={{display:"flex",gap:5}}>
                 <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/></button>
                 {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={12}/></button>}
@@ -752,12 +764,13 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
-  const [maquinaId,setMaquinaId]=useState("");
+  const [maquinasSelec,setMaquinasSelec]=useState([]);
   const [fechaReg,setFechaReg]=useState(today());
   const [items,setItems]=useState([{productoId:"",cantidad:""}]);
   const [mes,setMes]=useState(mesActual());
   const [formEdit,setFormEdit]=useState({fecha:"",maquinaId:"",productoId:"",cantidad:""});
   const maqActivas=data.maquinas.filter(m=>m.activa);
+  const toggleMaqSelec=(id)=>setMaquinasSelec(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
   const addItem=()=>setItems(i=>[...i,{productoId:"",cantidad:""}]);
   const removeItem=idx=>setItems(i=>i.filter((_,j)=>j!==idx));
   const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>j===idx?{...r,[f]:v}:r));
@@ -768,18 +781,22 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
     setEditando(null);
   };
   const doSave=async()=>{
-    if(!maquinaId)return;
+    if(maquinasSelec.length===0)return;
     const valid=items.filter(it=>it.productoId&&it.cantidad);
     if(!valid.length)return;
     const ops=[];
+    maquinasSelec.forEach(maqId=>{
+      valid.forEach(it=>{
+        const tId=uid();
+        ops.push(["traslados",tId,{id:tId,fecha:fechaReg,maquinaId:maqId,productoId:it.productoId,cantidad:+it.cantidad,responsable:usuario}]);
+      });
+    });
     valid.forEach(it=>{
-      const tId=uid();
-      ops.push(["traslados",tId,{id:tId,fecha:fechaReg,maquinaId,productoId:it.productoId,cantidad:+it.cantidad,responsable:usuario}]);
       const si=data.stock.find(s=>s.productoId===it.productoId);
-      if(si)ops.push(["stock",si.id,{...si,cantidad:Math.max(0,si.cantidad- +it.cantidad)}]);
+      if(si){const total=+it.cantidad*maquinasSelec.length;ops.push(["stock",si.id,{...si,cantidad:Math.max(0,si.cantidad-total)}]);}
     });
     await saveMulti(ops);
-    setModal(false);setMaquinaId("");setFechaReg(today());setItems([{productoId:"",cantidad:""}]);
+    setModal(false);setMaquinasSelec([]);setFechaReg(today());setItems([{productoId:"",cantidad:""}]);
   };
   const trasladosMes=data.traslados.filter(t=>t.fecha?.startsWith(mes));
   const grupos={};
@@ -821,13 +838,19 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
       {modal&&<div className="modal-overlay"><div className="modal">
         <h3>Registrar traslado</h3>
         <div className="form-row">
-          <div className="form-group"><label>Máquina destino (activas)</label>
-            <select value={maquinaId} onChange={e=>setMaquinaId(e.target.value)}>
-              <option value="">Seleccionar...</option>
-              {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
-            </select>
-          </div>
           <div className="form-group"><label>Fecha del traslado</label><input type="date" value={fechaReg} onChange={e=>setFechaReg(e.target.value)}/></div>
+        </div>
+        <div className="form-group">
+          <label>Máquinas destino — selecciona una o varias activas</label>
+          <div className="maq-check">
+            {maqActivas.map(m=>(
+              <div key={m.id} className={`maq-check-item ${maquinasSelec.includes(m.id)?"checked":""}`} onClick={()=>toggleMaqSelec(m.id)}>
+                <input type="checkbox" checked={maquinasSelec.includes(m.id)} onChange={()=>toggleMaqSelec(m.id)}/>
+                <div><div style={{fontSize:12,fontWeight:600}}>{m.nombre}</div><div style={{fontSize:10,color:"var(--muted)"}}>{m.ubicacion}</div></div>
+              </div>
+            ))}
+          </div>
+          {maquinasSelec.length>0&&<div style={{marginTop:6,fontSize:11,color:"var(--accent)"}}>✓ {maquinasSelec.length} máquina(s) seleccionada(s)</div>}
         </div>
         <div className="form-group">
           <label>Productos trasladados</label>
@@ -845,7 +868,8 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
             <button className="add-prod-btn" onClick={addItem}><Icon name="plus" size={12}/> Agregar producto</button>
           </div>
         </div>
-        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Registrar</button></div>
+        {maquinasSelec.length>1&&items.some(it=>it.productoId&&it.cantidad)&&<div className="info-box" style={{marginBottom:8}}>Se registrará el mismo traslado para las {maquinasSelec.length} máquinas. El stock se descontará {maquinasSelec.length} veces por producto.</div>}
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Registrar traslado</button></div>
       </div></div>}
       {/* Modal editar traslado */}
       {editando&&<div className="modal-overlay"><div className="modal">
@@ -1210,11 +1234,25 @@ function HorarioAdmin({data,save}){
   );
 }
 
-function MiHorario({data}){
+function MiHorario({data,save,puedeComentarMaq=false}){
   const de=["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
   const da=de[new Date().getDay()];const h=data.horario||{};const mh=h[da]?.maquinas||[];
   const comentariosHoy=h[da]?.comentarios||{};
   const msgHoy=h[da]?.mensajeGeneral||"";
+  const [comModal,setComModal]=useState(null);
+  const [comTexto,setComTexto]=useState("");
+  const abrirCom=(dia,maqId)=>{
+    const actual=(h[dia]?.comentarios||{})[maqId]||"";
+    setComTexto(actual);setComModal({dia,maqId});
+  };
+  const guardarCom=async()=>{
+    if(!comModal)return;
+    const{dia,maqId}=comModal;
+    const diaData=h[dia]||{maquinas:[],comentarios:{},mensajeGeneral:""};
+    const nuevos={...(diaData.comentarios||{}),[maqId]:comTexto};
+    await save("horario",dia,{...diaData,comentarios:nuevos});
+    setComModal(null);setComTexto("");
+  };
   return(
     <div>
       {/* Resumen de hoy */}
@@ -1271,6 +1309,282 @@ function MiHorario({data}){
         </div>
       </div>
     </div>
+      {comModal&&(esAdmin||esAbastecedor)&&<div className="modal-overlay"><div className="modal" style={{maxWidth:380}}>
+        <h3>Comentario para máquina</h3>
+        {(()=>{const{dia,maqId}=comModal;const m=data.maquinas.find(m=>m.id===maqId);return(
+          <div>
+            <div className="edit-banner">📍 {m?.nombre} — {DL[dia]}</div>
+            <div className="form-group">
+              <label>Tu comentario o nota</label>
+              <textarea value={comTexto} onChange={e=>setComTexto(e.target.value)} placeholder="Ej: Llevar productos extra, revisar dispensador..." style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",minHeight:90,resize:"vertical"}}/>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={()=>setComModal(null)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={guardarCom}>Guardar comentario</button>
+            </div>
+          </div>
+        );})()}
+      </div></div>}
+    </div>
+  );
+}
+
+// ─── SUGERENCIAS ─────────────────────────────────────────────────────────────────
+function Sugerencias({data,save,del,soloLectura=false}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const EF={maquinaId:"",mensaje:"",fecha:today()};
+  const [form,setForm]=useState(EF);
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const doSave=()=>{
+    if(!form.mensaje)return;
+    if(editando)save("sugerencias",editando.id,{...editando,...form,maquinaId:form.maquinaId||null});
+    else{const id=uid();save("sugerencias",id,{id,...form,maquinaId:form.maquinaId||null});}
+    setModal(false);setForm(EF);setEditando(null);
+  };
+  const abrirEditar=(s)=>{setForm({maquinaId:s.maquinaId||"",mensaje:s.mensaje,fecha:s.fecha});setEditando(s);setModal(true);};
+  return(
+    <div>
+      <div className="section">
+        <div className="section-header">
+          <h3>Sugerencias</h3>
+          {!soloLectura&&<button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Nueva sugerencia</button>}
+        </div>
+        {soloLectura&&<div className="view-only-badge" style={{margin:"12px 16px 0"}}><Icon name="lock" size={13}/> Solo visualización</div>}
+        <div className="table-wrap"><table>
+          <thead><tr><th>Fecha</th><th>Máquina</th><th>Mensaje / Sugerencia</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
+          <tbody>
+            {data.sugerencias.length===0?<tr><td colSpan={soloLectura?3:4} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin sugerencias registradas</td></tr>
+            :[...data.sugerencias].reverse().map(s=>{
+              const maq=data.maquinas.find(m=>m.id===s.maquinaId);
+              return(<tr key={s.id}>
+                <td style={{color:"var(--muted)",whiteSpace:"nowrap"}}>{s.fecha}</td>
+                <td><span className="badge blue">{maq?maq.nombre:"General"}</span></td>
+                <td style={{fontSize:13}}>{s.mensaje}</td>
+                {!soloLectura&&<td><div style={{display:"flex",gap:5}}>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(s)}><Icon name="edit" size={12}/></button>
+                  <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(s)}><Icon name="trash" size={12}/></button>
+                </div></td>}
+              </tr>);
+            })}
+          </tbody>
+        </table></div>
+      </div>
+      {modal&&<div className="modal-overlay"><div className="modal">
+        <h3>{editando?"Editar sugerencia":"Nueva sugerencia"}</h3>
+        {editando&&<div className="edit-banner">Editando sugerencia</div>}
+        <div className="form-group"><label>Máquina (opcional)</label>
+          <select value={form.maquinaId} onChange={e=>setForm({...form,maquinaId:e.target.value})}>
+            <option value="">General (todas)</option>
+            {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+          </select>
+        </div>
+        <div className="form-group"><label>Fecha</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
+        <div className="form-group"><label>Mensaje / Sugerencia</label>
+          <textarea value={form.mensaje} onChange={e=>setForm({...form,mensaje:e.target.value})} placeholder="Ej: Podemos colocar este producto nuevo, nos han solicitado..." style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",minHeight:90,resize:"vertical"}}/>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button>
+        </div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto="¿Eliminar esta sugerencia?" onConfirm={()=>{del("sugerencias",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+// ─── DEVOLUCIONES ─────────────────────────────────────────────────────────────────
+const MOTIVOS_DEV=["Producto vencido","Producto con poca venta","Producto con fallas"];
+function Devoluciones({data,save,del,soloLectura=false,esAdmin=false}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const EF={maquinaId:"",productoId:"",motivo:MOTIVOS_DEV[0],cantidad:"",fecha:today(),observacion:""};
+  const [form,setForm]=useState(EF);
+  const [mes,setMes]=useState(mesActual());
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const doSave=()=>{
+    if(!form.maquinaId||!form.productoId)return;
+    if(editando)save("devoluciones",editando.id,{...editando,...form,cantidad:+form.cantidad});
+    else{const id=uid();save("devoluciones",id,{id,...form,cantidad:+form.cantidad});}
+    setModal(false);setForm(EF);setEditando(null);
+  };
+  const abrirEditar=(d)=>{setForm({maquinaId:d.maquinaId,productoId:d.productoId,motivo:d.motivo,cantidad:String(d.cantidad),fecha:d.fecha,observacion:d.observacion||""});setEditando(d);setModal(true);};
+  const devMes=data.devoluciones.filter(d=>d.fecha?.startsWith(mes));
+  const colores={"Producto vencido":"red","Producto con poca venta":"amber","Producto con fallas":"blue"};
+  return(
+    <div>
+      <MesNav mes={mes} setMes={setMes}/>
+      <div className="section">
+        <div className="section-header">
+          <h3>Devoluciones — {nombreMes(mes)}</h3>
+          {!soloLectura&&<button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Registrar</button>}
+        </div>
+        {soloLectura&&<div className="view-only-badge" style={{margin:"12px 16px 0"}}><Icon name="lock" size={13}/> Solo visualización</div>}
+        <div className="table-wrap"><table>
+          <thead><tr><th>Fecha</th><th>Máquina</th><th>Producto</th><th>Motivo</th><th>Cantidad</th><th>Observación</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
+          <tbody>
+            {devMes.length===0?<tr><td colSpan={soloLectura?6:7} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin devoluciones en {nombreMes(mes)}</td></tr>
+            :[...devMes].reverse().map(d=>{
+              const maq=data.maquinas.find(m=>m.id===d.maquinaId);
+              const prod=data.productos.find(p=>p.id===d.productoId);
+              const col=colores[d.motivo]||"blue";
+              return(<tr key={d.id}>
+                <td style={{color:"var(--muted)",whiteSpace:"nowrap"}}>{d.fecha}</td>
+                <td><strong>{maq?.nombre||"—"}</strong><br/><span style={{fontSize:10,color:"var(--muted)"}}>{maq?.ubicacion}</span></td>
+                <td>{prod?.nombre||"—"}</td>
+                <td><span className={`badge ${col}`}>{d.motivo}</span></td>
+                <td style={{fontWeight:700}}>{d.cantidad||"—"}</td>
+                <td style={{fontSize:11,color:"var(--muted)"}}>{d.observacion||"—"}</td>
+                {!soloLectura&&<td><div style={{display:"flex",gap:5}}>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(d)}><Icon name="edit" size={12}/></button>
+                  {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(d)}><Icon name="trash" size={12}/></button>}
+                </div></td>}
+              </tr>);
+            })}
+          </tbody>
+        </table></div>
+      </div>
+      {modal&&<div className="modal-overlay"><div className="modal">
+        <h3>{editando?"Editar devolución":"Registrar devolución"}</h3>
+        {editando&&<div className="edit-banner">Editando devolución del {editando.fecha}</div>}
+        <div className="form-row">
+          <div className="form-group"><label>Máquina</label>
+            <select value={form.maquinaId} onChange={e=>setForm({...form,maquinaId:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Fecha</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
+        </div>
+        <div className="form-group"><label>Producto</label>
+          <select value={form.productoId} onChange={e=>setForm({...form,productoId:e.target.value})}>
+            <option value="">Seleccionar...</option>
+            {data.productos.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Motivo</label>
+            <select value={form.motivo} onChange={e=>setForm({...form,motivo:e.target.value})}>
+              {MOTIVOS_DEV.map(m=><option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Cantidad</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})} placeholder="0"/></div>
+        </div>
+        <div className="form-group"><label>Observación (opcional)</label><input value={form.observacion} onChange={e=>setForm({...form,observacion:e.target.value})} placeholder="Ej: Fecha de vencimiento 15/06..."/></div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Registrar"}</button>
+        </div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar esta devolución de "${data.productos.find(p=>p.id===confirmDel.productoId)?.nombre}"?`} onConfirm={()=>{del("devoluciones",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+// ─── PRODUCTOS ECONÓMICOS ─────────────────────────────────────────────────────────
+function ProductosEco({data,save,del}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [iniciado,setIniciado]=useState(false);
+  const [form,setForm]=useState({nombre:"",precioVenta:"",proveedor:"",observacion:""});
+
+  // Auto-import from productos if productosEco is empty
+  const importarDesdeProductos=()=>{
+    data.productos.forEach(p=>{
+      if(!data.productosEco.find(pe=>pe.origenId===p.id)){
+        const id=uid();
+        save("productosEco",id,{id,origenId:p.id,nombre:p.nombre,precioVenta:p.precioVenta||(p.costo*(1+p.margen/100)),proveedor:p.proveedor,observacion:""});
+      }
+    });
+    setIniciado(true);
+  };
+
+  const abrirEditar=(p)=>{setForm({nombre:p.nombre,precioVenta:String(p.precioVenta),proveedor:p.proveedor,observacion:p.observacion||""});setEditando(p);setModal(true);};
+  const abrirNuevo=()=>{setForm({nombre:"",precioVenta:"",proveedor:"",observacion:""});setEditando(null);setModal(true);};
+  const doSave=()=>{
+    if(!form.nombre||!form.precioVenta)return;
+    if(editando)save("productosEco",editando.id,{...editando,...form,precioVenta:+form.precioVenta});
+    else{const id=uid();save("productosEco",id,{id,origenId:null,...form,precioVenta:+form.precioVenta});}
+    setModal(false);setForm({nombre:"",precioVenta:"",proveedor:"",observacion:""});setEditando(null);
+  };
+  return(
+    <div>
+      {data.productosEco.length===0&&(
+        <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.25)",borderRadius:12,padding:16,marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:14,marginBottom:6}}>📋 Lista independiente de precios económicos</div>
+          <p style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>Esta lista es independiente de los productos principales. Puedes importar los productos actuales como base y luego editar los precios por separado.</p>
+          <button className="btn btn-primary" onClick={importarDesdeProductos}><Icon name="plus" size={13}/> Importar productos actuales como base</button>
+        </div>
+      )}
+      <div className="section">
+        <div className="section-header">
+          <h3>Productos económicos</h3>
+          <div style={{display:"flex",gap:8}}>
+            {data.productosEco.length>0&&<button className="btn btn-secondary btn-sm" onClick={importarDesdeProductos}>↻ Sincronizar nuevos</button>}
+            <button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button>
+          </div>
+        </div>
+        <div className="info-box" style={{margin:"12px 16px 0",fontSize:11}}>
+          ⚡ Editar aquí NO modifica los productos principales ni la lista de precios normal.
+        </div>
+        <div className="table-wrap"><table>
+          <thead><tr><th>Producto</th><th>Proveedor</th><th>Precio económico</th><th>Observación</th><th>Acciones</th></tr></thead>
+          <tbody>
+            {data.productosEco.length===0?<tr><td colSpan={5} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin productos económicos aún</td></tr>
+            :data.productosEco.map(p=>(
+              <tr key={p.id}>
+                <td><strong>{p.nombre}</strong></td>
+                <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
+                <td><span className="precio-real">{fmt(p.precioVenta)}</span></td>
+                <td style={{fontSize:11,color:"var(--muted)"}}>{p.observacion||"—"}</td>
+                <td><div style={{display:"flex",gap:5}}>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/></button>
+                  <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={12}/></button>
+                </div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      </div>
+      {modal&&<div className="modal-overlay"><div className="modal">
+        <h3>{editando?"Editar producto económico":"Nuevo producto económico"}</h3>
+        {editando&&<div className="edit-banner">✏️ Editando solo la lista económica — no afecta los productos principales</div>}
+        <div className="form-group"><label>Nombre del producto</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Coca Cola 500ml"/></div>
+        <div className="form-row">
+          <div className="form-group"><label>Precio de venta económico (S/)</label><input type="number" step="0.10" value={form.precioVenta} onChange={e=>setForm({...form,precioVenta:e.target.value})} placeholder="Ej: 2.50"/></div>
+          <div className="form-group"><label>Proveedor</label><input value={form.proveedor} onChange={e=>setForm({...form,proveedor:e.target.value})} placeholder="Ej: Backus"/></div>
+        </div>
+        <div className="form-group"><label>Observación (opcional)</label><input value={form.observacion} onChange={e=>setForm({...form,observacion:e.target.value})} placeholder="Ej: Para máquinas de zona popular"/></div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button>
+        </div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar "${confirmDel.nombre}" de la lista económica?`} onConfirm={()=>{del("productosEco",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+function ListaPreciosEco({data}){
+  return(
+    <div>
+      <div className="info-box">Precios económicos de venta — lista independiente para máquinas con precios reducidos.</div>
+      <div className="section">
+        <div className="section-header"><h3>Lista de precios económica</h3></div>
+        <div className="table-wrap"><table>
+          <thead><tr><th>Producto</th><th>Proveedor</th><th>Precio económico</th></tr></thead>
+          <tbody>
+            {data.productosEco.length===0?<tr><td colSpan={3} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin productos económicos configurados</td></tr>
+            :data.productosEco.map(p=>(
+              <tr key={p.id}><td><strong>{p.nombre}</strong></td><td style={{color:"var(--muted)"}}>{p.proveedor}</td><td><span className="precio-real">{fmt(p.precioVenta)}</span></td></tr>
+            ))}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
   );
 }
 
@@ -1286,7 +1600,7 @@ const ABASTECEDOR_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
   {section:"Operaciones"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"cobranzas",label:"Cobranza",icon:"money"},
   {id:"traslados",label:"Traslados",icon:"transfer"},
-  {section:"Consultas"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"stock",label:"Stock almacén",icon:"stock"},{id:"maquinas",label:"Mis máquinas",icon:"machine"},
+  {section:"Consultas"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"preciosEco",label:"Precios económicos",icon:"pricetag"},{id:"stock",label:"Stock almacén",icon:"stock"},{id:"maquinas",label:"Mis máquinas",icon:"machine"},
 ];
 const ALMACENERO_NAV=[
   {section:"Almacén"},{id:"stock",label:"Stock almacén",icon:"stock"},
@@ -1321,7 +1635,7 @@ export default function App(){
     case "dashboard":    return <Dashboard data={data}/>;
     case "rentabilidad": return <Rentabilidad data={data}/>;
     case "horario":      return <HorarioAdmin data={data} save={save}/>;
-    case "mihorario":    return <MiHorario data={data}/>;
+    case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor}/>;
     case "gastos":       return <GastosAdicionales data={data} save={save} del={del}/>;
     case "productos":    return <Productos data={data} save={save} del={del} soloEditar={esAlmacenero}/>;
     case "precios":      return <ListaPrecios data={data}/>;
