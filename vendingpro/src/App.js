@@ -1400,84 +1400,163 @@ function Devoluciones({data,save,del,soloLectura=false,esAdmin=false}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
-  const EF={maquinaId:"",productoId:"",motivo:MOTIVOS_DEV[0],cantidad:"",fecha:today(),observacion:""};
-  const [form,setForm]=useState(EF);
   const [mes,setMes]=useState(mesActual());
   const maqActivas=data.maquinas.filter(m=>m.activa);
-  const doSave=()=>{
-    if(!form.maquinaId||!form.productoId)return;
-    if(editando)save("devoluciones",editando.id,{...editando,...form,cantidad:+form.cantidad});
-    else{const id=uid();save("devoluciones",id,{id,...form,cantidad:+form.cantidad});}
-    setModal(false);setForm(EF);setEditando(null);
+
+  // Estado para nuevo registro (multi-producto)
+  const EF_HEADER={maquinaId:"",fecha:today(),motivo:MOTIVOS_DEV[0],observacion:""};
+  const EF_ITEM={productoId:"",cantidad:""};
+  const [formH,setFormH]=useState(EF_HEADER);
+  const [items,setItems]=useState([{...EF_ITEM}]);
+  const addItem=()=>setItems(i=>[...i,{...EF_ITEM}]);
+  const removeItem=idx=>setItems(i=>i.filter((_,j)=>j!==idx));
+  const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>j===idx?{...r,[f]:v}:r));
+
+  // Estado para edición individual
+  const [formEdit,setFormEdit]=useState({maquinaId:"",productoId:"",motivo:MOTIVOS_DEV[0],cantidad:"",fecha:today(),observacion:""});
+
+  const doSave=async()=>{
+    if(!formH.maquinaId)return;
+    const valid=items.filter(it=>it.productoId&&it.cantidad);
+    if(!valid.length)return;
+    for(const it of valid){
+      const id=uid();
+      await save("devoluciones",id,{id,maquinaId:formH.maquinaId,fecha:formH.fecha,motivo:formH.motivo,observacion:formH.observacion,productoId:it.productoId,cantidad:+it.cantidad});
+    }
+    setModal(false);setFormH(EF_HEADER);setItems([{...EF_ITEM}]);
   };
-  const abrirEditar=(d)=>{setForm({maquinaId:d.maquinaId,productoId:d.productoId,motivo:d.motivo,cantidad:String(d.cantidad),fecha:d.fecha,observacion:d.observacion||""});setEditando(d);setModal(true);};
+
+  const abrirEditar=(d)=>{
+    setFormEdit({maquinaId:d.maquinaId,productoId:d.productoId,motivo:d.motivo,cantidad:String(d.cantidad),fecha:d.fecha,observacion:d.observacion||""});
+    setEditando(d);
+  };
+  const doGuardarEdicion=()=>{
+    if(!editando)return;
+    save("devoluciones",editando.id,{...editando,...formEdit,cantidad:+formEdit.cantidad});
+    setEditando(null);
+  };
+
   const devMes=data.devoluciones.filter(d=>d.fecha?.startsWith(mes));
   const colores={"Producto vencido":"red","Producto con poca venta":"amber","Producto con fallas":"blue"};
+
   return(
     <div>
       <MesNav mes={mes} setMes={setMes}/>
       <div className="section">
         <div className="section-header">
           <h3>Devoluciones — {nombreMes(mes)}</h3>
-          {!soloLectura&&<button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Registrar</button>}
+          {!soloLectura&&<button className="btn btn-primary btn-sm" onClick={()=>{setFormH(EF_HEADER);setItems([{...EF_ITEM}]);setModal(true);}}><Icon name="plus" size={13}/> Registrar</button>}
         </div>
         {soloLectura&&<div className="view-only-badge" style={{margin:"12px 16px 0"}}><Icon name="lock" size={13}/> Solo visualización</div>}
         <div className="table-wrap"><table>
           <thead><tr><th>Fecha</th><th>Máquina</th><th>Producto</th><th>Motivo</th><th>Cantidad</th><th>Observación</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
           <tbody>
-            {devMes.length===0?<tr><td colSpan={soloLectura?6:7} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin devoluciones en {nombreMes(mes)}</td></tr>
-            :[...devMes].reverse().map(d=>{
-              const maq=data.maquinas.find(m=>m.id===d.maquinaId);
-              const prod=data.productos.find(p=>p.id===d.productoId);
-              const col=colores[d.motivo]||"blue";
-              return(<tr key={d.id}>
-                <td style={{color:"var(--muted)",whiteSpace:"nowrap"}}>{d.fecha}</td>
-                <td><strong>{maq?.nombre||"—"}</strong><br/><span style={{fontSize:10,color:"var(--muted)"}}>{maq?.ubicacion}</span></td>
-                <td>{prod?.nombre||"—"}</td>
-                <td><span className={`badge ${col}`}>{d.motivo}</span></td>
-                <td style={{fontWeight:700}}>{d.cantidad||"—"}</td>
-                <td style={{fontSize:11,color:"var(--muted)"}}>{d.observacion||"—"}</td>
-                {!soloLectura&&<td><div style={{display:"flex",gap:5}}>
-                  <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(d)}><Icon name="edit" size={12}/></button>
-                  {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(d)}><Icon name="trash" size={12}/></button>}
-                </div></td>}
-              </tr>);
-            })}
+            {devMes.length===0
+              ?<tr><td colSpan={soloLectura?6:7} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin devoluciones en {nombreMes(mes)}</td></tr>
+              :[...devMes].reverse().map(d=>{
+                const maq=data.maquinas.find(m=>m.id===d.maquinaId);
+                const prod=data.productos.find(p=>p.id===d.productoId);
+                const col=colores[d.motivo]||"blue";
+                return(<tr key={d.id}>
+                  <td style={{color:"var(--muted)",whiteSpace:"nowrap"}}>{d.fecha}</td>
+                  <td><strong>{maq?.nombre||"—"}</strong><br/><span style={{fontSize:10,color:"var(--muted)"}}>{maq?.ubicacion}</span></td>
+                  <td>{prod?.nombre||"—"}</td>
+                  <td><span className={`badge ${col}`}>{d.motivo}</span></td>
+                  <td style={{fontWeight:700}}>{d.cantidad||"—"}</td>
+                  <td style={{fontSize:11,color:"var(--muted)"}}>{d.observacion||"—"}</td>
+                  {!soloLectura&&<td><div style={{display:"flex",gap:5}}>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(d)}><Icon name="edit" size={12}/></button>
+                    {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(d)}><Icon name="trash" size={12}/></button>}
+                  </div></td>}
+                </tr>);
+              })
+            }
           </tbody>
         </table></div>
       </div>
+
+      {/* Modal nuevo registro multi-producto */}
       {modal&&<div className="modal-overlay"><div className="modal">
-        <h3>{editando?"Editar devolución":"Registrar devolución"}</h3>
-        {editando&&<div className="edit-banner">Editando devolución del {editando.fecha}</div>}
+        <h3>Registrar devolución</h3>
         <div className="form-row">
           <div className="form-group"><label>Máquina</label>
-            <select value={form.maquinaId} onChange={e=>setForm({...form,maquinaId:e.target.value})}>
+            <select value={formH.maquinaId} onChange={e=>setFormH({...formH,maquinaId:e.target.value})}>
               <option value="">Seleccionar...</option>
               {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
             </select>
           </div>
-          <div className="form-group"><label>Fecha</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
+          <div className="form-group"><label>Fecha</label>
+            <input type="date" value={formH.fecha} onChange={e=>setFormH({...formH,fecha:e.target.value})}/>
+          </div>
+        </div>
+        <div className="form-group"><label>Motivo (aplica a todos los productos)</label>
+          <select value={formH.motivo} onChange={e=>setFormH({...formH,motivo:e.target.value})}>
+            {MOTIVOS_DEV.map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label>Productos a devolver</label>
+          <div style={{background:"var(--surface2)",borderRadius:9,padding:10,border:"1px solid var(--border)"}}>
+            {items.map((it,idx)=>(
+              <div key={idx} className="prod-row">
+                <select value={it.productoId} onChange={e=>setItem(idx,"productoId",e.target.value)}>
+                  <option value="">Seleccionar producto...</option>
+                  {data.productos.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+                <input type="number" value={it.cantidad} onChange={e=>setItem(idx,"cantidad",e.target.value)} placeholder="Cant."/>
+                <button className="btn btn-danger btn-sm" style={{padding:"5px 7px"}} onClick={()=>removeItem(idx)} disabled={items.length===1}>✕</button>
+              </div>
+            ))}
+            <button className="add-prod-btn" onClick={addItem}><Icon name="plus" size={12}/> Agregar producto</button>
+          </div>
+        </div>
+        <div className="form-group"><label>Observación general (opcional)</label>
+          <input value={formH.observacion} onChange={e=>setFormH({...formH,observacion:e.target.value})} placeholder="Ej: Productos vencidos del lote del 01/06..."/>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave}>Registrar</button>
+        </div>
+      </div></div>}
+
+      {/* Modal editar registro individual */}
+      {editando&&<div className="modal-overlay"><div className="modal">
+        <h3>Editar devolución</h3>
+        <div className="edit-banner">Editando devolución del {editando.fecha}</div>
+        <div className="form-row">
+          <div className="form-group"><label>Máquina</label>
+            <select value={formEdit.maquinaId} onChange={e=>setFormEdit({...formEdit,maquinaId:e.target.value})}>
+              {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Fecha</label>
+            <input type="date" value={formEdit.fecha} onChange={e=>setFormEdit({...formEdit,fecha:e.target.value})}/>
+          </div>
         </div>
         <div className="form-group"><label>Producto</label>
-          <select value={form.productoId} onChange={e=>setForm({...form,productoId:e.target.value})}>
-            <option value="">Seleccionar...</option>
+          <select value={formEdit.productoId} onChange={e=>setFormEdit({...formEdit,productoId:e.target.value})}>
             {data.productos.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
           </select>
         </div>
         <div className="form-row">
           <div className="form-group"><label>Motivo</label>
-            <select value={form.motivo} onChange={e=>setForm({...form,motivo:e.target.value})}>
+            <select value={formEdit.motivo} onChange={e=>setFormEdit({...formEdit,motivo:e.target.value})}>
               {MOTIVOS_DEV.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
           </div>
-          <div className="form-group"><label>Cantidad</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})} placeholder="0"/></div>
+          <div className="form-group"><label>Cantidad</label>
+            <input type="number" value={formEdit.cantidad} onChange={e=>setFormEdit({...formEdit,cantidad:e.target.value})}/>
+          </div>
         </div>
-        <div className="form-group"><label>Observación (opcional)</label><input value={form.observacion} onChange={e=>setForm({...form,observacion:e.target.value})} placeholder="Ej: Fecha de vencimiento 15/06..."/></div>
+        <div className="form-group"><label>Observación (opcional)</label>
+          <input value={formEdit.observacion} onChange={e=>setFormEdit({...formEdit,observacion:e.target.value})}/>
+        </div>
         <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Registrar"}</button>
+          <button className="btn btn-secondary" onClick={()=>setEditando(null)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doGuardarEdicion}>Guardar cambios</button>
         </div>
       </div></div>}
+
       {confirmDel&&<ConfirmDelete texto={`¿Eliminar esta devolución de "${data.productos.find(p=>p.id===confirmDel.productoId)?.nombre}"?`} onConfirm={()=>{del("devoluciones",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
