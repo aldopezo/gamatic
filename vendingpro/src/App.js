@@ -510,16 +510,19 @@ function Productos({data,save,del,soloEditar=false}){
   const [precioEdit,setPrecioEdit]=useState("");
   const [editandoPrecioId,setEditandoPrecioId]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
-  const [form,setForm]=useState({nombre:"",costo:"",margen:"",precioVenta:"",precioEco:"",proveedor:"",fecha:today()});
+  const [form,setForm]=useState({nombre:"",costo:"",margen:"",precioVenta:"",precioEco:"",proveedor:"",fecha:today(),fechaVenc:""});
   const est=(c,m)=>c&&m?(+c*(1+ +m/100)).toFixed(2):"";
   const abrirNuevo=()=>{setForm({nombre:"",costo:"",margen:"",precioVenta:"",proveedor:"",fecha:today()});setEditando(null);setModal(true);};
-  const abrirEditar=(p)=>{setForm({nombre:p.nombre,costo:String(p.costo),margen:String(p.margen),precioVenta:String(p.precioVenta||""),precioEco:String(p.precioEco||""),proveedor:p.proveedor,fecha:p.fecha||today()});setEditando(p);setModal(true);};
+  const abrirEditar=(p)=>{const s=data.stock.find(st=>st.productoId===p.id);setForm({nombre:p.nombre,costo:String(p.costo),margen:String(p.margen),precioVenta:String(p.precioVenta||""),precioEco:String(p.precioEco||""),proveedor:p.proveedor,fecha:p.fecha||today(),fechaVenc:s?.fechaVenc||""});setEditando(p);setModal(true);};
   const doSave=()=>{
     if(!form.nombre||!form.costo)return;
     const e=parseFloat(est(form.costo,form.margen));
     const obj={nombre:form.nombre,costo:+form.costo,margen:+form.margen,precioVenta:form.precioVenta?+form.precioVenta:e,precioEco:form.precioEco?+form.precioEco:null,proveedor:form.proveedor,fecha:form.fecha};
-    if(editando)save("productos",editando.id,{...editando,...obj});
-    else{const id=uid();save("productos",id,{id,...obj});}
+    if(editando){
+      save("productos",editando.id,{...editando,...obj});
+      const s=data.stock.find(st=>st.productoId===editando.id);
+      if(s)save("stock",s.id,{...s,fechaVenc:form.fechaVenc||null});
+    } else{const id=uid();save("productos",id,{id,...obj});}
     setModal(false);setEditando(null);
   };
   const guardarPrecio=(p)=>{save("productos",p.id,{...p,precioVenta:+precioEdit});setEditandoPrecioId(null);};
@@ -535,8 +538,8 @@ function Productos({data,save,del,soloEditar=false}){
             return(<tr key={p.id}>
               <td><strong>{p.nombre}</strong></td>
               <td style={{color:"var(--muted)",fontSize:11}}>{p.fecha||"—"}</td>
-              <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
               <td>{(()=>{const s=data.stock.find(st=>st.productoId===p.id);if(!s?.fechaVenc)return<span style={{color:"var(--muted)",fontSize:11}}>—</span>;const dias=Math.ceil((new Date(s.fechaVenc)-new Date())/(1000*60*60*24));return<span style={{fontSize:11,fontWeight:600,color:dias<=7?"var(--red)":dias<=30?"var(--accent)":"var(--muted)"}}>{s.fechaVenc}{dias<=30&&<span style={{marginLeft:3,fontSize:9}}>{dias<=0?"⚠️ Vencido":dias<=7?`⚠️ ${dias}d`:`⚡ ${dias}d`}</span>}</span>;})()}</td>
+              <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
               <td>{fmt(p.costo)}</td>
               <td><span className="badge amber">{p.margen}%</span></td>
               <td><span className="precio-estimado">S/ {e}</span></td>
@@ -574,6 +577,7 @@ function Productos({data,save,del,soloEditar=false}){
         {form.costo&&form.margen&&<div className="info-box">Precio estimado: <strong>S/ {est(form.costo,form.margen)}</strong></div>}
         <div className="form-group"><label>Precio real de venta (puedes redondearlo)</label><input type="number" step="0.10" value={form.precioVenta} onChange={e=>setForm({...form,precioVenta:e.target.value})} placeholder={`Ej: ${est(form.costo,form.margen)||"2.50"}`}/></div>
         <div className="form-group"><label>Precio económico (S/) — opcional</label><input type="number" step="0.10" value={form.precioEco||""} onChange={e=>setForm({...form,precioEco:e.target.value})} placeholder="Ej: 2.80 (para máquinas con precios reducidos)"/></div>
+        <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div>
         <div className="form-group"><label>Proveedor</label>
           <select value={form.proveedor} onChange={e=>setForm({...form,proveedor:e.target.value})}>
             <option value="">Seleccionar...</option>
@@ -693,21 +697,21 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
 // ─── STOCK ──────────────────────────────────────────────────────────────────────
 function Stock({data,save,del,soloLectura=false,esAdmin=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
-  const EF={productoId:"",cantidad:"",minimo:"",fechaVenc:""};const [form,setForm]=useState(EF);
+  const EF={productoId:"",cantidad:"",minimo:"",fechaVenc:"",fechaReg:""};const [form,setForm]=useState(EF);
   const doSave=()=>{
     if(editando){
-      save("stock",editando.id,{...editando,cantidad:+form.cantidad,minimo:+form.minimo,fechaVenc:form.fechaVenc||null});
+      save("stock",editando.id,{...editando,cantidad:+form.cantidad,minimo:+form.minimo,fechaVenc:form.fechaVenc||null,fechaReg:form.fechaReg||editando.fechaReg||null});
       const prod=data.productos.find(p=>p.id===editando.productoId);
       if(prod&&form.nombreProducto&&form.nombreProducto!==prod.nombre)save("productos",prod.id,{...prod,nombre:form.nombreProducto});
     } else {
       if(!form.productoId||!form.cantidad)return;
       const existe=data.stock.find(s=>s.productoId===form.productoId);
       if(existe)save("stock",existe.id,{...existe,cantidad:existe.cantidad+ +form.cantidad,fechaVenc:form.fechaVenc||existe.fechaVenc||null});
-      else{const id=uid();save("stock",id,{id,productoId:form.productoId,cantidad:+form.cantidad,minimo:+form.minimo||10,fechaVenc:form.fechaVenc||null});}
+      else{const id=uid();save("stock",id,{id,productoId:form.productoId,cantidad:+form.cantidad,minimo:+form.minimo||10,fechaVenc:form.fechaVenc||null,fechaReg:form.fechaReg||null});}
     }
     setModal(false);setForm(EF);setEditando(null);
   };
-  const abrirEditar=(s)=>{const prod=data.productos.find(p=>p.id===s.productoId);setForm({productoId:s.productoId,nombreProducto:prod?.nombre||"",cantidad:String(s.cantidad),minimo:String(s.minimo),fechaVenc:s.fechaVenc||""});setEditando(s);setModal(true);};
+  const abrirEditar=(s)=>{const prod=data.productos.find(p=>p.id===s.productoId);setForm({productoId:s.productoId,nombreProducto:prod?.nombre||"",cantidad:String(s.cantidad),minimo:String(s.minimo),fechaVenc:s.fechaVenc||"",fechaReg:s.fechaReg||""});setEditando(s);setModal(true);};
   return(
     <div>
       <div className="section">
@@ -717,15 +721,16 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
         </div>
         {soloLectura&&<div className="view-only-badge" style={{margin:"12px 16px 0"}}><Icon name="lock" size={13}/> Solo visualización</div>}
         <div className="table-wrap"><table>
-          <thead><tr><th>Producto</th><th>Cantidad</th><th>Mínimo</th><th>Vence</th><th>Estado</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
+          <thead><tr><th>Producto</th><th>F.Ingreso</th><th>F.Vencimiento</th><th>Cantidad</th><th>Mínimo</th><th>Estado</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
           <tbody>{data.stock.map(s=>{
             const prod=data.productos.find(p=>p.id===s.productoId);
             const bajo=s.cantidad<=s.minimo;
             return(<tr key={s.id}>
               <td><strong>{prod?.nombre||"—"}</strong></td>
-              <td style={{fontSize:16,fontWeight:700,color:bajo?"var(--red)":"var(--text)"}}>{s.cantidad}</td>
-              <td style={{color:"var(--muted)"}}>{s.minimo}</td>
+              <td style={{color:"var(--muted)",fontSize:11}}>{s.fechaReg||"—"}</td>
               <td>{(()=>{if(!s.fechaVenc)return<span style={{color:"var(--muted)",fontSize:11}}>—</span>;const dias=Math.ceil((new Date(s.fechaVenc)-new Date())/(1000*60*60*24));return<span style={{fontSize:11,fontWeight:600,color:dias<=7?"var(--red)":dias<=30?"var(--accent)":"var(--muted)"}}>{s.fechaVenc}{dias<=30&&<span style={{marginLeft:4,fontSize:9}}>{dias<=0?"⚠️ Vencido":dias<=7?`⚠️ ${dias}d`:`⚡ ${dias}d`}</span>}</span>;})()}</td>
+                            <td style={{fontSize:15,fontWeight:700,color:bajo?"var(--red)":"var(--text)"}}>{s.cantidad}</td>
+              <td style={{color:"var(--muted)"}}>{s.minimo}</td>
               <td><span className={`badge ${bajo?"red":s.cantidad>s.minimo*2?"green":"amber"}`}>{bajo?"Stock bajo":s.cantidad>s.minimo*2?"OK":"Moderado"}</span></td>
               {!soloLectura&&<td><div style={{display:"flex",gap:5}}>
                 <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(s)}><Icon name="edit" size={12}/> Editar</button>
@@ -744,7 +749,7 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
                <div className="form-group"><label>Cantidad en stock</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})}/></div>
                <div className="form-group"><label>Stock mínimo</label><input type="number" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})}/></div>
              </div>
-             <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div></>
+             <div className="form-row"><div className="form-group"><label>Fecha de ingreso</label><input type="date" value={form.fechaReg||""} onChange={e=>setForm({...form,fechaReg:e.target.value})}/></div><div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div></div></>
           :<><div className="form-group"><label>Producto</label>
                <select value={form.productoId} onChange={e=>setForm({...form,productoId:e.target.value})}>
                  <option value="">Seleccionar...</option>
@@ -755,7 +760,7 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
                <div className="form-group"><label>Cantidad a ingresar</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})}/></div>
                <div className="form-group"><label>Stock mínimo</label><input type="number" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})} placeholder="10"/></div>
              </div>
-             <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div></>
+             <div className="form-row"><div className="form-group"><label>Fecha de ingreso</label><input type="date" value={form.fechaReg||""} onChange={e=>setForm({...form,fechaReg:e.target.value})}/></div><div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div></div></>
         }
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Registrar"}</button></div>
       </div></div>}
