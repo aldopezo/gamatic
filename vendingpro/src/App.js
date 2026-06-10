@@ -528,7 +528,7 @@ function Productos({data,save,del,soloEditar=false}){
       <div className="section">
         <div className="section-header"><h3>Catálogo de productos</h3><button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Producto</th><th>Fecha</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Estimado</th><th>Precio venta</th><th>Precio económico</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Producto</th><th>F.Registro</th><th>F.Vencimiento</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Estimado</th><th>Precio venta</th><th>Precio económico</th><th>Acciones</th></tr></thead>
           <tbody>{data.productos.map(p=>{
             const e=(p.costo*(1+p.margen/100)).toFixed(2);
             const epId=editandoPrecioId===p.id;
@@ -536,6 +536,7 @@ function Productos({data,save,del,soloEditar=false}){
               <td><strong>{p.nombre}</strong></td>
               <td style={{color:"var(--muted)",fontSize:11}}>{p.fecha||"—"}</td>
               <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
+              <td>{(()=>{const s=data.stock.find(st=>st.productoId===p.id);if(!s?.fechaVenc)return<span style={{color:"var(--muted)",fontSize:11}}>—</span>;const dias=Math.ceil((new Date(s.fechaVenc)-new Date())/(1000*60*60*24));return<span style={{fontSize:11,fontWeight:600,color:dias<=7?"var(--red)":dias<=30?"var(--accent)":"var(--muted)"}}>{s.fechaVenc}{dias<=30&&<span style={{marginLeft:3,fontSize:9}}>{dias<=0?"⚠️ Vencido":dias<=7?`⚠️ ${dias}d`:`⚡ ${dias}d`}</span>}</span>;})()}</td>
               <td>{fmt(p.costo)}</td>
               <td><span className="badge amber">{p.margen}%</span></td>
               <td><span className="precio-estimado">S/ {e}</span></td>
@@ -692,21 +693,21 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
 // ─── STOCK ──────────────────────────────────────────────────────────────────────
 function Stock({data,save,del,soloLectura=false,esAdmin=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
-  const EF={productoId:"",cantidad:"",minimo:""};const [form,setForm]=useState(EF);
+  const EF={productoId:"",cantidad:"",minimo:"",fechaVenc:""};const [form,setForm]=useState(EF);
   const doSave=()=>{
     if(editando){
-      save("stock",editando.id,{...editando,cantidad:+form.cantidad,minimo:+form.minimo});
+      save("stock",editando.id,{...editando,cantidad:+form.cantidad,minimo:+form.minimo,fechaVenc:form.fechaVenc||null});
       const prod=data.productos.find(p=>p.id===editando.productoId);
       if(prod&&form.nombreProducto&&form.nombreProducto!==prod.nombre)save("productos",prod.id,{...prod,nombre:form.nombreProducto});
     } else {
       if(!form.productoId||!form.cantidad)return;
       const existe=data.stock.find(s=>s.productoId===form.productoId);
-      if(existe)save("stock",existe.id,{...existe,cantidad:existe.cantidad+ +form.cantidad});
-      else{const id=uid();save("stock",id,{id,productoId:form.productoId,cantidad:+form.cantidad,minimo:+form.minimo||10});}
+      if(existe)save("stock",existe.id,{...existe,cantidad:existe.cantidad+ +form.cantidad,fechaVenc:form.fechaVenc||existe.fechaVenc||null});
+      else{const id=uid();save("stock",id,{id,productoId:form.productoId,cantidad:+form.cantidad,minimo:+form.minimo||10,fechaVenc:form.fechaVenc||null});}
     }
     setModal(false);setForm(EF);setEditando(null);
   };
-  const abrirEditar=(s)=>{const prod=data.productos.find(p=>p.id===s.productoId);setForm({productoId:s.productoId,nombreProducto:prod?.nombre||"",cantidad:String(s.cantidad),minimo:String(s.minimo)});setEditando(s);setModal(true);};
+  const abrirEditar=(s)=>{const prod=data.productos.find(p=>p.id===s.productoId);setForm({productoId:s.productoId,nombreProducto:prod?.nombre||"",cantidad:String(s.cantidad),minimo:String(s.minimo),fechaVenc:s.fechaVenc||""});setEditando(s);setModal(true);};
   return(
     <div>
       <div className="section">
@@ -716,7 +717,7 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
         </div>
         {soloLectura&&<div className="view-only-badge" style={{margin:"12px 16px 0"}}><Icon name="lock" size={13}/> Solo visualización</div>}
         <div className="table-wrap"><table>
-          <thead><tr><th>Producto</th><th>Cantidad</th><th>Mínimo</th><th>Estado</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
+          <thead><tr><th>Producto</th><th>Cantidad</th><th>Mínimo</th><th>Vence</th><th>Estado</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
           <tbody>{data.stock.map(s=>{
             const prod=data.productos.find(p=>p.id===s.productoId);
             const bajo=s.cantidad<=s.minimo;
@@ -724,6 +725,7 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
               <td><strong>{prod?.nombre||"—"}</strong></td>
               <td style={{fontSize:16,fontWeight:700,color:bajo?"var(--red)":"var(--text)"}}>{s.cantidad}</td>
               <td style={{color:"var(--muted)"}}>{s.minimo}</td>
+              <td>{(()=>{if(!s.fechaVenc)return<span style={{color:"var(--muted)",fontSize:11}}>—</span>;const dias=Math.ceil((new Date(s.fechaVenc)-new Date())/(1000*60*60*24));return<span style={{fontSize:11,fontWeight:600,color:dias<=7?"var(--red)":dias<=30?"var(--accent)":"var(--muted)"}}>{s.fechaVenc}{dias<=30&&<span style={{marginLeft:4,fontSize:9}}>{dias<=0?"⚠️ Vencido":dias<=7?`⚠️ ${dias}d`:`⚡ ${dias}d`}</span>}</span>;})()}</td>
               <td><span className={`badge ${bajo?"red":s.cantidad>s.minimo*2?"green":"amber"}`}>{bajo?"Stock bajo":s.cantidad>s.minimo*2?"OK":"Moderado"}</span></td>
               {!soloLectura&&<td><div style={{display:"flex",gap:5}}>
                 <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(s)}><Icon name="edit" size={12}/> Editar</button>
@@ -741,7 +743,8 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
              <div className="form-row">
                <div className="form-group"><label>Cantidad en stock</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})}/></div>
                <div className="form-group"><label>Stock mínimo</label><input type="number" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})}/></div>
-             </div></>
+             </div>
+             <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div></>
           :<><div className="form-group"><label>Producto</label>
                <select value={form.productoId} onChange={e=>setForm({...form,productoId:e.target.value})}>
                  <option value="">Seleccionar...</option>
@@ -751,7 +754,8 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
              <div className="form-row">
                <div className="form-group"><label>Cantidad a ingresar</label><input type="number" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})}/></div>
                <div className="form-group"><label>Stock mínimo</label><input type="number" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})} placeholder="10"/></div>
-             </div></>
+             </div>
+             <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div></>
         }
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Registrar"}</button></div>
       </div></div>}
