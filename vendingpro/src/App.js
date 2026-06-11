@@ -916,7 +916,21 @@ function Ventas({data,save,del,esAdmin=false}){
   const [items,setItems]=useState([{productoId:"",cantidad:""}]);
   const [mes,setMes]=useState(mesActual());
   const [formEdit,setFormEdit]=useState({fecha:"",maquinaId:"",productoId:"",cantidad:"",ingreso:""});
+  // Modal sugerencia vinculada a venta
+  const [modalSug,setModalSug]=useState(false);
+  const [sugMaqId,setSugMaqId]=useState("");
+  const [sugMaqNombre,setSugMaqNombre]=useState("");
+  const [sugTexto,setSugTexto]=useState("");
+  const [verSug,setVerSug]=useState(null); // sugerencia a visualizar
   const maqActivas=data.maquinas.filter(m=>m.activa);
+  const abrirModalSug=(maqId,maqNombre)=>{setSugMaqId(maqId);setSugMaqNombre(maqNombre);setSugTexto("");setModalSug(true);};
+  const guardarSug=()=>{
+    if(!sugTexto.trim())return;
+    const id=uid();
+    save("sugerencias",id,{id,maquinaId:sugMaqId,mensaje:sugTexto,fecha:today()});
+    setModalSug(false);setSugTexto("");
+  };
+  const getSugDeGrupo=(g)=>data.sugerencias.filter(s=>s.maquinaId===g.maquinaId&&s.fecha===g.fecha);
   const addItem=()=>setItems(i=>[...i,{productoId:"",cantidad:""}]);
   const removeItem=idx=>setItems(i=>i.filter((_,j)=>j!==idx));
   const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>j===idx?{...r,[f]:v}:r));
@@ -931,7 +945,12 @@ function Ventas({data,save,del,esAdmin=false}){
       const id=uid();
       await save("ventas",id,{id,fecha:fechaReg,maquinaId,productoId:it.productoId,cantidad:+it.cantidad,ingreso:+(precio* +it.cantidad).toFixed(2)});
     }
-    setModal(false);setMaquinaId("");setFechaReg(today());setItems([{productoId:"",cantidad:""}]);
+    setModal(false);
+    // Guardar maquinaId para ofrecer sugerencia
+    const _maq=data.maquinas.find(m=>m.id===maquinaId);
+    setMaquinaId("");setFechaReg(today());setItems([{productoId:"",cantidad:""}]);
+    // Ofrecer sugerencia automáticamente después de registrar
+    if(_maq)abrirModalSug(_maq.id,_maq.nombre);
   };
   const abrirEditar=(v)=>{setFormEdit({fecha:v.fecha,maquinaId:v.maquinaId,productoId:v.productoId,cantidad:String(v.cantidad),ingreso:String(v.ingreso)});setEditandoVenta(v);};
   const doGuardarEdicion=()=>{
@@ -959,7 +978,7 @@ function Ventas({data,save,del,esAdmin=false}){
       <div className="section">
         <div className="section-header"><h3>Ventas — {nombreMes(mes)}</h3><button className="btn btn-primary btn-sm" onClick={()=>setModal(true)}><Icon name="plus" size={13}/> Registrar</button></div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Fecha</th><th>Máquina</th><th>Productos vendidos</th><th>Total</th>{esAdmin&&<th>Acciones</th>}</tr></thead>
+          <thead><tr><th>Fecha</th><th>Máquina</th><th>Productos vendidos</th><th>Total</th><th>Sugerencia</th></tr></thead>
           <tbody>
             {Object.values(grupos).length===0?<tr><td colSpan={esAdmin?5:4} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin ventas en {nombreMes(mes)}</td></tr>
             :Object.values(grupos).map((g,i)=>{
@@ -977,7 +996,17 @@ function Ventas({data,save,del,esAdmin=false}){
                   </div>
                 ))}</td>
                 <td style={{color:"var(--green)",fontWeight:700}}>{fmt(g.total)}</td>
-                {esAdmin&&<td></td>}
+                <td>{(()=>{
+                  const sugs=getSugDeGrupo(g);
+                  if(sugs.length===0) return(
+                    !esAdmin?<button className="btn btn-secondary btn-sm" style={{fontSize:10,gap:3}} onClick={()=>abrirModalSug(g.maquinaId,data.maquinas.find(m=>m.id===g.maquinaId)?.nombre||"")}>
+                      💡 Agregar sugerencia
+                    </button>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>
+                  );
+                  return <button className="btn btn-secondary btn-sm" style={{fontSize:10,gap:3,color:"var(--accent)"}} onClick={()=>setVerSug(sugs[0])}>
+                    💡 Ver sugerencia
+                  </button>;
+                })()}</td>
               </tr>);
             })}
           </tbody>
@@ -1018,6 +1047,33 @@ function Ventas({data,save,del,esAdmin=false}){
         {totalModal>0&&<div style={{padding:"8px 12px",background:"rgba(16,185,129,.1)",borderRadius:8,fontSize:13,color:"var(--green)",fontWeight:700,marginBottom:3}}>Total: {fmt(totalModal)}</div>}
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Registrar</button></div>
       </div></div>}
+      {/* Modal nueva sugerencia post-venta */}
+      {modalSug&&<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+        <h3>💡 Agregar sugerencia</h3>
+        <div className="edit-banner">Máquina: <strong>{sugMaqNombre}</strong></div>
+        <p style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>Puedes dejar una nota o sugerencia para esta máquina. Ejemplo: "Nos pidieron un producto nuevo".</p>
+        <div className="form-group">
+          <label>Tu sugerencia</label>
+          <textarea value={sugTexto} onChange={e=>setSugTexto(e.target.value)} placeholder="Ej: Podemos colocar Doritos, los clientes lo están pidiendo..." style={{minHeight:90,resize:"vertical"}}/>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>setModalSug(false)}>Omitir</button>
+          <button className="btn btn-primary" onClick={guardarSug}>Guardar sugerencia</button>
+        </div>
+      </div></div>}
+
+      {/* Modal ver sugerencia (admin) */}
+      {verSug&&<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+        <h3>💡 Sugerencia del abastecedor</h3>
+        <div className="edit-banner">Máquina: <strong>{data.maquinas.find(m=>m.id===verSug.maquinaId)?.nombre}</strong> — {verSug.fecha}</div>
+        <div style={{background:"var(--surface2)",borderRadius:10,padding:"14px 16px",fontSize:14,lineHeight:1.6,border:"1px solid var(--border)"}}>
+          {verSug.mensaje}
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={()=>setVerSug(null)}>Cerrar</button>
+        </div>
+      </div></div>}
+
       {editandoVenta&&<div className="modal-overlay"><div className="modal">
         <h3>Editar venta</h3>
         <div className="edit-banner">Editando venta del {editandoVenta.fecha}</div>
@@ -1689,13 +1745,12 @@ const ADMIN_NAV=[
   {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"stock",label:"Stock almacén",icon:"stock"},
   {id:"traslados",label:"Traslados",icon:"transfer"},{id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"},
-  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},{id:"sugerencias",label:"Sugerencias",icon:"suggest"},
+  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
 ];
 const ABASTECEDOR_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
   {section:"Operaciones"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"cobranzas",label:"Cobranza",icon:"money"},
   {id:"traslados",label:"Traslados",icon:"transfer"},{id:"devoluciones",label:"Devoluciones",icon:"devolver"},
-  {id:"sugerencias",label:"Sugerencias",icon:"suggest"},
   {section:"Consultas"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"preciosEco",label:"Precios económicos",icon:"pricetag"},{id:"stock",label:"Stock almacén",icon:"stock"},{id:"maquinas",label:"Mis máquinas",icon:"machine"},
 ];
 const ALMACENERO_NAV=[
@@ -1703,7 +1758,7 @@ const ALMACENERO_NAV=[
   {section:"Almacén"},{id:"stock",label:"Stock almacén",icon:"stock"},
   {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"traslados",label:"Traslados",icon:"transfer"},
-  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},{id:"sugerencias",label:"Sugerencias",icon:"suggest"},
+  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
 ];
 const TITLES={
   dashboard:"Dashboard",rentabilidad:"Rentabilidad",horario:"Horario semanal",mihorario:"Mi horario",
