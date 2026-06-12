@@ -916,48 +916,60 @@ function Ventas({data,save,del,esAdmin=false}){
   const [items,setItems]=useState([{productoId:"",cantidad:""}]);
   const [mes,setMes]=useState(mesActual());
   const [formEdit,setFormEdit]=useState({fecha:"",maquinaId:"",productoId:"",cantidad:"",ingreso:""});
-  // Modal sugerencia vinculada a venta
-  const [modalSug,setModalSug]=useState(false);
-  const [sugMaqId,setSugMaqId]=useState("");
-  const [sugMaqNombre,setSugMaqNombre]=useState("");
+  // Sugerencia: guarda la última clave "fecha__maqId" para la que se guardó sugerencia
+  const [modalSug,setModalSug]=useState(null); // {maqId, maqNombre, grupoKey}
   const [sugTexto,setSugTexto]=useState("");
-  const [verSug,setVerSug]=useState(null); // sugerencia a visualizar
+  const [verSug,setVerSug]=useState(null);
   const maqActivas=data.maquinas.filter(m=>m.activa);
-  const abrirModalSug=(maqId,maqNombre)=>{setSugMaqId(maqId);setSugMaqNombre(maqNombre);setSugTexto("");setModalSug(true);};
-  const guardarSug=()=>{
-    if(!sugTexto.trim())return;
-    const id=uid();
-    save("sugerencias",id,{id,maquinaId:sugMaqId,mensaje:sugTexto,fecha:today()});
-    setModalSug(false);setSugTexto("");
-  };
-  const getSugDeGrupo=(g)=>data.sugerencias.filter(s=>s.maquinaId===g.maquinaId&&s.fecha===g.fecha);
+
+  // Obtener sugerencias de un grupo específico: busca por maquinaId y fecha del grupo
+  const getSugsGrupo=(g)=>data.sugerencias.filter(s=>s.maquinaId===g.maquinaId&&s.fecha===g.fecha);
+
   const addItem=()=>setItems(i=>[...i,{productoId:"",cantidad:""}]);
   const removeItem=idx=>setItems(i=>i.filter((_,j)=>j!==idx));
   const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>j===idx?{...r,[f]:v}:r));
   const totalModal=items.reduce((s,it)=>{const p=data.productos.find(p=>p.id===it.productoId);return s+(p&&it.cantidad?(p.precioVenta||(p.costo*(1+p.margen/100)))* +it.cantidad:0);},0);
+
   const doSave=async()=>{
     if(!maquinaId)return;
     const valid=items.filter(it=>it.productoId&&it.cantidad);
     if(!valid.length)return;
+    const maq=data.maquinas.find(m=>m.id===maquinaId);
     for(const it of valid){
       const prod=data.productos.find(p=>p.id===it.productoId);
       const precio=prod?(prod.precioVenta||(prod.costo*(1+prod.margen/100))):0;
       const id=uid();
       await save("ventas",id,{id,fecha:fechaReg,maquinaId,productoId:it.productoId,cantidad:+it.cantidad,ingreso:+(precio* +it.cantidad).toFixed(2)});
     }
-    setModal(false);
-    // Guardar maquinaId para ofrecer sugerencia
-    const _maq=data.maquinas.find(m=>m.id===maquinaId);
-    setMaquinaId("");setFechaReg(today());setItems([{productoId:"",cantidad:""}]);
-    // Ofrecer sugerencia automáticamente después de registrar
-    if(_maq)abrirModalSug(_maq.id,_maq.nombre);
+    const fechaUsada=fechaReg;
+    const maqIdUsado=maquinaId;
+    setModal(false);setMaquinaId("");setFechaReg(today());setItems([{productoId:"",cantidad:""}]);
+    // Abrir modal de sugerencia con la fecha exacta de la venta
+    if(maq)setModalSug({maqId:maqIdUsado,maqNombre:maq.nombre,fecha:fechaUsada,grupoKey:`${fechaUsada}__${maqIdUsado}`});
+    setSugTexto("");
   };
+
+  const guardarSug=()=>{
+    if(!modalSug||!sugTexto.trim())return;
+    const id=uid();
+    // Guardar con la MISMA fecha que la venta registrada
+    save("sugerencias",id,{id,maquinaId:modalSug.maqId,mensaje:sugTexto.trim(),fecha:modalSug.fecha});
+    setModalSug(null);setSugTexto("");
+  };
+
+  const abrirSugManual=(g)=>{
+    const maq=data.maquinas.find(m=>m.id===g.maquinaId);
+    setModalSug({maqId:g.maquinaId,maqNombre:maq?.nombre||"",fecha:g.fecha,grupoKey:`${g.fecha}__${g.maquinaId}`});
+    setSugTexto("");
+  };
+
   const abrirEditar=(v)=>{setFormEdit({fecha:v.fecha,maquinaId:v.maquinaId,productoId:v.productoId,cantidad:String(v.cantidad),ingreso:String(v.ingreso)});setEditandoVenta(v);};
   const doGuardarEdicion=()=>{
     if(!editandoVenta)return;
     save("ventas",editandoVenta.id,{...editandoVenta,fecha:formEdit.fecha,maquinaId:formEdit.maquinaId,productoId:formEdit.productoId,cantidad:+formEdit.cantidad,ingreso:+formEdit.ingreso});
     setEditandoVenta(null);
   };
+
   const ventasMes=data.ventas.filter(v=>v.fecha?.startsWith(mes));
   const grupos={};
   [...ventasMes].reverse().forEach(v=>{
@@ -997,15 +1009,18 @@ function Ventas({data,save,del,esAdmin=false}){
                 ))}</td>
                 <td style={{color:"var(--green)",fontWeight:700}}>{fmt(g.total)}</td>
                 <td>{(()=>{
-                  const sugs=getSugDeGrupo(g);
-                  if(sugs.length===0) return(
-                    !esAdmin?<button className="btn btn-secondary btn-sm" style={{fontSize:10,gap:3}} onClick={()=>abrirModalSug(g.maquinaId,data.maquinas.find(m=>m.id===g.maquinaId)?.nombre||"")}>
-                      💡 Agregar sugerencia
-                    </button>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>
+                  const sugs=getSugsGrupo(g);
+                  if(sugs.length>0) return(
+                    <button onClick={()=>setVerSug(sugs[0])} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:"rgba(245,158,11,.15)",color:"var(--accent)"}}>
+                      💡 Ver sugerencia
+                    </button>
                   );
-                  return <button className="btn btn-secondary btn-sm" style={{fontSize:10,gap:3,color:"var(--accent)"}} onClick={()=>setVerSug(sugs[0])}>
-                    💡 Ver sugerencia
-                  </button>;
+                  if(esAdmin) return <span style={{color:"var(--muted)",fontSize:11}}>—</span>;
+                  return(
+                    <button onClick={()=>abrirSugManual(g)} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:8,border:"1px dashed var(--muted)",cursor:"pointer",fontSize:11,fontWeight:600,background:"transparent",color:"var(--muted)"}}>
+                      💡 Agregar sugerencia
+                    </button>
+                  );
                 })()}</td>
               </tr>);
             })}
@@ -1047,32 +1062,62 @@ function Ventas({data,save,del,esAdmin=false}){
         {totalModal>0&&<div style={{padding:"8px 12px",background:"rgba(16,185,129,.1)",borderRadius:8,fontSize:13,color:"var(--green)",fontWeight:700,marginBottom:3}}>Total: {fmt(totalModal)}</div>}
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Registrar</button></div>
       </div></div>}
-      {/* Modal nueva sugerencia post-venta */}
-      {modalSug&&<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
-        <h3>💡 Agregar sugerencia</h3>
-        <div className="edit-banner">Máquina: <strong>{sugMaqNombre}</strong></div>
-        <p style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>Puedes dejar una nota o sugerencia para esta máquina. Ejemplo: "Nos pidieron un producto nuevo".</p>
-        <div className="form-group">
-          <label>Tu sugerencia</label>
-          <textarea value={sugTexto} onChange={e=>setSugTexto(e.target.value)} placeholder="Ej: Podemos colocar Doritos, los clientes lo están pidiendo..." style={{minHeight:90,resize:"vertical"}}/>
+      {/* ── Modal nueva sugerencia ── */}
+      {modalSug&&<div className="modal-overlay">
+        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:16,padding:"24px 22px",width:"90%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
+          {/* Header */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+            <div style={{width:38,height:38,borderRadius:10,background:"rgba(245,158,11,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💡</div>
+            <div>
+              <div style={{fontSize:15,fontWeight:700}}>Agregar sugerencia</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>Máquina: <strong style={{color:"var(--accent)"}}>{modalSug.maqNombre}</strong></div>
+            </div>
+          </div>
+          {/* Textarea */}
+          <div className="form-group" style={{marginBottom:16}}>
+            <label style={{fontSize:11,fontWeight:600,color:"var(--muted)",letterSpacing:".05em",textTransform:"uppercase",display:"block",marginBottom:6}}>Tu sugerencia o comentario</label>
+            <textarea
+              autoFocus
+              value={sugTexto}
+              onChange={e=>setSugTexto(e.target.value)}
+              placeholder="Ej: Los clientes piden Doritos, podemos colocar uno nuevo..."
+              style={{width:"100%",padding:"10px 13px",background:"var(--surface2)",border:`1px solid ${sugTexto.trim()?"var(--accent)":"var(--border)"}`,borderRadius:9,color:"var(--text)",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",minHeight:100,resize:"vertical",transition:"border-color .15s"}}
+            />
+          </div>
+          {/* Actions */}
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <button onClick={()=>setModalSug(null)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--muted)",cursor:"pointer",fontSize:13,fontWeight:600}}>
+              Omitir
+            </button>
+            <button onClick={guardarSug} style={{padding:"8px 20px",borderRadius:8,border:"none",background:sugTexto.trim()?"var(--accent)":"var(--border)",color:sugTexto.trim()?"#000":"var(--muted)",cursor:sugTexto.trim()?"pointer":"default",fontSize:13,fontWeight:700,transition:"all .15s"}}>
+              Guardar sugerencia
+            </button>
+          </div>
         </div>
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={()=>setModalSug(false)}>Omitir</button>
-          <button className="btn btn-primary" onClick={guardarSug}>Guardar sugerencia</button>
-        </div>
-      </div></div>}
+      </div>}
 
-      {/* Modal ver sugerencia (admin) */}
-      {verSug&&<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
-        <h3>💡 Sugerencia del abastecedor</h3>
-        <div className="edit-banner">Máquina: <strong>{data.maquinas.find(m=>m.id===verSug.maquinaId)?.nombre}</strong> — {verSug.fecha}</div>
-        <div style={{background:"var(--surface2)",borderRadius:10,padding:"14px 16px",fontSize:14,lineHeight:1.6,border:"1px solid var(--border)"}}>
-          {verSug.mensaje}
+      {/* ── Modal ver sugerencia (admin) ── */}
+      {verSug&&<div className="modal-overlay">
+        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:16,padding:"24px 22px",width:"90%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+            <div style={{width:38,height:38,borderRadius:10,background:"rgba(245,158,11,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💡</div>
+            <div>
+              <div style={{fontSize:15,fontWeight:700}}>Sugerencia del abastecedor</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>
+                <strong style={{color:"var(--accent)"}}>{data.maquinas.find(m=>m.id===verSug.maquinaId)?.nombre}</strong> — {verSug.fecha}
+              </div>
+            </div>
+          </div>
+          <div style={{background:"var(--surface2)",borderRadius:10,padding:"14px 16px",fontSize:14,lineHeight:1.7,border:"1px solid var(--border)",color:"var(--text)",marginBottom:16}}>
+            {verSug.mensaje}
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end"}}>
+            <button onClick={()=>setVerSug(null)} style={{padding:"8px 20px",borderRadius:8,border:"none",background:"var(--accent)",color:"#000",cursor:"pointer",fontSize:13,fontWeight:700}}>
+              Cerrar
+            </button>
+          </div>
         </div>
-        <div className="modal-actions">
-          <button className="btn btn-primary" onClick={()=>setVerSug(null)}>Cerrar</button>
-        </div>
-      </div></div>}
+      </div>}
 
       {editandoVenta&&<div className="modal-overlay"><div className="modal">
         <h3>Editar venta</h3>
