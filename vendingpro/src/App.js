@@ -25,7 +25,7 @@ const SEED={
     s2:{id:"s2",productoId:"p2",cantidad:60,minimo:15},
     s3:{id:"s3",productoId:"p3",cantidad:35,minimo:8},
   },
-  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},productosEco:{},
+  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},stockMaquina:{},sencillo:{},tickets:{},usuarios:{},productosEco:{},
   horario:{lunes:{maquinas:[]},martes:{maquinas:[]},miercoles:{maquinas:[]},jueves:{maquinas:[]},viernes:{maquinas:[]},sabado:{maquinas:[]},domingo:{maquinas:[]}},
 };
 
@@ -67,6 +67,13 @@ const Icon=({name,size=18})=>{
     suggest:"M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
     return2:"M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 2 2 2-2 2 2 2-2 4 2z",
     pricetag:"M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z",
+    layers:"M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
+    coin:"M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+    wrench:"M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
+    trophy:"M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
+    kit:"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
+    users:"M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
+    shield:"M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z",
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]}/></svg>;
 };
@@ -245,7 +252,8 @@ function useFirebase(){
         maquinas:objToArr(val.maquinas),stock:objToArr(val.stock),
         traslados:objToArr(val.traslados),ventas:objToArr(val.ventas),
         cobranzas:objToArr(val.cobranzas),gastos:objToArr(val.gastos||{}),
-        sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),
+        sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),stockMaquina:objToArr(val.stockMaquina||{}),sencillo:objToArr(val.sencillo||{}),
+        usuarios:objToArr(val.usuarios||{}),
         productosEco:objToArr(val.productosEco||{}),
         horario:val.horario||SEED.horario,
       });
@@ -287,20 +295,75 @@ function ConfirmDelete({texto,onConfirm,onCancel}){
   );
 }
 
+// ─── SEARCH BAR ──────────────────────────────────────────────────────────────────
+function SearchBar({value,onChange,placeholder="Buscar..."}){
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:9,padding:"7px 12px",marginBottom:14}}>
+      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input
+        value={value} onChange={e=>onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{background:"none",border:"none",outline:"none",color:"var(--text)",fontSize:13,width:"100%",fontFamily:"'DM Sans',sans-serif"}}
+      />
+      {value&&<button onClick={()=>onChange("")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:16,padding:0,lineHeight:1}}>✕</button>}
+    </div>
+  );
+}
+
+
+// ─── DEFINICIÓN DE MÓDULOS POR ROL ────────────────────────────────────────────
+// Todos los módulos disponibles para asignar a usuarios
+const MODULOS_ABASTECEDOR=[
+  {id:"mihorario",label:"Mi horario",icon:"calendar",section:"Mi semana"},
+  {id:"traslados",label:"Traslados",icon:"transfer",section:"Operaciones"},
+  {id:"stockMaquina",label:"Stock por máquina",icon:"layers",section:"Operaciones"},
+  {id:"ventas",label:"Ventas del día",icon:"chart",section:"Operaciones"},
+  {id:"cobranzas",label:"Cobranza",icon:"money",section:"Operaciones"},
+  {id:"devoluciones",label:"Devoluciones",icon:"devolver",section:"Operaciones"},
+  {id:"sencillo",label:"Control de sencillo",icon:"coin",section:"Operaciones"},
+  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench",section:"Operaciones"},
+  {id:"prekit",label:"Pre-Kit reposición",icon:"kit",section:"Análisis"},
+  {id:"precios",label:"Lista de precios",icon:"tag",section:"Consultas"},
+  {id:"preciosEco",label:"Precios económicos",icon:"pricetag",section:"Consultas"},
+  {id:"stock",label:"Stock almacén",icon:"stock",section:"Consultas"},
+  {id:"maquinas",label:"Mis máquinas",icon:"machine",section:"Consultas"},
+];
+const MODULOS_ALMACENERO=[
+  {id:"mihorario",label:"Mi horario",icon:"calendar",section:"Mi semana"},
+  {id:"stock",label:"Stock almacén",icon:"stock",section:"Almacén"},
+  {id:"productos",label:"Productos",icon:"product",section:"Catálogo"},
+  {id:"proveedores",label:"Proveedores",icon:"supplier",section:"Catálogo"},
+  {id:"maquinas",label:"Máquinas",icon:"machine",section:"Operaciones"},
+  {id:"traslados",label:"Traslados",icon:"transfer",section:"Operaciones"},
+  {id:"devoluciones",label:"Devoluciones",icon:"devolver",section:"Operaciones"},
+];
+// Módulos por defecto según rol
+const MODULOS_DEFAULT={
+  abastecedor:["mihorario","traslados","stockMaquina","ventas","cobranzas","devoluciones","sencillo","tickets","prekit","precios","preciosEco","stock","maquinas"],
+  almacenero:["mihorario","stock","productos","proveedores","maquinas","traslados","devoluciones"],
+};
+
 // ─── LOGIN ──────────────────────────────────────────────────────────────────────
-function LoginScreen({onLogin}){
+function LoginScreen({onLogin,usuarios=[]}){
+  const [modo,setModo]=useState("rol");
   const [role,setRole]=useState("admin");
   const [clave,setClave]=useState("");
   const [error,setError]=useState("");
+  const [nombreInput,setNombreInput]=useState("");
   const ROLES=[
     ["admin","🔐","Administrador","Gestión total"],
     ["abastecedor","🔧","Abastecedor","Operaciones de campo"],
     ["almacenero","🏭","Almacenero","Gestión de almacén"],
   ];
-  const intentar=()=>{
+  const intentarRol=()=>{
     const req=CLAVES[role];
     if(req&&clave!==req){setError("Clave incorrecta");return;}
-    setError("");onLogin(role);
+    setError("");onLogin({tipo:"rol",role});
+  };
+  const intentarUsuario=()=>{
+    const u=usuarios.find(u=>u.nombre.toLowerCase()===nombreInput.toLowerCase()&&u.clave===clave&&u.activo!==false);
+    if(!u){setError("Usuario o contraseña incorrectos");return;}
+    setError("");onLogin({tipo:"usuario",role:u.rol,usuario:u});
   };
   return(
     <div className="login-screen">
@@ -309,30 +372,53 @@ function LoginScreen({onLogin}){
           <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo/></div>
           <p>Sistema de gestión de máquinas expendedoras</p>
         </div>
-        <p style={{fontSize:12,color:"var(--muted)",marginBottom:14}}>Selecciona tu perfil:</p>
-        <div className="role-grid">
-          {ROLES.map(([r,ico,lbl,sub])=>(
-            <div key={r} className={`role-card ${role===r?"selected":""}`} onClick={()=>{setRole(r);setClave("");setError("");}}>
-              <span className="role-icon">{ico}</span>
-              <h4>{lbl}</h4>
-              <p>{sub}</p>
-            </div>
+        {/* Toggle modo */}
+        <div style={{display:"flex",gap:4,background:"var(--surface2)",borderRadius:10,padding:4,marginBottom:20}}>
+          {[["rol","Perfil general"],["usuario","Usuario personal"]].map(([m,l])=>(
+            <button key={m} onClick={()=>{setModo(m);setClave("");setNombreInput("");setError("");}}
+              style={{flex:1,padding:"7px",borderRadius:7,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:modo===m?"var(--accent)":"transparent",color:modo===m?"#000":"var(--muted)",transition:"all .15s"}}>
+              {l}
+            </button>
           ))}
         </div>
-        {CLAVES[role]&&(
-          <div className="form-group" style={{marginBottom:14}}>
-            <label>Clave de acceso</label>
-            <input type="password" value={clave} onChange={e=>{setClave(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentar()} placeholder="Ingresa la clave..." autoFocus/>
+        {modo==="rol"&&(<>
+          <p style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>Selecciona tu perfil:</p>
+          <div className="role-grid">
+            {ROLES.map(([r,ico,lbl,sub])=>(
+              <div key={r} className={`role-card ${role===r?"selected":""}`} onClick={()=>{setRole(r);setClave("");setError("");}}>
+                <span className="role-icon">{ico}</span><h4>{lbl}</h4><p>{sub}</p>
+              </div>
+            ))}
+          </div>
+          {CLAVES[role]&&(
+            <div className="form-group" style={{marginBottom:14}}>
+              <label>Clave de acceso</label>
+              <input type="password" value={clave} onChange={e=>{setClave(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentarRol()} placeholder="Ingresa la clave..." autoFocus/>
+              {error&&<div style={{color:"var(--red)",fontSize:12,marginTop:5}}>⚠️ {error}</div>}
+            </div>
+          )}
+          <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={intentarRol}>
+            <Icon name="lock" size={15}/>Ingresar
+          </button>
+        </>)}
+        {modo==="usuario"&&(<>
+          <div className="form-group"><label>Nombre de usuario</label>
+            <input value={nombreInput} onChange={e=>{setNombreInput(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentarUsuario()} placeholder="Tu nombre" autoFocus/>
+          </div>
+          <div className="form-group" style={{marginBottom:14}}><label>Contraseña</label>
+            <input type="password" value={clave} onChange={e=>{setClave(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentarUsuario()} placeholder="Tu contraseña"/>
             {error&&<div style={{color:"var(--red)",fontSize:12,marginTop:5}}>⚠️ {error}</div>}
           </div>
-        )}
-        <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={intentar}>
-          <Icon name="lock" size={15}/>Ingresar
-        </button>
+          <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={intentarUsuario}>
+            <Icon name="lock" size={15}/>Ingresar
+          </button>
+          {usuarios.filter(u=>u.activo!==false).length===0&&<div style={{textAlign:"center",fontSize:11,color:"var(--muted)",marginTop:12}}>El administrador aún no ha creado usuarios.</div>}
+        </>)}
       </div>
     </div>
   );
 }
+
 
 // ─── DASHBOARD con filtro por máquina ──────────────────────────────────────────
 function Dashboard({data}){
@@ -505,6 +591,8 @@ function GastosAdicionales({data,save,del}){
 
 // ─── PRODUCTOS ────────────────────────────────────────────────────────────────
 function Productos({data,save,del,soloEditar=false}){
+  const [busqueda,setBusqueda]=useState("");
+  const productosFiltrados=data.productos.filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.proveedor?.toLowerCase().includes(busqueda.toLowerCase()));
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [precioEdit,setPrecioEdit]=useState("");
@@ -532,7 +620,7 @@ function Productos({data,save,del,soloEditar=false}){
         <div className="section-header"><h3>Catálogo de productos</h3><button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap"><table>
           <thead><tr><th>Producto</th><th>F.Registro</th><th>F.Vencimiento</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Estimado</th><th>Precio venta</th><th>Precio económico</th><th>Acciones</th></tr></thead>
-          <tbody>{data.productos.map(p=>{
+          <tbody>{productosFiltrados.map(p=>{
             const e=(p.costo*(1+p.margen/100)).toFixed(2);
             const epId=editandoPrecioId===p.id;
             return(<tr key={p.id}>
@@ -592,11 +680,15 @@ function Productos({data,save,del,soloEditar=false}){
 }
 
 function ListaPrecios({data}){
-  return(<div><div className="info-box">Precios de venta que debes cobrar al cargar las máquinas.</div><div className="section"><div className="section-header"><h3>Precios de venta</h3></div><div className="table-wrap"><table><thead><tr><th>Producto</th><th>Proveedor</th><th>Precio de venta</th></tr></thead><tbody>{data.productos.map(p=>(<tr key={p.id}><td><strong>{p.nombre}</strong></td><td style={{color:"var(--muted)"}}>{p.proveedor}</td><td><span className="precio-real">{fmt(p.precioVenta||(p.costo*(1+p.margen/100)))}</span></td></tr>))}</tbody></table></div></div></div>);
+  const [busqueda,setBusqueda]=useState("");
+  const pfiltrados=data.productos.filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase()));
+  return(<div><div className="info-box">Precios de venta que debes cobrar al cargar las máquinas.</div><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto..."/><div className="section"><div className="section-header"><h3>Precios de venta</h3></div><div className="table-wrap"><table><thead><tr><th>Producto</th><th>Proveedor</th><th>Precio de venta</th></tr></thead><tbody>{pfiltrados.map(p=>(<tr key={p.id}><td><strong>{p.nombre}</strong></td><td style={{color:"var(--muted)"}}>{p.proveedor}</td><td><span className="precio-real">{fmt(p.precioVenta||(p.costo*(1+p.margen/100)))}</span></td></tr>))}</tbody></table></div></div></div>);
 }
 
 // ─── PROVEEDORES ─────────────────────────────────────────────────────────────────
 function Proveedores({data,save,del,soloEditar=false}){
+  const [busqueda,setBusqueda]=useState("");
+  const provFiltrados=data.proveedores.filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.contacto?.toLowerCase().includes(busqueda.toLowerCase()));
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
   const EF={nombre:"",contacto:"",telefono:""};const [form,setForm]=useState(EF);
   const doSave=()=>{
@@ -606,12 +698,13 @@ function Proveedores({data,save,del,soloEditar=false}){
     setModal(false);setForm(EF);setEditando(null);
   };
   return(
-    <div>
+    <div><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar proveedor..."/>
+  
       <div className="section">
         <div className="section-header"><h3>Proveedores</h3><button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap"><table>
           <thead><tr><th>Empresa</th><th>Contacto</th><th>Teléfono</th><th>Productos</th><th>Acciones</th></tr></thead>
-          <tbody>{data.proveedores.map(p=>(<tr key={p.id}>
+          <tbody>{provFiltrados.map(p=>(<tr key={p.id}>
             <td><strong>{p.nombre}</strong></td><td>{p.contacto}</td><td style={{color:"var(--muted)"}}>{p.telefono}</td>
             <td><span className="badge blue">{data.productos.filter(pr=>pr.proveedor===p.nombre).length}</span></td>
             <td><div style={{display:"flex",gap:5}}>
@@ -696,6 +789,8 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
 
 // ─── STOCK ──────────────────────────────────────────────────────────────────────
 function Stock({data,save,del,soloLectura=false,esAdmin=false}){
+  const [busqueda,setBusqueda]=useState("");
+  const stockFiltrado=data.stock.filter(s=>{const p=data.productos.find(p=>p.id===s.productoId);return !busqueda||p?.nombre.toLowerCase().includes(busqueda.toLowerCase());});
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
   const EF={productoId:"",cantidad:"",minimo:"",fechaVenc:"",fechaReg:""};const [form,setForm]=useState(EF);
   const doSave=()=>{
@@ -720,9 +815,10 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
           {!soloLectura&&<button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Entrada</button>}
         </div>
         {soloLectura&&<div className="view-only-badge" style={{margin:"12px 16px 0"}}><Icon name="lock" size={13}/> Solo visualización</div>}
+        <div style={{padding:"0 16px 12px"}}><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto en stock..."/></div>
         <div className="table-wrap"><table>
           <thead><tr><th>Producto</th><th>F.Ingreso</th><th>F.Vencimiento</th><th>Cantidad</th><th>Mínimo</th><th>Estado</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
-          <tbody>{data.stock.map(s=>{
+          <tbody>{stockFiltrado.map(s=>{
             const prod=data.productos.find(p=>p.id===s.productoId);
             const bajo=s.cantidad<=s.minimo;
             return(<tr key={s.id}>
@@ -1146,56 +1242,114 @@ function Ventas({data,save,del,esAdmin=false}){
   );
 }
 
-// ─── COBRANZAS con fecha y borrado ───────────────────────────────────────────
+// ─── COBRANZAS con check y comentario ────────────────────────────────────────
 function Cobranzas({data,save,del,usuario,esAdmin=false}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
-  const [form,setForm]=useState({maquinaId:"",monto:"",fecha:today()});
+  const [form,setForm]=useState({maquinaId:"",monto:"",fecha:today(),sencillo:false,montoSencillo:""});
   const [formEdit,setFormEdit]=useState({fecha:"",maquinaId:"",monto:""});
   const [mes,setMes]=useState(mesActual());
+  // Comentario modal
+  const [modalCom,setModalCom]=useState(null); // {cobId, maqNombre, fecha}
+  const [comTexto,setComTexto]=useState("");
+  const [verCom,setVerCom]=useState(null);
   const maqActivas=data.maquinas.filter(m=>m.activa);
+
   const doSave=()=>{
     if(!form.maquinaId||!form.monto)return;
     const id=uid();
-    save("cobranzas",id,{id,fecha:form.fecha,maquinaId:form.maquinaId,monto:+form.monto,responsable:usuario});
-    setModal(false);setForm({maquinaId:"",monto:"",fecha:today()});
+    save("cobranzas",id,{id,fecha:form.fecha,maquinaId:form.maquinaId,monto:+form.monto,responsable:usuario,verificado:false,comentarioId:null,sencillo:form.sencillo?+form.montoSencillo||0:0});
+    setModal(false);setForm({maquinaId:"",monto:"",fecha:today(),sencillo:false,montoSencillo:""});
   };
-  const abrirEditar=(c)=>{setFormEdit({fecha:c.fecha,maquinaId:c.maquinaId,monto:String(c.monto)});setEditando(c);};
+  const toggleVerificado=(cob)=>save("cobranzas",cob.id,{...cob,verificado:!cob.verificado});
+  const abrirEditar=(cob)=>{setFormEdit({fecha:cob.fecha,maquinaId:cob.maquinaId,monto:String(cob.monto)});setEditando(cob);};
   const doGuardarEdicion=()=>{
     if(!editando)return;
     save("cobranzas",editando.id,{...editando,fecha:formEdit.fecha,maquinaId:formEdit.maquinaId,monto:+formEdit.monto});
     setEditando(null);
   };
+  const abrirModalCom=(cob,maqNombre)=>{
+    const comExistente=data.sugerencias.find(s=>s.cobId===cob.id);
+    setComTexto(comExistente?.mensaje||"");
+    setModalCom({cobId:cob.id,maqNombre,fecha:cob.fecha,existente:comExistente||null});
+  };
+  const guardarCom=()=>{
+    if(!modalCom||!comTexto.trim())return;
+    if(modalCom.existente){
+      save("sugerencias",modalCom.existente.id,{...modalCom.existente,mensaje:comTexto.trim()});
+    } else {
+      const id=uid();
+      save("sugerencias",id,{id,cobId:modalCom.cobId,maquinaId:null,mensaje:comTexto.trim(),fecha:modalCom.fecha,tipo:"cobranza"});
+    }
+    setModalCom(null);setComTexto("");
+  };
+  const getComCob=(cobId)=>data.sugerencias.find(s=>s.cobId===cobId);
+
   const cobranzasMes=data.cobranzas.filter(c=>c.fecha?.startsWith(mes));
   const totalMes=cobranzasMes.reduce((s,c)=>s+(c.monto||0),0);
+  const totalVerificado=cobranzasMes.filter(c=>c.verificado).reduce((s,c)=>s+(c.monto||0),0);
+  const totalSencillo=cobranzasMes.reduce((s,c)=>s+(c.sencillo||0),0);
+
+  const BtnCom=({cob,maqNombre})=>{
+    const com=getComCob(cob.id);
+    return com
+      ?<button onClick={()=>setVerCom(com)} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:7,border:"none",cursor:"pointer",fontSize:10,fontWeight:600,background:"rgba(245,158,11,.15)",color:"var(--accent)"}}>💬 Ver</button>
+      :<button onClick={()=>abrirModalCom(cob,maqNombre)} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:7,border:"1px dashed var(--muted)",cursor:"pointer",fontSize:10,fontWeight:600,background:"transparent",color:"var(--muted)"}}>💬 Comentar</button>;
+  };
+
   return(
     <div>
       <MesNav mes={mes} setMes={setMes}/>
-      <div className="cards"><div className="card"><div className="card-label">Total {nombreMes(mes)}</div><div className="card-value green">{fmt(totalMes)}</div><div className="card-sub">{cobranzasMes.length} visitas</div></div></div>
+      <div className="cards">
+        <div className="card"><div className="card-label">Total {nombreMes(mes)}</div><div className="card-value green">{fmt(totalMes)}</div><div className="card-sub">{cobranzasMes.length} registros</div></div>
+        <div className="card"><div className="card-label">Verificado</div><div className="card-value green">{fmt(totalVerificado)}</div><div className="card-sub">{cobranzasMes.filter(c=>c.verificado).length} confirmados</div></div>
+        <div className="card"><div className="card-label">Pendiente</div><div className="card-value amber">{fmt(totalMes-totalVerificado)}</div><div className="card-sub">{cobranzasMes.filter(c=>!c.verificado).length} por verificar</div></div>
+        <div className="card"><div className="card-label">Sencillo entregado</div><div className="card-value blue">{fmt(totalSencillo)}</div><div className="card-sub">{cobranzasMes.filter(c=>c.sencillo>0).length} con sencillo</div></div>
+      </div>
       <div className="section">
         <div className="section-header"><h3>Cobranza — {nombreMes(mes)}</h3><button className="btn btn-primary btn-sm" onClick={()=>setModal(true)}><Icon name="plus" size={13}/> Registrar</button></div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Fecha</th><th>Máquina</th><th>Ubicación</th><th>Monto</th><th>Responsable</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Máquina</th><th>Ubicación</th><th>Monto cobrado</th><th>Sencillo</th><th>Responsable</th><th>Estado</th><th>Comentario</th><th>Acciones</th></tr></thead>
           <tbody>
-            {cobranzasMes.length===0?<tr><td colSpan={6} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin cobranzas en {nombreMes(mes)}</td></tr>
-            :[...cobranzasMes].reverse().map(c=>{
-              const maq=data.maquinas.find(m=>m.id===c.maquinaId);
-              return(<tr key={c.id}>
-                <td style={{color:"var(--muted)"}}>{c.fecha}</td>
+            {cobranzasMes.length===0?<tr><td colSpan={9} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin cobranzas en {nombreMes(mes)}</td></tr>
+            :[...cobranzasMes].reverse().map(cob=>{
+              const maq=data.maquinas.find(m=>m.id===cob.maquinaId);
+              const verificado=!!cob.verificado;
+              return(<tr key={cob.id}>
+                <td style={{color:"var(--muted)"}}>{cob.fecha}</td>
                 <td><strong>{maq?.nombre}</strong></td>
                 <td style={{color:"var(--muted)",fontSize:11}}>{maq?.ubicacion}</td>
-                <td style={{color:"var(--green)",fontWeight:700}}>{fmt(c.monto)}</td>
-                <td style={{color:"var(--muted)"}}>{c.responsable}</td>
+                <td style={{color:"var(--green)",fontWeight:700}}>{fmt(cob.monto)}</td>
+                <td>{cob.sencillo>0
+                  ?<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700,background:"rgba(59,130,246,.15)",color:"var(--accent2)"}}>💵 {fmt(cob.sencillo)}</span>
+                  :<span style={{color:"var(--muted)",fontSize:11}}>—</span>
+                }</td>
+                <td style={{color:"var(--muted)"}}>{cob.responsable}</td>
+                <td>
+                  {esAdmin
+                    ?<button
+                        onClick={()=>toggleVerificado(cob)}
+                        style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:10,fontWeight:700,userSelect:"none",transition:"all .2s",background:verificado?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:verificado?"var(--green)":"var(--accent)"}}>
+                        {verificado?"✅ Correcto":"⏳ Pendiente"}
+                      </button>
+                    :<span style={{...{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:20,fontSize:10,fontWeight:700},background:verificado?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:verificado?"var(--green)":"var(--accent)"}}>
+                        {verificado?"✅ Correcto":"⏳ Pendiente"}
+                      </span>
+                  }
+                </td>
+                <td><BtnCom cob={cob} maqNombre={maq?.nombre||""}/></td>
                 <td><div style={{display:"flex",gap:5}}>
-                  <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(c)}><Icon name="edit" size={12}/></button>
-                  {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(c)}><Icon name="trash" size={12}/></button>}
+                  <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(cob)}><Icon name="edit" size={12}/></button>
+                  {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(cob)}><Icon name="trash" size={12}/></button>}
                 </div></td>
               </tr>);
             })}
           </tbody>
         </table></div>
       </div>
+
+      {/* Modal registrar */}
       {modal&&<div className="modal-overlay"><div className="modal">
         <h3>Registrar dinero recogido</h3>
         <div className="form-row">
@@ -1208,8 +1362,27 @@ function Cobranzas({data,save,del,usuario,esAdmin=false}){
           <div className="form-group"><label>Fecha de cobranza</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
         </div>
         <div className="form-group"><label>Monto recogido (S/)</label><input type="number" step="0.01" value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})}/></div>
+        {/* Sencillo */}
+        <div style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:9,padding:"12px 14px",marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:form.sencillo?10:0}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:600}}>💵 ¿Se entrega sencillo/cambio?</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Dinero que se da al abastecedor para el cambio de las máquinas</div>
+            </div>
+            <div onClick={()=>setForm({...form,sencillo:!form.sencillo,montoSencillo:""})}
+              style={{width:44,height:24,borderRadius:20,background:form.sencillo?"var(--accent)":"var(--border)",cursor:"pointer",position:"relative",transition:"background .2s",flexShrink:0}}>
+              <div style={{width:18,height:18,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:form.sencillo?23:3,transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,.3)"}}/>
+            </div>
+          </div>
+          {form.sencillo&&<div className="form-group" style={{marginBottom:0,marginTop:8}}>
+            <label>Monto de sencillo entregado (S/)</label>
+            <input autoFocus type="number" step="0.50" value={form.montoSencillo} onChange={e=>setForm({...form,montoSencillo:e.target.value})} placeholder="Ej: 20.00"/>
+          </div>}
+        </div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Registrar</button></div>
       </div></div>}
+
+      {/* Modal editar */}
       {editando&&<div className="modal-overlay"><div className="modal">
         <h3>Editar cobranza</h3>
         <div className="edit-banner">Editando cobranza del {editando.fecha}</div>
@@ -1224,6 +1397,47 @@ function Cobranzas({data,save,del,usuario,esAdmin=false}){
         <div className="form-group"><label>Monto (S/)</label><input type="number" step="0.01" value={formEdit.monto} onChange={e=>setFormEdit({...formEdit,monto:e.target.value})}/></div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEditando(null)}>Cancelar</button><button className="btn btn-primary" onClick={doGuardarEdicion}>Guardar cambios</button></div>
       </div></div>}
+
+      {/* Modal comentario */}
+      {modalCom&&<div className="modal-overlay">
+        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:16,padding:"24px 22px",width:"90%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+            <div style={{width:38,height:38,borderRadius:10,background:"rgba(59,130,246,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💬</div>
+            <div>
+              <div style={{fontSize:15,fontWeight:700}}>Comentario de cobranza</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>Máquina: <strong style={{color:"var(--accent)"}}>{modalCom.maqNombre}</strong> — {modalCom.fecha}</div>
+            </div>
+          </div>
+          <div className="form-group" style={{marginBottom:16}}>
+            <label style={{fontSize:11,fontWeight:600,color:"var(--muted)",letterSpacing:".05em",textTransform:"uppercase",display:"block",marginBottom:6}}>Nota sobre este dinero</label>
+            <textarea autoFocus value={comTexto} onChange={e=>setComTexto(e.target.value)}
+              placeholder="Ej: Se usaron S/20 para pagar pasaje, entrego S/80 de S/100..."
+              style={{width:"100%",padding:"10px 13px",background:"var(--surface2)",border:`1px solid ${comTexto.trim()?"var(--accent2)":"var(--border)"}`,borderRadius:9,color:"var(--text)",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",minHeight:90,resize:"vertical",transition:"border-color .15s"}}/>
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <button onClick={()=>setModalCom(null)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--muted)",cursor:"pointer",fontSize:13,fontWeight:600}}>Cancelar</button>
+            <button onClick={guardarCom} style={{padding:"8px 20px",borderRadius:8,border:"none",background:comTexto.trim()?"var(--accent2)":"var(--border)",color:comTexto.trim()?"#fff":"var(--muted)",cursor:comTexto.trim()?"pointer":"default",fontSize:13,fontWeight:700,transition:"all .15s"}}>
+              {modalCom.existente?"Actualizar":"Guardar comentario"}
+            </button>
+          </div>
+        </div>
+      </div>}
+
+      {/* Modal ver comentario */}
+      {verCom&&<div className="modal-overlay">
+        <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:16,padding:"24px 22px",width:"90%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+            <div style={{width:38,height:38,borderRadius:10,background:"rgba(59,130,246,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💬</div>
+            <div><div style={{fontSize:15,fontWeight:700}}>Comentario de cobranza</div><div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>{verCom.fecha}</div></div>
+          </div>
+          <div style={{background:"var(--surface2)",borderRadius:10,padding:"14px 16px",fontSize:14,lineHeight:1.7,border:"1px solid var(--border)",color:"var(--text)",marginBottom:16}}>{verCom.mensaje}</div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button onClick={()=>{setVerCom(null);setModalCom({cobId:verCom.cobId,maqNombre:"",fecha:verCom.fecha,existente:verCom});setComTexto(verCom.mensaje);}} style={{padding:"8px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--text)",cursor:"pointer",fontSize:13,fontWeight:600}}>Editar</button>
+            <button onClick={()=>setVerCom(null)} style={{padding:"8px 20px",borderRadius:8,border:"none",background:"var(--accent2)",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Cerrar</button>
+          </div>
+        </div>
+      </div>}
+
       {confirmDel&&<ConfirmDelete texto={`¿Eliminar la cobranza del ${confirmDel.fecha} de ${fmt(confirmDel.monto)}?`} onConfirm={()=>{del("cobranzas",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
@@ -1758,17 +1972,20 @@ function ProductosEco({data,save,del}){
 }
 
 function ListaPreciosEco({data}){
+  const [busqueda,setBusqueda]=useState("");
+  const conEco2=data.productos.filter(p=>p.precioEco&&(!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())));
   return(
     <div>
-      <div className="info-box">Lista de precios económicos — todos los productos con su precio reducido configurado.</div>
+      <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto económico..."/>
+    <div className="info-box">Lista de precios económicos — todos los productos con su precio reducido configurado.</div>
       <div className="section">
         <div className="section-header"><h3>Lista de precios económica</h3></div>
         <div className="table-wrap"><table>
           <thead><tr><th>Producto</th><th>Proveedor</th><th>Precio económico</th></tr></thead>
           <tbody>
-            {data.productos.filter(p=>p.precioEco).length===0
+            {conEco2.length===0
               ?<tr><td colSpan={3} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin precios económicos. El administrador puede agregarlos en Productos.</td></tr>
-              :data.productos.filter(p=>p.precioEco).map(p=>(
+              :conEco2.map(p=>(
                 <tr key={p.id}>
                   <td><strong>{p.nombre}</strong></td>
                   <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
@@ -1783,19 +2000,990 @@ function ListaPreciosEco({data}){
   );
 }
 
+
+// ─── STOCK POR MÁQUINA ──────────────────────────────────────────────────────────
+// Lógica:
+//   Ventas calculadas = StockAnterior (residuo) + TrasladosDía - StockActual (después de abastecer)
+//   El abastecedor registra: máquina, fecha, producto, residuo (antes), cantidad traslado, stock final (después)
+
+function StockMaquina({data,save,del,soloLectura=false}){
+  const [modal,setModal]=useState(false);
+  const [maqId,setMaqId]=useState("");
+  const [fecha,setFecha]=useState(today());
+  const [filas,setFilas]=useState([]); // [{productoId, residuo, traslado, stockFinal}]
+  const [verDetalle,setVerDetalle]=useState(null); // registro a visualizar
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [mes,setMes]=useState(mesActual());
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+
+  const abrirModal=(maq)=>{
+    setMaqId(maq?maq.id:"");
+    setFecha(today());
+    // Pre-cargar todos los productos como filas vacías
+    setFilas(data.productos.map(p=>({productoId:p.id,residuo:"",traslado:"",stockFinal:""})));
+    setModal(true);
+  };
+
+  const setFila=(idx,campo,val)=>setFilas(f=>f.map((r,i)=>i===idx?{...r,[campo]:val}:r));
+
+  const ventasCalculadas=(f)=>{
+    const r=+f.residuo||0;
+    const t=+f.traslado||0;
+    const s=+f.stockFinal||0;
+    if(f.residuo===""&&f.traslado===""&&f.stockFinal==="")return null;
+    return Math.max(0,r+t-s);
+  };
+
+  const doSave=async()=>{
+    if(!maqId)return;
+    const filasValidas=filas.filter(f=>f.residuo!==""||f.traslado!==""||f.stockFinal!=="");
+    if(!filasValidas.length)return;
+    const id=uid();
+    const registros=filasValidas.map(f=>({
+      productoId:f.productoId,
+      residuo:f.residuo!==""?+f.residuo:null,
+      traslado:f.traslado!==""?+f.traslado:null,
+      stockFinal:f.stockFinal!==""?+f.stockFinal:null,
+      ventasCalculadas:ventasCalculadas(f),
+    }));
+    await save("stockMaquina",id,{id,maquinaId:maqId,fecha,registros,responsable:""});
+
+    // Guardar automáticamente las ventas calculadas en el módulo de ventas
+    for(const reg of registros){
+      if(reg.ventasCalculadas>0){
+        const prod=data.productos.find(p=>p.id===reg.productoId);
+        const precio=prod?(prod.precioVenta||(prod.costo*(1+prod.margen/100))):0;
+        const vId=uid();
+        await save("ventas",vId,{id:vId,fecha,maquinaId:maqId,productoId:reg.productoId,cantidad:reg.ventasCalculadas,ingreso:+(precio*reg.ventasCalculadas).toFixed(2),autoCalculado:true});
+      }
+    }
+    setModal(false);setMaqId("");setFilas([]);
+  };
+
+  const registrosMes=data.stockMaquina.filter(r=>r.fecha?.startsWith(mes));
+  // Agrupar por máquina
+  const porMaq={};
+  registrosMes.forEach(r=>{
+    if(!porMaq[r.maquinaId])porMaq[r.maquinaId]=[];
+    porMaq[r.maquinaId].push(r);
+  });
+
+  return(
+    <div>
+      <MesNav mes={mes} setMes={setMes}/>
+      {!soloLectura&&(
+        <div style={{marginBottom:16}}>
+          <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"12px 16px",fontSize:13,marginBottom:12}}>
+            <strong style={{color:"var(--accent2)"}}>¿Cómo funciona?</strong><br/>
+            <span style={{color:"var(--muted)",fontSize:12}}>
+              Al visitar una máquina registras: <strong>residuo</strong> (lo que quedó), <strong>traslado</strong> (lo que pusiste) y <strong>stock final</strong> (lo que quedó después de abastecer).
+              El sistema calcula automáticamente las ventas: <em>Residuo + Traslado − Stock final = Ventas</em>.
+            </span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+            {maqActivas.map(m=>(
+              <button key={m.id} onClick={()=>abrirModal(m)}
+                style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",cursor:"pointer",textAlign:"left",transition:"border-color .15s"}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor="var(--accent)"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}>
+                <div style={{fontSize:13,fontWeight:700,color:"var(--text)",marginBottom:3}}>{m.nombre}</div>
+                <div style={{fontSize:10,color:"var(--muted)"}}>{m.ubicacion}</div>
+                <div style={{marginTop:8,fontSize:11,color:"var(--accent)"}}>+ Registrar inventario</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Historial */}
+      {Object.keys(porMaq).length===0
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin registros en {nombreMes(mes)}.</div></div>
+        :Object.entries(porMaq).map(([maqId2,regs])=>{
+          const maq=data.maquinas.find(m=>m.id===maqId2);
+          return(
+            <div key={maqId2} className="section" style={{marginBottom:14}}>
+              <div className="section-header">
+                <h3>📍 {maq?.nombre||maqId2} <span style={{fontSize:11,fontWeight:400,color:"var(--muted)"}}>{maq?.ubicacion}</span></h3>
+              </div>
+              <div className="table-wrap"><table>
+                <thead><tr><th>Fecha</th><th>Producto</th><th>Residuo</th><th>Traslado</th><th>Stock final</th><th>Ventas calculadas</th>{!soloLectura&&<th></th>}</tr></thead>
+                <tbody>
+                  {[...regs].reverse().flatMap(r=>
+                    r.registros.map((reg,i)=>{
+                      const prod=data.productos.find(p=>p.id===reg.productoId);
+                      const vc=reg.ventasCalculadas;
+                      return(
+                        <tr key={`${r.id}-${i}`}>
+                          {i===0&&<td rowSpan={r.registros.length} style={{color:"var(--muted)",verticalAlign:"middle"}}>{r.fecha}</td>}
+                          <td><strong>{prod?.nombre||"—"}</strong></td>
+                          <td style={{color:"var(--muted)"}}>{reg.residuo??<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
+                          <td style={{color:"var(--accent2)"}}>{reg.traslado??<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
+                          <td>{reg.stockFinal??<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
+                          <td>
+                            {vc!=null
+                              ?<span style={{fontWeight:700,color:vc>0?"var(--green)":"var(--muted)"}}>{vc>0?`${vc} uds vendidas`:"Sin ventas"}</span>
+                              :<span style={{color:"var(--muted)",fontSize:11}}>—</span>
+                            }
+                          </td>
+                          {!soloLectura&&i===0&&<td rowSpan={r.registros.length} style={{verticalAlign:"middle"}}>
+                            <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(r)}><Icon name="trash" size={12}/></button>
+                          </td>}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table></div>
+            </div>
+          );
+        })
+      }
+
+      {/* Modal registro inventario */}
+      {modal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:680}}>
+        <h3>📋 Registrar inventario de máquina</h3>
+        <div className="form-row" style={{marginBottom:14}}>
+          <div className="form-group">
+            <label>Máquina</label>
+            <select value={maqId} onChange={e=>setMaqId(e.target.value)}>
+              <option value="">Seleccionar...</option>
+              {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Fecha de visita</label><input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
+        </div>
+        {/* Leyenda */}
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:6,padding:"7px 10px",background:"var(--surface2)",borderRadius:7,marginBottom:8,fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".05em"}}>
+          <span>Producto</span><span style={{textAlign:"center"}}>Residuo</span><span style={{textAlign:"center"}}>Traslado</span><span style={{textAlign:"center"}}>Stock final</span><span style={{textAlign:"center",color:"var(--green)"}}>= Ventas</span>
+        </div>
+        <div style={{maxHeight:380,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+          {filas.map((f,idx)=>{
+            const prod=data.productos.find(p=>p.id===f.productoId);
+            const vc=ventasCalculadas(f);
+            return(
+              <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",gap:6,alignItems:"center",padding:"6px 4px",borderRadius:7,background:vc>0?"rgba(16,185,129,.04)":"transparent"}}>
+                <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prod?.nombre||"—"}</div>
+                <input type="number" min="0" value={f.residuo} onChange={e=>setFila(idx,"residuo",e.target.value)} placeholder="0"
+                  style={{padding:"6px 8px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text)",fontSize:12,textAlign:"center",outline:"none",width:"100%"}}/>
+                <input type="number" min="0" value={f.traslado} onChange={e=>setFila(idx,"traslado",e.target.value)} placeholder="0"
+                  style={{padding:"6px 8px",background:"rgba(59,130,246,.06)",border:"1px solid rgba(59,130,246,.2)",borderRadius:7,color:"var(--text)",fontSize:12,textAlign:"center",outline:"none",width:"100%"}}/>
+                <input type="number" min="0" value={f.stockFinal} onChange={e=>setFila(idx,"stockFinal",e.target.value)} placeholder="0"
+                  style={{padding:"6px 8px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text)",fontSize:12,textAlign:"center",outline:"none",width:"100%"}}/>
+                <div style={{textAlign:"center",fontSize:12,fontWeight:700,color:vc>0?"var(--green)":vc===0?"var(--muted)":"var(--muted)"}}>
+                  {vc!=null?`${vc}`:"—"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{marginTop:12,padding:"10px 14px",background:"var(--surface2)",borderRadius:8,fontSize:12,color:"var(--muted)"}}>
+          💡 <strong>Residuo</strong>: lo que quedó en la máquina antes de abastecer &nbsp;|&nbsp; <strong>Traslado</strong>: lo que pusiste &nbsp;|&nbsp; <strong>Stock final</strong>: lo que quedó después
+        </div>
+        <div className="modal-actions" style={{marginTop:14}}>
+          <button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave}>Guardar y calcular ventas</button>
+        </div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto="¿Eliminar este registro de inventario? Las ventas calculadas no se eliminarán automáticamente." onConfirm={()=>{del("stockMaquina",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+
+// ─── CONTROL DE SENCILLO ──────────────────────────────────────────────────────
+// Flujo:
+//   Admin entrega sencillo (detalle de monedas) → Abastecedor usa en máquinas → Abastecedor devuelve sobrante
+//   Control: Entregado = Usado en máquinas + Devuelto al admin
+
+const MONEDAS=[0.10,0.20,0.50,1.00,2.00,5.00];
+
+function ControlSencillo({data,save,del,esAdmin=false}){
+  const [modalEntregar,setModalEntregar]=useState(false);
+  const [modalUso,setModalUso]=useState(null);   // registro al que se agrega uso
+  const [modalDev,setModalDev]=useState(null);    // registro al que se agrega devolución
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [mes,setMes]=useState(mesActual());
+
+  // Form entregar sencillo (Admin)
+  const [fMonedas,setFMonedas]=useState(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));
+  const [fAbas,setFAbas]=useState("");
+  const [fFecha,setFFecha]=useState(today());
+  const [fNota,setFNota]=useState("");
+
+  // Form uso en máquina (Abastecedor)
+  const [uMaqId,setUMaqId]=useState("");
+  const [uMonedas,setUMonedas]=useState(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));
+  const [uFecha,setUFecha]=useState(today());
+
+  // Form devolución (Abastecedor)
+  const [dMonedas,setDMonedas]=useState(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));
+  const [dFecha,setDFecha]=useState(today());
+
+  const totalMonedas=(obj)=>MONEDAS.reduce((s,m)=>s+(+obj[m]||0)*m,0);
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+
+  const doEntregar=()=>{
+    const total=totalMonedas(fMonedas);
+    if(total<=0)return;
+    const id=uid();
+    const detalle=MONEDAS.filter(m=>+fMonedas[m]>0).map(m=>({moneda:m,cantidad:+fMonedas[m],subtotal:+(+fMonedas[m]*m).toFixed(2)}));
+    save("sencillo",id,{id,fecha:fFecha,responsable:fAbas,totalEntregado:+total.toFixed(2),detalle,usos:[],devolucion:null,nota:fNota,cerrado:false});
+    setModalEntregar(false);
+    setFMonedas(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));setFAbas("");setFNota("");setFFecha(today());
+  };
+
+  const doRegistrarUso=(reg)=>{
+    const total=totalMonedas(uMonedas);
+    if(total<=0||!uMaqId)return;
+    const maq=data.maquinas.find(m=>m.id===uMaqId);
+    const detalle=MONEDAS.filter(m=>+uMonedas[m]>0).map(m=>({moneda:m,cantidad:+uMonedas[m],subtotal:+(+uMonedas[m]*m).toFixed(2)}));
+    const nuevosUsos=[...(reg.usos||[]),{fecha:uFecha,maquinaId:uMaqId,maqNombre:maq?.nombre||"",total:+total.toFixed(2),detalle}];
+    save("sencillo",reg.id,{...reg,usos:nuevosUsos});
+    setModalUso(null);setUMaqId("");setUFecha(today());setUMonedas(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));
+  };
+
+  const doRegistrarDevolucion=(reg)=>{
+    const total=totalMonedas(dMonedas);
+    if(total<=0)return;
+    const detalle=MONEDAS.filter(m=>+dMonedas[m]>0).map(m=>({moneda:m,cantidad:+dMonedas[m],subtotal:+(+dMonedas[m]*m).toFixed(2)}));
+    save("sencillo",reg.id,{...reg,devolucion:{fecha:dFecha,total:+total.toFixed(2),detalle},cerrado:true});
+    setModalDev(null);setDFecha(today());setDMonedas(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));
+  };
+
+  const MonedasInput=({valores,onChange,label})=>(
+    <div style={{background:"var(--surface2)",borderRadius:9,padding:"12px 14px",border:"1px solid var(--border)"}}>
+      <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:10}}>{label}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+        {MONEDAS.map(m=>(
+          <div key={m} style={{background:"var(--surface)",borderRadius:7,padding:"8px 10px",border:"1px solid var(--border)"}}>
+            <div style={{fontSize:10,color:"var(--muted)",marginBottom:4}}>S/ {m.toFixed(2)}</div>
+            <input type="number" min="0" value={valores[m]} onChange={e=>onChange({...valores,[m]:e.target.value})}
+              placeholder="0"
+              style={{width:"100%",background:"none",border:"none",outline:"none",color:"var(--text)",fontSize:14,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}/>
+            {+valores[m]>0&&<div style={{fontSize:9,color:"var(--accent)",marginTop:2}}>= S/ {(+valores[m]*m).toFixed(2)}</div>}
+          </div>
+        ))}
+      </div>
+      <div style={{marginTop:10,padding:"6px 10px",background:"rgba(245,158,11,.1)",borderRadius:7,fontSize:12,fontWeight:700,color:"var(--accent)"}}>
+        Total: {fmt(totalMonedas(valores))}
+      </div>
+    </div>
+  );
+
+  const sencilloMes=data.sencillo.filter(s=>s.fecha?.startsWith(mes));
+
+  return(
+    <div>
+      <MesNav mes={mes} setMes={setMes}/>
+
+      {/* Resumen del mes */}
+      <div className="cards">
+        <div className="card"><div className="card-label">Entregado</div><div className="card-value amber">{fmt(sencilloMes.reduce((s,r)=>s+(r.totalEntregado||0),0))}</div><div className="card-sub">{sencilloMes.length} entregas</div></div>
+        <div className="card"><div className="card-label">Usado en máquinas</div><div className="card-value blue">{fmt(sencilloMes.reduce((s,r)=>s+(r.usos||[]).reduce((a,u)=>a+(u.total||0),0),0))}</div><div className="card-sub">En {sencilloMes.reduce((s,r)=>s+(r.usos||[]).length,0)} visitas</div></div>
+        <div className="card"><div className="card-label">Devuelto</div><div className="card-value green">{fmt(sencilloMes.reduce((s,r)=>s+(r.devolucion?.total||0),0))}</div><div className="card-sub">{sencilloMes.filter(r=>r.devolucion).length} liquidados</div></div>
+      </div>
+
+      {/* Botón entregar (solo admin) */}
+      {esAdmin&&<div style={{marginBottom:14}}>
+        <button className="btn btn-primary" onClick={()=>setModalEntregar(true)}><Icon name="plus" size={14}/> Entregar sencillo al abastecedor</button>
+      </div>}
+
+      {/* Lista de registros */}
+      {sencilloMes.length===0
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin registros de sencillo en {nombreMes(mes)}.</div></div>
+        :sencilloMes.map(reg=>{
+          const totalUsado=(reg.usos||[]).reduce((s,u)=>s+(u.total||0),0);
+          const totalDev=reg.devolucion?.total||0;
+          const diferencia=+(reg.totalEntregado-totalUsado-totalDev).toFixed(2);
+          const cuadra=Math.abs(diferencia)<0.01;
+          return(
+            <div key={reg.id} className="section" style={{marginBottom:14}}>
+              <div className="section-header">
+                <div>
+                  <h3>💵 Sencillo — {reg.fecha} <span style={{fontWeight:400,fontSize:12,color:"var(--muted)"}}>Responsable: {reg.responsable||"—"}</span></h3>
+                  {reg.nota&&<div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Nota: {reg.nota}</div>}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700,background:reg.cerrado?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:reg.cerrado?"var(--green)":"var(--accent)"}}>
+                    {reg.cerrado?"✅ Liquidado":"⏳ Pendiente"}
+                  </span>
+                  {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(reg)}><Icon name="trash" size={12}/></button>}
+                </div>
+              </div>
+
+              {/* Resumen del registro */}
+              <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,borderBottom:"1px solid var(--border)"}}>
+                {[["Entregado",fmt(reg.totalEntregado),"var(--accent)"],["Usado en máquinas",fmt(totalUsado),"var(--accent2)"],["Devuelto",fmt(totalDev),"var(--green)"],["Diferencia",fmt(diferencia),cuadra?"var(--green)":"var(--red)"]].map(([l,v,col])=>(
+                  <div key={l} style={{background:"var(--surface2)",borderRadius:8,padding:"8px 12px"}}>
+                    <div style={{fontSize:10,color:"var(--muted)",marginBottom:3}}>{l}</div>
+                    <div style={{fontSize:14,fontWeight:700,color:col}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Detalle entrega */}
+              <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border)"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",marginBottom:6,textTransform:"uppercase"}}>Detalle entregado</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {(reg.detalle||[]).map((d,i)=>(
+                    <span key={i} style={{padding:"3px 9px",borderRadius:20,background:"rgba(245,158,11,.12)",color:"var(--accent)",fontSize:11,fontWeight:600}}>
+                      {d.cantidad}× S/{d.moneda.toFixed(2)} = {fmt(d.subtotal)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Usos en máquinas */}
+              {(reg.usos||[]).length>0&&(
+                <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border)"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",marginBottom:6,textTransform:"uppercase"}}>Usado en máquinas</div>
+                  {reg.usos.map((u,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5,padding:"6px 10px",background:"rgba(59,130,246,.06)",borderRadius:7}}>
+                      <span style={{fontSize:12}}><strong>{u.maqNombre}</strong> — {u.fecha}</span>
+                      <span style={{fontSize:12,fontWeight:700,color:"var(--accent2)"}}>{fmt(u.total)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Devolución */}
+              {reg.devolucion&&(
+                <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border)"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",marginBottom:6,textTransform:"uppercase"}}>Devolución</div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",background:"rgba(16,185,129,.08)",borderRadius:7}}>
+                    <span style={{fontSize:12}}>Devuelto el {reg.devolucion.fecha}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:"var(--green)"}}>{fmt(reg.devolucion.total)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Acciones abastecedor */}
+              {!reg.cerrado&&(
+                <div style={{padding:"10px 16px",display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>{setModalUso(reg);setUMaqId("");setUFecha(today());setUMonedas(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));}}>
+                    <Icon name="machine" size={12}/> Registrar uso en máquina
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>{setModalDev(reg);setDFecha(today());setDMonedas(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));}}>
+                    <Icon name="money" size={12}/> Registrar devolución
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })
+      }
+
+      {/* Modal: Entregar sencillo */}
+      {modalEntregar&&<div className="modal-overlay"><div className="modal" style={{maxWidth:520}}>
+        <h3>💵 Entregar sencillo al abastecedor</h3>
+        <div className="form-row">
+          <div className="form-group"><label>Responsable (abastecedor)</label><input value={fAbas} onChange={e=>setFAbas(e.target.value)} placeholder="Nombre del abastecedor"/></div>
+          <div className="form-group"><label>Fecha</label><input type="date" value={fFecha} onChange={e=>setFFecha(e.target.value)}/></div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <MonedasInput valores={fMonedas} onChange={setFMonedas} label="Detalle de monedas entregadas"/>
+        </div>
+        <div className="form-group"><label>Nota (opcional)</label><input value={fNota} onChange={e=>setFNota(e.target.value)} placeholder="Ej: Para máquinas del centro comercial..."/></div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>setModalEntregar(false)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doEntregar}>Registrar entrega</button>
+        </div>
+      </div></div>}
+
+      {/* Modal: Uso en máquina */}
+      {modalUso&&<div className="modal-overlay"><div className="modal" style={{maxWidth:520}}>
+        <h3>Registrar uso de sencillo en máquina</h3>
+        <div className="edit-banner">Saldo disponible aprox.: {fmt(modalUso.totalEntregado-(modalUso.usos||[]).reduce((s,u)=>s+(u.total||0),0))}</div>
+        <div className="form-row">
+          <div className="form-group"><label>Máquina</label>
+            <select value={uMaqId} onChange={e=>setUMaqId(e.target.value)}>
+              <option value="">Seleccionar...</option>
+              {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Fecha</label><input type="date" value={uFecha} onChange={e=>setUFecha(e.target.value)}/></div>
+        </div>
+        <MonedasInput valores={uMonedas} onChange={setUMonedas} label="Monedas usadas en esta máquina"/>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>setModalUso(null)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={()=>doRegistrarUso(modalUso)}>Guardar uso</button>
+        </div>
+      </div></div>}
+
+      {/* Modal: Devolución */}
+      {modalDev&&<div className="modal-overlay"><div className="modal" style={{maxWidth:520}}>
+        <h3>Registrar devolución de sencillo</h3>
+        <div className="edit-banner">Entregado: {fmt(modalDev.totalEntregado)} | Usado: {fmt((modalDev.usos||[]).reduce((s,u)=>s+(u.total||0),0))}</div>
+        <div className="form-group"><label>Fecha de devolución</label><input type="date" value={dFecha} onChange={e=>setDFecha(e.target.value)}/></div>
+        <MonedasInput valores={dMonedas} onChange={setDMonedas} label="Monedas devueltas al administrador"/>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>setModalDev(null)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={()=>doRegistrarDevolucion(modalDev)}>Confirmar devolución</button>
+        </div>
+      </div></div>}
+
+      {confirmDel&&<ConfirmDelete texto="¿Eliminar este registro de sencillo?" onConfirm={()=>{del("sencillo",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO 1: TICKETS DE MANTENIMIENTO
+// ═══════════════════════════════════════════════════════════════════════════════
+const ESTADOS_TICKET=["Abierto","En proceso","Resuelto"];
+const COLOR_ESTADO={"Abierto":"red","En proceso":"amber","Resuelto":"green"};
+const TIPOS_FALLA=["Dispensador trabado","Pantalla no funciona","No acepta monedas","No da cambio","Producto atascado","Falla eléctrica","Puerta no cierra","Otro"];
+
+function Tickets({data,save,del,esAdmin=false}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [filtroEstado,setFiltroEstado]=useState("todos");
+  const [busqueda,setBusqueda]=useState("");
+  const EF={maquinaId:"",tipo:"Dispensador trabado",descripcion:"",prioridad:"Media",estado:"Abierto",fecha:today(),fechaResolucion:"",notas:""};
+  const [form,setForm]=useState(EF);
+
+  const doSave=()=>{
+    if(!form.maquinaId||!form.descripcion)return;
+    if(editando)save("tickets",editando.id,{...editando,...form});
+    else{const id=uid();save("tickets",id,{id,...form,creadoPor:""});}
+    setModal(false);setForm(EF);setEditando(null);
+  };
+  const abrirEditar=(t)=>{setForm({maquinaId:t.maquinaId,tipo:t.tipo,descripcion:t.descripcion,prioridad:t.prioridad,estado:t.estado,fecha:t.fecha,fechaResolucion:t.fechaResolucion||"",notas:t.notas||""});setEditando(t);setModal(true);};
+  const cambiarEstado=(t,nuevoEstado)=>save("tickets",t.id,{...t,estado:nuevoEstado,fechaResolucion:nuevoEstado==="Resuelto"?today():t.fechaResolucion});
+
+  const ticketsFiltrados=data.tickets.filter(t=>{
+    const maq=data.maquinas.find(m=>m.id===t.maquinaId);
+    const matchEstado=filtroEstado==="todos"||t.estado===filtroEstado;
+    const matchBusq=!busqueda||maq?.nombre.toLowerCase().includes(busqueda.toLowerCase())||t.tipo.toLowerCase().includes(busqueda.toLowerCase())||t.descripcion.toLowerCase().includes(busqueda.toLowerCase());
+    return matchEstado&&matchBusq;
+  }).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+
+  const abiertos=data.tickets.filter(t=>t.estado==="Abierto").length;
+  const enProceso=data.tickets.filter(t=>t.estado==="En proceso").length;
+  const resueltos=data.tickets.filter(t=>t.estado==="Resuelto").length;
+
+  const PRIOR_COLOR={Alta:"red",Media:"amber",Baja:"blue"};
+
+  return(
+    <div>
+      <div className="cards">
+        {[["🔴 Abiertos",abiertos,"red"],["🟡 En proceso",enProceso,"amber"],["✅ Resueltos",resueltos,"green"]].map(([l,v,c])=>(
+          <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">tickets</div></div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por máquina o tipo..."/>
+        <div style={{display:"flex",gap:6,flexShrink:0}}>
+          {["todos",...ESTADOS_TICKET].map(e=>(
+            <button key={e} onClick={()=>setFiltroEstado(e)}
+              style={{padding:"5px 12px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:filtroEstado===e?"var(--accent)":"var(--surface2)",color:filtroEstado===e?"#000":"var(--muted)"}}>
+              {e==="todos"?"Todos":e}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Nuevo ticket</button>
+      </div>
+
+      {ticketsFiltrados.length===0
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin tickets{filtroEstado!=="todos"?` con estado "${filtroEstado}"`:""}.</div></div>
+        :ticketsFiltrados.map(t=>{
+          const maq=data.maquinas.find(m=>m.id===t.maquinaId);
+          return(
+            <div key={t.id} className="section" style={{marginBottom:12}}>
+              <div style={{padding:"12px 16px",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:200}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+                    <span className={`badge ${COLOR_ESTADO[t.estado]||"blue"}`}>{t.estado}</span>
+                    <span className={`badge ${PRIOR_COLOR[t.prioridad]||"blue"}`}>{t.prioridad}</span>
+                    <span style={{fontSize:11,color:"var(--muted)"}}>{t.fecha}</span>
+                    {t.fechaResolucion&&<span style={{fontSize:11,color:"var(--green)"}}>✅ Resuelto: {t.fechaResolucion}</span>}
+                  </div>
+                  <div style={{fontWeight:700,fontSize:14,marginBottom:3}}>📍 {maq?.nombre||"—"} <span style={{fontWeight:400,fontSize:12,color:"var(--muted)"}}>{maq?.ubicacion}</span></div>
+                  <div style={{fontSize:12,color:"var(--accent)",marginBottom:3}}>{t.tipo}</div>
+                  <div style={{fontSize:13,color:"var(--text)",lineHeight:1.5}}>{t.descripcion}</div>
+                  {t.notas&&<div style={{fontSize:11,color:"var(--muted)",marginTop:5,fontStyle:"italic"}}>Nota: {t.notas}</div>}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"flex-end"}}>
+                  {/* Cambio rápido de estado */}
+                  <div style={{display:"flex",gap:5}}>
+                    {ESTADOS_TICKET.filter(e=>e!==t.estado).map(e=>(
+                      <button key={e} onClick={()=>cambiarEstado(t,e)}
+                        style={{padding:"3px 9px",borderRadius:7,border:`1px solid var(--border)`,background:"var(--surface2)",cursor:"pointer",fontSize:10,fontWeight:600,color:"var(--muted)"}}>
+                        → {e}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:5}}>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(t)}><Icon name="edit" size={12}/></button>
+                    {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(t)}><Icon name="trash" size={12}/></button>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      }
+
+      {modal&&<div className="modal-overlay"><div className="modal">
+        <h3>{editando?"Editar ticket":"Nuevo ticket de mantenimiento"}</h3>
+        {editando&&<div className="edit-banner">Editando ticket #{editando.id?.slice(-4)}</div>}
+        <div className="form-row">
+          <div className="form-group"><label>Máquina</label>
+            <select value={form.maquinaId} onChange={e=>setForm({...form,maquinaId:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {data.maquinas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Fecha</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Tipo de falla</label>
+            <select value={form.tipo} onChange={e=>setForm({...form,tipo:e.target.value})}>
+              {TIPOS_FALLA.map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Prioridad</label>
+            <select value={form.prioridad} onChange={e=>setForm({...form,prioridad:e.target.value})}>
+              {["Alta","Media","Baja"].map(p=><option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-group"><label>Descripción del problema</label>
+          <textarea value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} placeholder="Describe el problema con detalle..." style={{minHeight:70,resize:"vertical"}}/>
+        </div>
+        {editando&&<div className="form-row">
+          <div className="form-group"><label>Estado</label>
+            <select value={form.estado} onChange={e=>setForm({...form,estado:e.target.value})}>
+              {ESTADOS_TICKET.map(e=><option key={e} value={e}>{e}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Fecha resolución</label><input type="date" value={form.fechaResolucion} onChange={e=>setForm({...form,fechaResolucion:e.target.value})}/></div>
+        </div>}
+        <div className="form-group"><label>Notas adicionales (opcional)</label><input value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})} placeholder="Ej: Revisar resorte del dispensador 3..."/></div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear ticket"}</button></div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar este ticket de mantenimiento?`} onConfirm={()=>{del("tickets",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO 2: PRE-KIT DE REPOSICIÓN
+// ═══════════════════════════════════════════════════════════════════════════════
+function PreKit({data}){
+  const [maqId,setMaqId]=useState("");
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+
+  // Calcular pre-kit para una máquina:
+  // Stock actual en máquina = último registro de StockMaquina (stockFinal)
+  // Necesita = capacidad estimada - stock actual (usamos el último stockFinal como referencia)
+  // Si no hay registro de StockMaquina, asumimos que está vacía
+
+  const calcularPreKit=(maqId)=>{
+    if(!maqId)return[];
+    // Obtener último registro de stock por máquina para esta máquina
+    const registros=data.stockMaquina.filter(r=>r.maquinaId===maqId).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+    const ultimoReg=registros[0];
+
+    return data.productos.map(prod=>{
+      let stockActual=0;
+      let ultimaFecha="—";
+      if(ultimoReg){
+        const regProd=ultimoReg.registros?.find(r=>r.productoId===prod.id);
+        if(regProd){stockActual=regProd.stockFinal??0;ultimaFecha=ultimoReg.fecha;}
+      }
+      // Stock en almacén disponible
+      const stockAlm=data.stock.find(s=>s.productoId===prod.id);
+      const disponible=stockAlm?.cantidad||0;
+      // Ventas promedio últimos 30 días en esta máquina
+      const hace30=new Date();hace30.setDate(hace30.getDate()-30);
+      const ventasMaq=data.ventas.filter(v=>v.maquinaId===maqId&&v.productoId===prod.id&&new Date(v.fecha)>=hace30);
+      const totalVentas=ventasMaq.reduce((s,v)=>s+(v.cantidad||0),0);
+      const promDiario=+(totalVentas/30).toFixed(1);
+      // Sugerir llevar para 7 días de ventas menos lo que ya hay en máquina
+      const sugerido=Math.max(0,Math.ceil(promDiario*7)-stockActual);
+      return{prod,stockActual,ultimaFecha,disponible,promDiario,sugerido};
+    }).filter(r=>r.sugerido>0||r.stockActual>0||r.disponible>0);
+  };
+
+  const kit=calcularPreKit(maqId);
+  const maq=data.maquinas.find(m=>m.id===maqId);
+  const totalSugerido=kit.reduce((s,r)=>s+r.sugerido,0);
+  const alertaStock=kit.filter(r=>r.sugerido>r.disponible);
+
+  return(
+    <div>
+      <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"12px 16px",fontSize:13,marginBottom:16}}>
+        <strong style={{color:"var(--accent2)"}}>¿Cómo funciona el Pre-Kit?</strong><br/>
+        <span style={{color:"var(--muted)",fontSize:12}}>
+          Selecciona una máquina y el sistema calcula automáticamente qué productos llevar basándose en el stock actual de la máquina y el promedio de ventas de los últimos 30 días (para 7 días de cobertura).
+        </span>
+      </div>
+
+      <div className="form-group" style={{marginBottom:16}}>
+        <label>Seleccionar máquina para pre-kit</label>
+        <select value={maqId} onChange={e=>setMaqId(e.target.value)} style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:14,outline:"none"}}>
+          <option value="">Seleccionar máquina...</option>
+          {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+        </select>
+      </div>
+
+      {maqId&&(
+        <>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:700}}>📋 Pre-kit para {maq?.nombre}</div>
+              <div style={{fontSize:11,color:"var(--muted)"}}>{maq?.ubicacion} — Cobertura sugerida: 7 días</div>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <div className="card" style={{padding:"8px 14px",minWidth:100}}>
+                <div className="card-label">Total a llevar</div>
+                <div className="card-value blue">{totalSugerido} uds</div>
+              </div>
+            </div>
+          </div>
+
+          {alertaStock.length>0&&(
+            <div className="alert-box" style={{marginBottom:12}}>
+              <Icon name="alert" size={14}/>
+              <span><strong>{alertaStock.length} producto(s)</strong> con stock insuficiente en almacén para cubrir la demanda.</span>
+            </div>
+          )}
+
+          <div className="section">
+            <div className="section-header"><h3>Lista de productos a llevar</h3></div>
+            <div className="table-wrap"><table>
+              <thead><tr><th>Producto</th><th>Stock en máquina</th><th>Última visita</th><th>Venta/día (prom.)</th><th>Disponible almacén</th><th style={{color:"var(--accent)"}}>Llevar</th></tr></thead>
+              <tbody>
+                {kit.length===0
+                  ?<tr><td colSpan={6} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin datos suficientes. Registra stock por máquina para obtener sugerencias precisas.</td></tr>
+                  :kit.map(r=>{
+                    const sinStock=r.sugerido>r.disponible;
+                    return(
+                      <tr key={r.prod.id}>
+                        <td><strong>{r.prod.nombre}</strong></td>
+                        <td style={{color:r.stockActual<=2?"var(--red)":"var(--text)",fontWeight:700}}>{r.stockActual} uds</td>
+                        <td style={{color:"var(--muted)",fontSize:11}}>{r.ultimaFecha}</td>
+                        <td style={{color:"var(--muted)"}}>{r.promDiario>0?`${r.promDiario} uds`:"Sin datos"}</td>
+                        <td style={{color:sinStock?"var(--red)":"var(--green)",fontWeight:600}}>{r.disponible} uds {sinStock&&"⚠️"}</td>
+                        <td>
+                          <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"4px 14px",borderRadius:8,background:r.sugerido>0?"rgba(245,158,11,.15)":"var(--surface2)",color:r.sugerido>0?"var(--accent)":"var(--muted)",fontWeight:700,fontSize:13}}>
+                            {r.sugerido>0?`${r.sugerido} uds`:"✓ OK"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                }
+              </tbody>
+            </table></div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO 3: REPORTE DE PRODUCTOS MÁS VENDIDOS
+// ═══════════════════════════════════════════════════════════════════════════════
+function Reportes({data}){
+  const [mes,setMes]=useState(mesActual());
+  const [maqFiltro,setMaqFiltro]=useState("todas");
+  const maqActivas=data.maquinas.filter(m=>m.activa);
+
+  const ventasMes=data.ventas.filter(v=>{
+    const matchMes=v.fecha?.startsWith(mes);
+    const matchMaq=maqFiltro==="todas"||v.maquinaId===maqFiltro;
+    return matchMes&&matchMaq;
+  });
+
+  // Ranking por producto
+  const porProducto={};
+  ventasMes.forEach(v=>{
+    if(!porProducto[v.productoId])porProducto[v.productoId]={productoId:v.productoId,unidades:0,ingresos:0,maquinas:new Set()};
+    porProducto[v.productoId].unidades+=v.cantidad||0;
+    porProducto[v.productoId].ingresos+=v.ingreso||0;
+    porProducto[v.productoId].maquinas.add(v.maquinaId);
+  });
+  const rankingProductos=Object.values(porProducto).sort((a,b)=>b.unidades-a.unidades).map((r,i)=>({...r,rank:i+1,maquinas:r.maquinas.size}));
+
+  // Ranking por máquina
+  const porMaquina={};
+  ventasMes.forEach(v=>{
+    if(!porMaquina[v.maquinaId])porMaquina[v.maquinaId]={maquinaId:v.maquinaId,unidades:0,ingresos:0,productos:new Set()};
+    porMaquina[v.maquinaId].unidades+=v.cantidad||0;
+    porMaquina[v.maquinaId].ingresos+=v.ingreso||0;
+    porMaquina[v.maquinaId].productos.add(v.productoId);
+  });
+  const rankingMaquinas=Object.values(porMaquina).sort((a,b)=>b.ingresos-a.ingresos).map((r,i)=>({...r,rank:i+1,productos:r.productos.size}));
+
+  const totalUds=ventasMes.reduce((s,v)=>s+(v.cantidad||0),0);
+  const totalIng=ventasMes.reduce((s,v)=>s+(v.ingreso||0),0);
+  const maxUds=rankingProductos[0]?.unidades||1;
+
+  const medallaColor=(rank)=>rank===1?"#f59e0b":rank===2?"#94a3b8":rank===3?"#cd7f32":"var(--muted)";
+
+  return(
+    <div>
+      <MesNav mes={mes} setMes={setMes}/>
+
+      {/* Filtro máquina */}
+      <div className="filtro-bar" style={{marginBottom:16}}>
+        <span className="filtro-label"><Icon name="filter" size={13}/> Máquina:</span>
+        <select value={maqFiltro} onChange={e=>setMaqFiltro(e.target.value)}>
+          <option value="todas">Todas</option>
+          {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre}</option>)}
+        </select>
+      </div>
+
+      <div className="cards">
+        <div className="card"><div className="card-label">Total unidades</div><div className="card-value blue">{totalUds}</div><div className="card-sub">{ventasMes.length} registros</div></div>
+        <div className="card"><div className="card-label">Total ingresos</div><div className="card-value green">{fmt(totalIng)}</div><div className="card-sub">{nombreMes(mes)}</div></div>
+        <div className="card"><div className="card-label">Productos distintos</div><div className="card-value amber">{Object.keys(porProducto).length}</div><div className="card-sub">vendidos en el mes</div></div>
+      </div>
+
+      {/* Ranking productos */}
+      <div className="section" style={{marginBottom:16}}>
+        <div className="section-header"><h3>🏆 Productos más vendidos — {nombreMes(mes)}</h3></div>
+        {rankingProductos.length===0
+          ?<div style={{padding:20,textAlign:"center",color:"var(--muted)"}}>Sin ventas en {nombreMes(mes)}.</div>
+          :<div style={{padding:"8px 16px 16px"}}>
+            {rankingProductos.map(r=>{
+              const prod=data.productos.find(p=>p.id===r.productoId);
+              const pct=totalUds>0?(r.unidades/totalUds*100).toFixed(1):0;
+              const barW=(r.unidades/maxUds*100);
+              return(
+                <div key={r.productoId} style={{marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+                    <span style={{fontSize:15,fontWeight:900,color:medallaColor(r.rank),minWidth:24,textAlign:"center"}}>
+                      {r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}
+                    </span>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                        <span style={{fontSize:13,fontWeight:600}}>{prod?.nombre||"—"}</span>
+                        <div style={{display:"flex",gap:12,fontSize:12}}>
+                          <span style={{color:"var(--accent2)",fontWeight:700}}>{r.unidades} uds</span>
+                          <span style={{color:"var(--green)",fontWeight:700}}>{fmt(r.ingresos)}</span>
+                          <span style={{color:"var(--muted)"}}>{pct}%</span>
+                        </div>
+                      </div>
+                      <div style={{height:6,background:"var(--surface2)",borderRadius:4,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${barW}%`,background:r.rank===1?"var(--accent)":r.rank===2?"var(--accent2)":"var(--green)",borderRadius:4,transition:"width .4s"}}/>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{paddingLeft:34,fontSize:10,color:"var(--muted)"}}>Vendido en {r.maquinas} máquina(s)</div>
+                </div>
+              );
+            })}
+          </div>
+        }
+      </div>
+
+      {/* Ranking máquinas */}
+      {maqFiltro==="todas"&&(
+        <div className="section">
+          <div className="section-header"><h3>📍 Máquinas más rentables — {nombreMes(mes)}</h3></div>
+          {rankingMaquinas.length===0
+            ?<div style={{padding:20,textAlign:"center",color:"var(--muted)"}}>Sin datos.</div>
+            :<div className="table-wrap"><table>
+              <thead><tr><th>#</th><th>Máquina</th><th>Ubicación</th><th>Unidades</th><th>Ingresos</th><th>Productos</th></tr></thead>
+              <tbody>
+                {rankingMaquinas.map(r=>{
+                  const maq=data.maquinas.find(m=>m.id===r.maquinaId);
+                  return(
+                    <tr key={r.maquinaId}>
+                      <td style={{fontWeight:900,color:medallaColor(r.rank),fontSize:15}}>{r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</td>
+                      <td><strong>{maq?.nombre||"—"}</strong></td>
+                      <td style={{color:"var(--muted)",fontSize:11}}>{maq?.ubicacion}</td>
+                      <td style={{color:"var(--accent2)",fontWeight:700}}>{r.unidades} uds</td>
+                      <td style={{color:"var(--green)",fontWeight:700}}>{fmt(r.ingresos)}</td>
+                      <td><span className="badge blue">{r.productos}</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table></div>
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ─── GESTIÓN DE USUARIOS ──────────────────────────────────────────────────────
+function GestionUsuarios({data,save,del}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [verModulos,setVerModulos]=useState(null); // usuario al que editar módulos
+  const EF={nombre:"",clave:"",rol:"abastecedor",activo:true,modulos:null}; // null = usar defaults
+  const [form,setForm]=useState(EF);
+
+  const modulosDisponibles=(rol)=>rol==="abastecedor"?MODULOS_ABASTECEDOR:MODULOS_ALMACENERO;
+  const modulosActivos=(u)=>u.modulos||MODULOS_DEFAULT[u.rol]||[];
+  const toggleModulo=(uid,modId)=>{
+    const u=data.usuarios.find(x=>x.id===uid);
+    if(!u)return;
+    const actuales=modulosActivos(u);
+    const nuevos=actuales.includes(modId)?actuales.filter(m=>m!==modId):[...actuales,modId];
+    save("usuarios",uid,{...u,modulos:nuevos});
+  };
+
+  const doSave=()=>{
+    if(!form.nombre||!form.clave)return;
+    if(editando)save("usuarios",editando.id,{...editando,nombre:form.nombre,clave:form.clave,rol:form.rol,activo:form.activo});
+    else{
+      const id=uid();
+      save("usuarios",id,{id,nombre:form.nombre,clave:form.clave,rol:form.rol,activo:true,modulos:MODULOS_DEFAULT[form.rol]||[]});
+    }
+    setModal(false);setForm(EF);setEditando(null);
+  };
+  const abrirEditar=(u)=>{setForm({nombre:u.nombre,clave:u.clave,rol:u.rol,activo:u.activo!==false});setEditando(u);setModal(true);};
+  const toggleActivo=(u)=>save("usuarios",u.id,{...u,activo:!u.activo});
+
+  const ROL_BADGE={abastecedor:{color:"var(--accent2)",bg:"rgba(59,130,246,.15)",ico:"🔧"},almacenero:{color:"var(--green)",bg:"rgba(16,185,129,.15)",ico:"🏭"}};
+
+  return(
+    <div>
+      <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:10,padding:"12px 16px",fontSize:13,marginBottom:16}}>
+        <strong style={{color:"var(--accent)"}}>🔐 Gestión de accesos</strong><br/>
+        <span style={{color:"var(--muted)",fontSize:12}}>Crea usuarios personales para tu equipo. Cada uno tiene nombre, contraseña y acceso solo a los módulos que asignes. Ingresan por "Usuario personal" en el login.</span>
+      </div>
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
+        <button className="btn btn-primary" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={14}/> Crear usuario</button>
+      </div>
+
+      {data.usuarios.length===0
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin usuarios creados aún.</div></div>
+        :data.usuarios.map(u=>{
+          const rb=ROL_BADGE[u.rol]||{color:"var(--muted)",bg:"var(--surface2)",ico:"👤"};
+          const modActivos=modulosActivos(u);
+          const modDisp=modulosDisponibles(u.rol);
+          return(
+            <div key={u.id} className="section" style={{marginBottom:12}}>
+              <div style={{padding:"14px 16px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{width:42,height:42,borderRadius:10,background:rb.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{rb.ico}</div>
+                    <div>
+                      <div style={{fontSize:15,fontWeight:700}}>{u.nombre}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
+                        <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:rb.bg,color:rb.color}}>{u.rol}</span>
+                        <span style={{fontSize:11,color:"var(--muted)"}}>🔑 {u.clave}</span>
+                        <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:u.activo!==false?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:u.activo!==false?"var(--green)":"var(--red)"}}>
+                          {u.activo!==false?"Activo":"Inactivo"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>setVerModulos(verModulos===u.id?null:u.id)}>
+                      <Icon name="kit" size={12}/> {verModulos===u.id?"Ocultar":"Ver módulos"} ({modActivos.length}/{modDisp.length})
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(u)}><Icon name="edit" size={12}/> Editar</button>
+                    <button className="btn btn-secondary btn-sm" style={{color:u.activo!==false?"var(--red)":"var(--green)"}} onClick={()=>toggleActivo(u)}>
+                      {u.activo!==false?"Desactivar":"Activar"}
+                    </button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(u)}><Icon name="trash" size={12}/></button>
+                  </div>
+                </div>
+
+                {/* Panel de módulos */}
+                {verModulos===u.id&&(
+                  <div style={{marginTop:14,borderTop:"1px solid var(--border)",paddingTop:14}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:10}}>Módulos asignados — toca para activar/desactivar</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:7}}>
+                      {modDisp.map(mod=>{
+                        const activo=modActivos.includes(mod.id);
+                        return(
+                          <div key={mod.id} onClick={()=>toggleModulo(u.id,mod.id)}
+                            style={{display:"flex",alignItems:"center",gap:8,padding:"8px 11px",borderRadius:9,cursor:"pointer",border:`1px solid ${activo?"var(--accent)":"var(--border)"}`,background:activo?"rgba(245,158,11,.08)":"var(--surface2)",transition:"all .15s"}}>
+                            <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${activo?"var(--accent)":"var(--border)"}`,background:activo?"var(--accent)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}>
+                              {activo&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>}
+                            </div>
+                            <div>
+                              <div style={{fontSize:11,fontWeight:600,color:activo?"var(--text)":"var(--muted)"}}>{mod.label}</div>
+                              <div style={{fontSize:9,color:"var(--muted)"}}>{mod.section}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{marginTop:10,display:"flex",gap:8}}>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>save("usuarios",u.id,{...u,modulos:modDisp.map(m=>m.id)})}>✓ Activar todos</button>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>save("usuarios",u.id,{...u,modulos:[]})}>✗ Desactivar todos</button>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>save("usuarios",u.id,{...u,modulos:MODULOS_DEFAULT[u.rol]||[]})}>↺ Restaurar por defecto</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })
+      }
+
+      {/* Modal crear/editar */}
+      {modal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:440}}>
+        <h3>{editando?"Editar usuario":"Crear usuario"}</h3>
+        {editando&&<div className="edit-banner">Editando: <strong>{editando.nombre}</strong></div>}
+        <div className="form-group"><label>Nombre de usuario</label>
+          <input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Juan Pérez"/>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Contraseña</label>
+            <input type="text" value={form.clave} onChange={e=>setForm({...form,clave:e.target.value})} placeholder="Ej: gamar2024"/>
+          </div>
+          <div className="form-group"><label>Rol base</label>
+            <select value={form.rol} onChange={e=>setForm({...form,rol:e.target.value})}>
+              <option value="abastecedor">🔧 Abastecedor</option>
+              <option value="almacenero">🏭 Almacenero</option>
+            </select>
+          </div>
+        </div>
+        {!editando&&<div className="info-box" style={{fontSize:12}}>Se asignarán los módulos por defecto del rol seleccionado. Puedes personalizarlos después.</div>}
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear usuario"}</button>
+        </div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar el usuario "${confirmDel.nombre}"? No se podrá deshacer.`} onConfirm={()=>{del("usuarios",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
   {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
   {id:"horario",label:"Horario semanal",icon:"calendar"},{id:"gastos",label:"Gastos adicionales",icon:"bolt"},
   {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"stock",label:"Stock almacén",icon:"stock"},
-  {id:"traslados",label:"Traslados",icon:"transfer"},{id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"},
+  {id:"traslados",label:"Traslados",icon:"transfer"},{id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
+  {id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
+  {id:"sencillo",label:"Control de sencillo",icon:"coin"},
+  {section:"Análisis"},{id:"reportes",label:"Reportes",icon:"trophy"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
+  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
+  {section:"Administración"},{id:"usuarios",label:"Gestión de usuarios",icon:"users"},
 ];
 const ABASTECEDOR_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
-  {section:"Operaciones"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"cobranzas",label:"Cobranza",icon:"money"},
-  {id:"traslados",label:"Traslados",icon:"transfer"},{id:"devoluciones",label:"Devoluciones",icon:"devolver"},
+  {section:"Operaciones"},{id:"traslados",label:"Traslados",icon:"transfer"},{id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
+  {id:"ventas",label:"Ventas del día",icon:"chart"},{id:"cobranzas",label:"Cobranza",icon:"money"},
+  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
+  {id:"sencillo",label:"Control de sencillo",icon:"coin"},
+  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
+  {section:"Análisis"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
   {section:"Consultas"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"preciosEco",label:"Precios económicos",icon:"pricetag"},{id:"stock",label:"Stock almacén",icon:"stock"},{id:"maquinas",label:"Mis máquinas",icon:"machine"},
 ];
 const ALMACENERO_NAV=[
@@ -1810,7 +2998,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",sugerencias:"Sugerencias",
+  devoluciones:"Devoluciones",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",usuarios:"Gestión de usuarios",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -1824,12 +3012,26 @@ export default function App(){
   const cerrar=()=>setSidebarOpen(false);
   const navegar=(id)=>{setTab(id);cerrar();};
   if(!data)return(<><style>{css}</style><div className="loading"><div className="spinner"><Icon name="spin" size={42}/></div><p>Conectando con la base de datos...</p></div></>);
-  if(!usuario)return(<><style>{css}</style><LoginScreen onLogin={role=>{setUsuario(role);setTab(role==="admin"?"dashboard":role==="almacenero"?"stock":"mihorario");}}/></>);
+  const [sesionUsuario,setSesionUsuario]=useState(null); // usuario custom si aplica
+  if(!usuario)return(<><style>{css}</style><LoginScreen usuarios={data?.usuarios||[]} onLogin={(info)=>{
+    if(info.tipo==="rol"){setUsuario(info.role);setSesionUsuario(null);setTab(info.role==="admin"?"dashboard":info.role==="almacenero"?"stock":"mihorario");}
+    else{setUsuario(info.role);setSesionUsuario(info.usuario);setTab((info.usuario.modulos||MODULOS_DEFAULT[info.role]||[])[0]||"mihorario");}
+  }}/></>);
   const esAdmin=usuario==="admin";
   const esAbastecedor=usuario==="abastecedor";
   const esAlmacenero=usuario==="almacenero";
-  const nav=esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV;
-  const nombreUsuario=ROL_NOMBRE[usuario]||usuario;
+  // Si es usuario custom, construir NAV dinámico con sus módulos asignados
+  const navCustom=sesionUsuario?(()=>{
+    const mods=sesionUsuario.modulos||MODULOS_DEFAULT[usuario]||[];
+    const dispMods=sesionUsuario.rol==="abastecedor"?MODULOS_ABASTECEDOR:MODULOS_ALMACENERO;
+    const secciones={};
+    dispMods.filter(m=>mods.includes(m.id)).forEach(m=>{if(!secciones[m.section])secciones[m.section]=[];secciones[m.section].push(m);});
+    const nav=[];
+    Object.entries(secciones).forEach(([sec,items])=>{nav.push({section:sec});items.forEach(i=>nav.push({id:i.id,label:i.label,icon:i.icon}));});
+    return nav;
+  })():null;
+  const nav=navCustom||(esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV);
+  const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
   const RC=()=>{switch(tab){
     case "dashboard":    return <Dashboard data={data}/>;
@@ -1847,6 +3049,12 @@ export default function App(){
     case "cobranzas":    return <Cobranzas data={data} save={save} del={del} usuario={nombreUsuario} esAdmin={esAdmin}/>;
     case "preciosEco":   return <ListaPreciosEco data={data}/>;
     case "devoluciones": return <Devoluciones data={data} save={save} del={del} soloLectura={esAlmacenero} esAdmin={esAdmin} puedeEditar={esAdmin||esAbastecedor}/>;
+    case "stockMaquina":  return <StockMaquina data={data} save={save} del={del} soloLectura={false}/>;
+    case "sencillo":      return <ControlSencillo data={data} save={save} del={del} esAdmin={esAdmin}/>;
+    case "tickets":      return <Tickets data={data} save={save} del={del} esAdmin={esAdmin}/>;
+    case "prekit":       return <PreKit data={data}/>;
+    case "reportes":     return <Reportes data={data}/>;
+    case "usuarios":     return <GestionUsuarios data={data} save={save} del={del}/>;
     case "sugerencias":  return <Sugerencias data={data} save={save} del={del} soloLectura={esAlmacenero}/>;
     default: return null;
   }};
@@ -1866,7 +3074,7 @@ export default function App(){
             :<div key={item.id} className={`nav-item ${tab===item.id?"active":""}`} onClick={()=>navegar(item.id)}><Icon name={item.icon} size={15}/>{item.label}</div>
           )}
         </nav>
-        <div className="logout-btn" onClick={()=>setUsuario(null)}><Icon name="logout" size={15}/> Cerrar sesión</div>
+        <div className="logout-btn" onClick={()=>{setUsuario(null);setSesionUsuario(null);}}><Icon name="logout" size={15}/> Cerrar sesión</div>
       </aside>
       <main className="main">
         <div className="topbar">
