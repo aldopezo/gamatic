@@ -250,7 +250,7 @@ function useFirebase(){
         maquinas:objToArr(val.maquinas),stock:objToArr(val.stock),
         traslados:objToArr(val.traslados),ventas:objToArr(val.ventas),
         cobranzas:objToArr(val.cobranzas),gastos:objToArr(val.gastos||{}),
-        sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),stockMaquina:objToArr(val.stockMaquina||{}),sencillo:objToArr(val.sencillo||{}),
+        sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),stockMaquina:objToArr(val.stockMaquina||{}),sencillo:objToArr(val.sencillo||{}),tickets:objToArr(val.tickets||{}),
         productosEco:objToArr(val.productosEco||{}),
         horario:val.horario||SEED.horario,
       });
@@ -2387,16 +2387,16 @@ function Tickets({data,save,del,esAdmin=false}){
   const abrirEditar=(t)=>{setForm({maquinaId:t.maquinaId,tipo:t.tipo,descripcion:t.descripcion,prioridad:t.prioridad,estado:t.estado,fecha:t.fecha,fechaResolucion:t.fechaResolucion||"",notas:t.notas||""});setEditando(t);setModal(true);};
   const cambiarEstado=(t,nuevoEstado)=>save("tickets",t.id,{...t,estado:nuevoEstado,fechaResolucion:nuevoEstado==="Resuelto"?today():t.fechaResolucion});
 
-  const ticketsFiltrados=data.tickets.filter(t=>{
+  const ticketsFiltrados=(data.tickets||[]).filter(t=>{
     const maq=data.maquinas.find(m=>m.id===t.maquinaId);
     const matchEstado=filtroEstado==="todos"||t.estado===filtroEstado;
     const matchBusq=!busqueda||maq?.nombre.toLowerCase().includes(busqueda.toLowerCase())||t.tipo.toLowerCase().includes(busqueda.toLowerCase())||t.descripcion.toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado&&matchBusq;
   }).sort((a,b)=>b.fecha.localeCompare(a.fecha));
 
-  const abiertos=data.tickets.filter(t=>t.estado==="Abierto").length;
-  const enProceso=data.tickets.filter(t=>t.estado==="En proceso").length;
-  const resueltos=data.tickets.filter(t=>t.estado==="Resuelto").length;
+  const abiertos=(data.tickets||[]).filter(t=>t.estado==="Abierto").length;
+  const enProceso=(data.tickets||[]).filter(t=>t.estado==="En proceso").length;
+  const resueltos=(data.tickets||[]).filter(t=>t.estado==="Resuelto").length;
 
   const PRIOR_COLOR={Alta:"red",Media:"amber",Baja:"blue"};
 
