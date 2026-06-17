@@ -1977,7 +1977,7 @@ function StockMaquina({data,save,del,soloLectura=false}){
     // Pre-cargar filas con stock anterior automático
     setFilas(data.productos.map(p=>{
       const anterior=getStockAnterior(mid,p.id);
-      return{productoId:p.id,stockAnterior:anterior,residuo:"",traslado:""};
+      return{productoId:p.id,stockAnterior:anterior,residuo:"",traslado:"",fechaVenc:""};
     }));
     setModal(true);
   };
@@ -2008,13 +2008,14 @@ function StockMaquina({data,save,del,soloLectura=false}){
       traslado:f.traslado!==""?+f.traslado:null,
       stockFinal:calcStockFinal(f),
       ventasCalculadas:calcVentas(f),
+      fechaVenc:f.fechaVenc||null,
     }));
     await save("stockMaquina",id,{id,maquinaId:maqId,fecha,registros});
     // Guardar traslados en la colección de traslados (visible para el admin)
     for(const reg of registros){
       if(reg.traslado>0){
         const tId=uid();
-        await save("traslados",tId,{id:tId,fecha,maquinaId:maqId,productoId:reg.productoId,cantidad:reg.traslado,responsable:"Abastecedor",origenStockMaquina:true});
+        await save("traslados",tId,{id:tId,fecha,maquinaId:maqId,productoId:reg.productoId,cantidad:reg.traslado,responsable:"Abastecedor",origenStockMaquina:true,fechaVenc:reg.fechaVenc||null});
       }
     }
     // Guardar ventas calculadas automáticamente
@@ -2084,7 +2085,7 @@ function StockMaquina({data,save,del,soloLectura=false}){
                 })()}
               </div>
               <div className="table-wrap"><table>
-                <thead><tr><th>Fecha</th><th>Producto</th><th>Stock anterior</th><th>Residuo</th><th>Traslado</th><th>Stock final</th><th>Ventas</th>{!soloLectura&&<th></th>}</tr></thead>
+                <thead><tr><th>Fecha</th><th>Producto</th><th>Stock anterior</th><th>Residuo</th><th>Traslado</th><th>F.Vencimiento</th><th>Stock final</th><th>Ventas</th>{!soloLectura&&<th></th>}</tr></thead>
                 <tbody>
                   {[...regs].reverse().flatMap(r=>
                     r.registros.map((reg,i)=>{
@@ -2097,6 +2098,11 @@ function StockMaquina({data,save,del,soloLectura=false}){
                           <td style={{color:"var(--muted)"}}>{reg.stockAnterior??<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
                           <td style={{color:"var(--muted)"}}>{reg.residuo??<span style={{fontSize:11}}>—</span>}</td>
                           <td style={{color:"var(--accent2)"}}>{reg.traslado??<span style={{fontSize:11}}>—</span>}</td>
+                          <td>{(()=>{
+                            if(!reg.fechaVenc)return<span style={{color:"var(--muted)",fontSize:11}}>—</span>;
+                            const dias=Math.ceil((new Date(reg.fechaVenc)-new Date())/(1000*60*60*24));
+                            return<span style={{fontSize:11,fontWeight:600,color:dias<=7?"var(--red)":dias<=30?"var(--accent)":"var(--muted)"}}>{reg.fechaVenc}{dias<=30&&<span style={{marginLeft:3,fontSize:9}}>{dias<=0?"⚠️Vencido":dias<=7?`⚠️${dias}d`:`⚡${dias}d`}</span>}</span>;
+                          })()}</td>
                           <td style={{fontWeight:700}}>{reg.stockFinal??<span style={{fontSize:11}}>—</span>}</td>
                           <td><span style={{fontWeight:700,color:vc>0?"var(--green)":vc===0?"var(--muted)":"var(--muted)"}}>{vc!=null?`${vc} uds`:"—"}</span></td>
                           {!soloLectura&&i===0&&<td rowSpan={r.registros.length} style={{verticalAlign:"middle"}}>
@@ -2126,13 +2132,14 @@ function StockMaquina({data,save,del,soloLectura=false}){
           <div className="form-group"><label>Fecha de visita</label><input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
         </div>
         {/* Cabecera tabla */}
-        <div style={{display:"grid",gridTemplateColumns:"2fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr",gap:6,padding:"7px 10px",background:"var(--surface2)",borderRadius:7,marginBottom:6,fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 1fr",gap:6,padding:"7px 10px",background:"var(--surface2)",borderRadius:7,marginBottom:6,fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>
           <span>Producto</span>
           <span style={{textAlign:"center",color:"var(--muted)"}}>Ant.</span>
           <span style={{textAlign:"center"}}>Residuo</span>
           <span style={{textAlign:"center",color:"var(--accent2)"}}>Traslado</span>
           <span style={{textAlign:"center",color:"var(--green)"}}>Final</span>
           <span style={{textAlign:"center",color:"var(--accent)"}}>Ventas</span>
+          <span style={{textAlign:"center",color:"var(--muted)"}}>F.Venc</span>
         </div>
         <div style={{maxHeight:400,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
           {filas.map((f,idx)=>{
@@ -2141,7 +2148,7 @@ function StockMaquina({data,save,del,soloLectura=false}){
             const sf=calcStockFinal(f);
             const tieneActividad=f.residuo!==""||f.traslado!=="";
             return(
-              <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr",gap:6,alignItems:"center",padding:"5px 4px",borderRadius:7,background:tieneActividad?"rgba(245,158,11,.04)":"transparent"}}>
+              <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 1fr",gap:6,alignItems:"center",padding:"5px 4px",borderRadius:7,background:tieneActividad?"rgba(245,158,11,.04)":"transparent"}}>
                 <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prod?.nombre||"—"}</div>
                 {/* Stock anterior — solo lectura */}
                 <div style={{textAlign:"center",fontSize:12,color:"var(--muted)",fontWeight:600}}>
@@ -2161,6 +2168,12 @@ function StockMaquina({data,save,del,soloLectura=false}){
                 <div style={{textAlign:"center",fontSize:12,fontWeight:700,color:vc>0?"var(--green)":vc===0?"var(--muted)":"var(--muted)"}}>
                   {vc!==null?`${vc}`:"—"}
                 </div>
+                {/* Fecha vencimiento — solo si hay traslado */}
+                {f.traslado!==""&&+f.traslado>0
+                  ?<input type="date" value={f.fechaVenc||""} onChange={e=>setFila(idx,"fechaVenc",e.target.value)}
+                      style={{padding:"4px 5px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:6,color:f.fechaVenc?"var(--accent)":"var(--muted)",fontSize:10,outline:"none",width:"100%"}}/>
+                  :<div style={{textAlign:"center",fontSize:10,color:"var(--muted)"}}>—</div>
+                }
               </div>
             );
           })}
@@ -2820,12 +2833,12 @@ const ADMIN_NAV=[
 const ABASTECEDOR_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
   {section:"Operaciones"},{id:"traslados",label:"Traslados",icon:"transfer"},{id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
-  {id:"ventas",label:"Ventas del día",icon:"chart"},{id:"cobranzas",label:"Cobranza",icon:"money"},
+  {id:"cobranzas",label:"Cobranza",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
   {section:"Análisis"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
-  {section:"Consultas"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"preciosEco",label:"Precios económicos",icon:"pricetag"},{id:"stock",label:"Stock almacén",icon:"stock"},
+  {section:"Consultas"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"preciosEco",label:"Precios económicos",icon:"pricetag"},{id:"stock",label:"Stock almacén",icon:"stock"},
 ];
 const ALMACENERO_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
