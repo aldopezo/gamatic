@@ -25,7 +25,7 @@ const SEED={
     s2:{id:"s2",productoId:"p2",cantidad:60,minimo:15},
     s3:{id:"s3",productoId:"p3",cantidad:35,minimo:8},
   },
-  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},stockMaquina:{},sencillo:{},tickets:{},usuarios:{},productosEco:{},
+  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},stockMaquina:{},sencillo:{},tickets:{},productosEco:{},
   horario:{lunes:{maquinas:[]},martes:{maquinas:[]},miercoles:{maquinas:[]},jueves:{maquinas:[]},viernes:{maquinas:[]},sabado:{maquinas:[]},domingo:{maquinas:[]}},
 };
 
@@ -72,8 +72,6 @@ const Icon=({name,size=18})=>{
     wrench:"M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
     trophy:"M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
     kit:"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
-    users:"M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
-    shield:"M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z",
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]}/></svg>;
 };
@@ -253,7 +251,6 @@ function useFirebase(){
         traslados:objToArr(val.traslados),ventas:objToArr(val.ventas),
         cobranzas:objToArr(val.cobranzas),gastos:objToArr(val.gastos||{}),
         sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),stockMaquina:objToArr(val.stockMaquina||{}),sencillo:objToArr(val.sencillo||{}),
-        usuarios:objToArr(val.usuarios||{}),
         productosEco:objToArr(val.productosEco||{}),
         horario:val.horario||SEED.horario,
       });
@@ -311,59 +308,21 @@ function SearchBar({value,onChange,placeholder="Buscar..."}){
 }
 
 
-// ─── DEFINICIÓN DE MÓDULOS POR ROL ────────────────────────────────────────────
-// Todos los módulos disponibles para asignar a usuarios
-const MODULOS_ABASTECEDOR=[
-  {id:"mihorario",label:"Mi horario",icon:"calendar",section:"Mi semana"},
-  {id:"traslados",label:"Traslados",icon:"transfer",section:"Operaciones"},
-  {id:"stockMaquina",label:"Stock por máquina",icon:"layers",section:"Operaciones"},
-  {id:"ventas",label:"Ventas del día",icon:"chart",section:"Operaciones"},
-  {id:"cobranzas",label:"Cobranza",icon:"money",section:"Operaciones"},
-  {id:"devoluciones",label:"Devoluciones",icon:"devolver",section:"Operaciones"},
-  {id:"sencillo",label:"Control de sencillo",icon:"coin",section:"Operaciones"},
-  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench",section:"Operaciones"},
-  {id:"prekit",label:"Pre-Kit reposición",icon:"kit",section:"Análisis"},
-  {id:"precios",label:"Lista de precios",icon:"tag",section:"Consultas"},
-  {id:"preciosEco",label:"Precios económicos",icon:"pricetag",section:"Consultas"},
-  {id:"stock",label:"Stock almacén",icon:"stock",section:"Consultas"},
-  {id:"maquinas",label:"Mis máquinas",icon:"machine",section:"Consultas"},
-];
-const MODULOS_ALMACENERO=[
-  {id:"mihorario",label:"Mi horario",icon:"calendar",section:"Mi semana"},
-  {id:"stock",label:"Stock almacén",icon:"stock",section:"Almacén"},
-  {id:"productos",label:"Productos",icon:"product",section:"Catálogo"},
-  {id:"proveedores",label:"Proveedores",icon:"supplier",section:"Catálogo"},
-  {id:"maquinas",label:"Máquinas",icon:"machine",section:"Operaciones"},
-  {id:"traslados",label:"Traslados",icon:"transfer",section:"Operaciones"},
-  {id:"devoluciones",label:"Devoluciones",icon:"devolver",section:"Operaciones"},
-];
-// Módulos por defecto según rol
-const MODULOS_DEFAULT={
-  abastecedor:["mihorario","traslados","stockMaquina","ventas","cobranzas","devoluciones","sencillo","tickets","prekit","precios","preciosEco","stock","maquinas"],
-  almacenero:["mihorario","stock","productos","proveedores","maquinas","traslados","devoluciones"],
-};
 
 // ─── LOGIN ──────────────────────────────────────────────────────────────────────
-function LoginScreen({onLogin,usuarios=[]}){
-  const [modo,setModo]=useState("rol");
+function LoginScreen({onLogin}){
   const [role,setRole]=useState("admin");
   const [clave,setClave]=useState("");
   const [error,setError]=useState("");
-  const [nombreInput,setNombreInput]=useState("");
   const ROLES=[
     ["admin","🔐","Administrador","Gestión total"],
     ["abastecedor","🔧","Abastecedor","Operaciones de campo"],
     ["almacenero","🏭","Almacenero","Gestión de almacén"],
   ];
-  const intentarRol=()=>{
+  const intentar=()=>{
     const req=CLAVES[role];
     if(req&&clave!==req){setError("Clave incorrecta");return;}
-    setError("");onLogin({tipo:"rol",role});
-  };
-  const intentarUsuario=()=>{
-    const u=usuarios.find(u=>u.nombre.toLowerCase()===nombreInput.toLowerCase()&&u.clave===clave&&u.activo!==false);
-    if(!u){setError("Usuario o contraseña incorrectos");return;}
-    setError("");onLogin({tipo:"usuario",role:u.rol,usuario:u});
+    setError("");onLogin(role);
   };
   return(
     <div className="login-screen">
@@ -372,53 +331,28 @@ function LoginScreen({onLogin,usuarios=[]}){
           <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo/></div>
           <p>Sistema de gestión de máquinas expendedoras</p>
         </div>
-        {/* Toggle modo */}
-        <div style={{display:"flex",gap:4,background:"var(--surface2)",borderRadius:10,padding:4,marginBottom:20}}>
-          {[["rol","Perfil general"],["usuario","Usuario personal"]].map(([m,l])=>(
-            <button key={m} onClick={()=>{setModo(m);setClave("");setNombreInput("");setError("");}}
-              style={{flex:1,padding:"7px",borderRadius:7,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:modo===m?"var(--accent)":"transparent",color:modo===m?"#000":"var(--muted)",transition:"all .15s"}}>
-              {l}
-            </button>
+        <p style={{fontSize:12,color:"var(--muted)",marginBottom:14}}>Selecciona tu perfil:</p>
+        <div className="role-grid">
+          {ROLES.map(([r,ico,lbl,sub])=>(
+            <div key={r} className={`role-card ${role===r?"selected":""}`} onClick={()=>{setRole(r);setClave("");setError("");}}>
+              <span className="role-icon">{ico}</span><h4>{lbl}</h4><p>{sub}</p>
+            </div>
           ))}
         </div>
-        {modo==="rol"&&(<>
-          <p style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>Selecciona tu perfil:</p>
-          <div className="role-grid">
-            {ROLES.map(([r,ico,lbl,sub])=>(
-              <div key={r} className={`role-card ${role===r?"selected":""}`} onClick={()=>{setRole(r);setClave("");setError("");}}>
-                <span className="role-icon">{ico}</span><h4>{lbl}</h4><p>{sub}</p>
-              </div>
-            ))}
-          </div>
-          {CLAVES[role]&&(
-            <div className="form-group" style={{marginBottom:14}}>
-              <label>Clave de acceso</label>
-              <input type="password" value={clave} onChange={e=>{setClave(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentarRol()} placeholder="Ingresa la clave..." autoFocus/>
-              {error&&<div style={{color:"var(--red)",fontSize:12,marginTop:5}}>⚠️ {error}</div>}
-            </div>
-          )}
-          <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={intentarRol}>
-            <Icon name="lock" size={15}/>Ingresar
-          </button>
-        </>)}
-        {modo==="usuario"&&(<>
-          <div className="form-group"><label>Nombre de usuario</label>
-            <input value={nombreInput} onChange={e=>{setNombreInput(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentarUsuario()} placeholder="Tu nombre" autoFocus/>
-          </div>
-          <div className="form-group" style={{marginBottom:14}}><label>Contraseña</label>
-            <input type="password" value={clave} onChange={e=>{setClave(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentarUsuario()} placeholder="Tu contraseña"/>
+        {CLAVES[role]&&(
+          <div className="form-group" style={{marginBottom:14}}>
+            <label>Clave de acceso</label>
+            <input type="password" value={clave} onChange={e=>{setClave(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentar()} placeholder="Ingresa la clave..." autoFocus/>
             {error&&<div style={{color:"var(--red)",fontSize:12,marginTop:5}}>⚠️ {error}</div>}
           </div>
-          <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={intentarUsuario}>
-            <Icon name="lock" size={15}/>Ingresar
-          </button>
-          {usuarios.filter(u=>u.activo!==false).length===0&&<div style={{textAlign:"center",fontSize:11,color:"var(--muted)",marginTop:12}}>El administrador aún no ha creado usuarios.</div>}
-        </>)}
+        )}
+        <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={intentar}>
+          <Icon name="lock" size={15}/>Ingresar
+        </button>
       </div>
     </div>
   );
 }
-
 
 // ─── DASHBOARD con filtro por máquina ──────────────────────────────────────────
 function Dashboard({data}){
@@ -2820,147 +2754,6 @@ function Reportes({data}){
 }
 
 
-// ─── GESTIÓN DE USUARIOS ──────────────────────────────────────────────────────
-function GestionUsuarios({data,save,del}){
-  const [modal,setModal]=useState(false);
-  const [editando,setEditando]=useState(null);
-  const [confirmDel,setConfirmDel]=useState(null);
-  const [verModulos,setVerModulos]=useState(null); // usuario al que editar módulos
-  const EF={nombre:"",clave:"",rol:"abastecedor",activo:true,modulos:null}; // null = usar defaults
-  const [form,setForm]=useState(EF);
-
-  const modulosDisponibles=(rol)=>rol==="abastecedor"?MODULOS_ABASTECEDOR:MODULOS_ALMACENERO;
-  const modulosActivos=(u)=>u.modulos||MODULOS_DEFAULT[u.rol]||[];
-  const toggleModulo=(uid,modId)=>{
-    const u=data.usuarios.find(x=>x.id===uid);
-    if(!u)return;
-    const actuales=modulosActivos(u);
-    const nuevos=actuales.includes(modId)?actuales.filter(m=>m!==modId):[...actuales,modId];
-    save("usuarios",uid,{...u,modulos:nuevos});
-  };
-
-  const doSave=()=>{
-    if(!form.nombre||!form.clave)return;
-    if(editando)save("usuarios",editando.id,{...editando,nombre:form.nombre,clave:form.clave,rol:form.rol,activo:form.activo});
-    else{
-      const id=uid();
-      save("usuarios",id,{id,nombre:form.nombre,clave:form.clave,rol:form.rol,activo:true,modulos:MODULOS_DEFAULT[form.rol]||[]});
-    }
-    setModal(false);setForm(EF);setEditando(null);
-  };
-  const abrirEditar=(u)=>{setForm({nombre:u.nombre,clave:u.clave,rol:u.rol,activo:u.activo!==false});setEditando(u);setModal(true);};
-  const toggleActivo=(u)=>save("usuarios",u.id,{...u,activo:!u.activo});
-
-  const ROL_BADGE={abastecedor:{color:"var(--accent2)",bg:"rgba(59,130,246,.15)",ico:"🔧"},almacenero:{color:"var(--green)",bg:"rgba(16,185,129,.15)",ico:"🏭"}};
-
-  return(
-    <div>
-      <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:10,padding:"12px 16px",fontSize:13,marginBottom:16}}>
-        <strong style={{color:"var(--accent)"}}>🔐 Gestión de accesos</strong><br/>
-        <span style={{color:"var(--muted)",fontSize:12}}>Crea usuarios personales para tu equipo. Cada uno tiene nombre, contraseña y acceso solo a los módulos que asignes. Ingresan por "Usuario personal" en el login.</span>
-      </div>
-
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
-        <button className="btn btn-primary" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={14}/> Crear usuario</button>
-      </div>
-
-      {data.usuarios.length===0
-        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin usuarios creados aún.</div></div>
-        :data.usuarios.map(u=>{
-          const rb=ROL_BADGE[u.rol]||{color:"var(--muted)",bg:"var(--surface2)",ico:"👤"};
-          const modActivos=modulosActivos(u);
-          const modDisp=modulosDisponibles(u.rol);
-          return(
-            <div key={u.id} className="section" style={{marginBottom:12}}>
-              <div style={{padding:"14px 16px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
-                  <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    <div style={{width:42,height:42,borderRadius:10,background:rb.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{rb.ico}</div>
-                    <div>
-                      <div style={{fontSize:15,fontWeight:700}}>{u.nombre}</div>
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
-                        <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:rb.bg,color:rb.color}}>{u.rol}</span>
-                        <span style={{fontSize:11,color:"var(--muted)"}}>🔑 {u.clave}</span>
-                        <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:u.activo!==false?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:u.activo!==false?"var(--green)":"var(--red)"}}>
-                          {u.activo!==false?"Activo":"Inactivo"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                    <button className="btn btn-secondary btn-sm" onClick={()=>setVerModulos(verModulos===u.id?null:u.id)}>
-                      <Icon name="kit" size={12}/> {verModulos===u.id?"Ocultar":"Ver módulos"} ({modActivos.length}/{modDisp.length})
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(u)}><Icon name="edit" size={12}/> Editar</button>
-                    <button className="btn btn-secondary btn-sm" style={{color:u.activo!==false?"var(--red)":"var(--green)"}} onClick={()=>toggleActivo(u)}>
-                      {u.activo!==false?"Desactivar":"Activar"}
-                    </button>
-                    <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(u)}><Icon name="trash" size={12}/></button>
-                  </div>
-                </div>
-
-                {/* Panel de módulos */}
-                {verModulos===u.id&&(
-                  <div style={{marginTop:14,borderTop:"1px solid var(--border)",paddingTop:14}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:10}}>Módulos asignados — toca para activar/desactivar</div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:7}}>
-                      {modDisp.map(mod=>{
-                        const activo=modActivos.includes(mod.id);
-                        return(
-                          <div key={mod.id} onClick={()=>toggleModulo(u.id,mod.id)}
-                            style={{display:"flex",alignItems:"center",gap:8,padding:"8px 11px",borderRadius:9,cursor:"pointer",border:`1px solid ${activo?"var(--accent)":"var(--border)"}`,background:activo?"rgba(245,158,11,.08)":"var(--surface2)",transition:"all .15s"}}>
-                            <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${activo?"var(--accent)":"var(--border)"}`,background:activo?"var(--accent)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}>
-                              {activo&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>}
-                            </div>
-                            <div>
-                              <div style={{fontSize:11,fontWeight:600,color:activo?"var(--text)":"var(--muted)"}}>{mod.label}</div>
-                              <div style={{fontSize:9,color:"var(--muted)"}}>{mod.section}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div style={{marginTop:10,display:"flex",gap:8}}>
-                      <button className="btn btn-secondary btn-sm" onClick={()=>save("usuarios",u.id,{...u,modulos:modDisp.map(m=>m.id)})}>✓ Activar todos</button>
-                      <button className="btn btn-secondary btn-sm" onClick={()=>save("usuarios",u.id,{...u,modulos:[]})}>✗ Desactivar todos</button>
-                      <button className="btn btn-secondary btn-sm" onClick={()=>save("usuarios",u.id,{...u,modulos:MODULOS_DEFAULT[u.rol]||[]})}>↺ Restaurar por defecto</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })
-      }
-
-      {/* Modal crear/editar */}
-      {modal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:440}}>
-        <h3>{editando?"Editar usuario":"Crear usuario"}</h3>
-        {editando&&<div className="edit-banner">Editando: <strong>{editando.nombre}</strong></div>}
-        <div className="form-group"><label>Nombre de usuario</label>
-          <input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Juan Pérez"/>
-        </div>
-        <div className="form-row">
-          <div className="form-group"><label>Contraseña</label>
-            <input type="text" value={form.clave} onChange={e=>setForm({...form,clave:e.target.value})} placeholder="Ej: gamar2024"/>
-          </div>
-          <div className="form-group"><label>Rol base</label>
-            <select value={form.rol} onChange={e=>setForm({...form,rol:e.target.value})}>
-              <option value="abastecedor">🔧 Abastecedor</option>
-              <option value="almacenero">🏭 Almacenero</option>
-            </select>
-          </div>
-        </div>
-        {!editando&&<div className="info-box" style={{fontSize:12}}>Se asignarán los módulos por defecto del rol seleccionado. Puedes personalizarlos después.</div>}
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear usuario"}</button>
-        </div>
-      </div></div>}
-      {confirmDel&&<ConfirmDelete texto={`¿Eliminar el usuario "${confirmDel.nombre}"? No se podrá deshacer.`} onConfirm={()=>{del("usuarios",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
-    </div>
-  );
-}
 
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
@@ -2974,7 +2767,6 @@ const ADMIN_NAV=[
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
   {section:"Análisis"},{id:"reportes",label:"Reportes",icon:"trophy"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
-  {section:"Administración"},{id:"usuarios",label:"Gestión de usuarios",icon:"users"},
 ];
 const ABASTECEDOR_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
@@ -2998,7 +2790,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",usuarios:"Gestión de usuarios",
+  devoluciones:"Devoluciones",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -3012,26 +2804,12 @@ export default function App(){
   const cerrar=()=>setSidebarOpen(false);
   const navegar=(id)=>{setTab(id);cerrar();};
   if(!data)return(<><style>{css}</style><div className="loading"><div className="spinner"><Icon name="spin" size={42}/></div><p>Conectando con la base de datos...</p></div></>);
-  const [sesionUsuario,setSesionUsuario]=useState(null); // usuario custom si aplica
-  if(!usuario)return(<><style>{css}</style><LoginScreen usuarios={data?.usuarios||[]} onLogin={(info)=>{
-    if(info.tipo==="rol"){setUsuario(info.role);setSesionUsuario(null);setTab(info.role==="admin"?"dashboard":info.role==="almacenero"?"stock":"mihorario");}
-    else{setUsuario(info.role);setSesionUsuario(info.usuario);setTab((info.usuario.modulos||MODULOS_DEFAULT[info.role]||[])[0]||"mihorario");}
-  }}/></>);
+  if(!usuario)return(<><style>{css}</style><LoginScreen onLogin={role=>{setUsuario(role);setTab(role==="admin"?"dashboard":role==="almacenero"?"stock":"mihorario");}}/></>);
   const esAdmin=usuario==="admin";
   const esAbastecedor=usuario==="abastecedor";
   const esAlmacenero=usuario==="almacenero";
-  // Si es usuario custom, construir NAV dinámico con sus módulos asignados
-  const navCustom=sesionUsuario?(()=>{
-    const mods=sesionUsuario.modulos||MODULOS_DEFAULT[usuario]||[];
-    const dispMods=sesionUsuario.rol==="abastecedor"?MODULOS_ABASTECEDOR:MODULOS_ALMACENERO;
-    const secciones={};
-    dispMods.filter(m=>mods.includes(m.id)).forEach(m=>{if(!secciones[m.section])secciones[m.section]=[];secciones[m.section].push(m);});
-    const nav=[];
-    Object.entries(secciones).forEach(([sec,items])=>{nav.push({section:sec});items.forEach(i=>nav.push({id:i.id,label:i.label,icon:i.icon}));});
-    return nav;
-  })():null;
-  const nav=navCustom||(esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV);
-  const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
+  const nav=esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV;
+  const nombreUsuario=ROL_NOMBRE[usuario]||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
   const RC=()=>{switch(tab){
     case "dashboard":    return <Dashboard data={data}/>;
@@ -3054,7 +2832,6 @@ export default function App(){
     case "tickets":      return <Tickets data={data} save={save} del={del} esAdmin={esAdmin}/>;
     case "prekit":       return <PreKit data={data}/>;
     case "reportes":     return <Reportes data={data}/>;
-    case "usuarios":     return <GestionUsuarios data={data} save={save} del={del}/>;
     case "sugerencias":  return <Sugerencias data={data} save={save} del={del} soloLectura={esAlmacenero}/>;
     default: return null;
   }};
@@ -3074,7 +2851,7 @@ export default function App(){
             :<div key={item.id} className={`nav-item ${tab===item.id?"active":""}`} onClick={()=>navegar(item.id)}><Icon name={item.icon} size={15}/>{item.label}</div>
           )}
         </nav>
-        <div className="logout-btn" onClick={()=>{setUsuario(null);setSesionUsuario(null);}}><Icon name="logout" size={15}/> Cerrar sesión</div>
+        <div className="logout-btn" onClick={()=>setUsuario(null)}><Icon name="logout" size={15}/> Cerrar sesión</div>
       </aside>
       <main className="main">
         <div className="topbar">
