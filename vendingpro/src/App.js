@@ -293,16 +293,19 @@ function ConfirmDelete({texto,onConfirm,onCancel}){
 }
 
 // ─── SEARCH BAR ──────────────────────────────────────────────────────────────────
-function SearchBar({value,onChange,placeholder="Buscar..."}){
+function SearchBar({value,onChange,placeholder="Buscar...",total=null,filtrado=null}){
   return(
-    <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:9,padding:"7px 12px",marginBottom:14}}>
-      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--surface2)",border:`1px solid ${value?"var(--accent)":"var(--border)"}`,borderRadius:9,padding:"8px 13px",marginBottom:14,transition:"border-color .15s"}}>
+      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={value?"var(--accent)":"var(--muted)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       <input
         value={value} onChange={e=>onChange(e.target.value)}
         placeholder={placeholder}
         style={{background:"none",border:"none",outline:"none",color:"var(--text)",fontSize:13,width:"100%",fontFamily:"'DM Sans',sans-serif"}}
       />
-      {value&&<button onClick={()=>onChange("")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:16,padding:0,lineHeight:1}}>✕</button>}
+      {value&&filtrado!==null&&total!==null&&(
+        <span style={{fontSize:11,color:"var(--accent)",fontWeight:600,whiteSpace:"nowrap"}}>{filtrado}/{total}</span>
+      )}
+      {value&&<button onClick={()=>onChange("")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:16,padding:0,lineHeight:1,flexShrink:0}}>✕</button>}
     </div>
   );
 }
@@ -526,7 +529,7 @@ function GastosAdicionales({data,save,del}){
 // ─── PRODUCTOS ────────────────────────────────────────────────────────────────
 function Productos({data,save,del,soloEditar=false}){
   const [busqueda,setBusqueda]=useState("");
-  const productosFiltrados=data.productos.filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.proveedor?.toLowerCase().includes(busqueda.toLowerCase()));
+  const productosFiltrados=[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre)).filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.proveedor?.toLowerCase().includes(busqueda.toLowerCase()));
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [precioEdit,setPrecioEdit]=useState("");
@@ -550,6 +553,7 @@ function Productos({data,save,del,soloEditar=false}){
   const guardarPrecio=(p)=>{save("productos",p.id,{...p,precioVenta:+precioEdit});setEditandoPrecioId(null);};
   return(
     <div>
+      <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por nombre o proveedor..." total={data.productos.length} filtrado={productosFiltrados.length}/>
       <div className="section">
         <div className="section-header"><h3>Catálogo de productos</h3><button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap"><table>
@@ -615,14 +619,14 @@ function Productos({data,save,del,soloEditar=false}){
 
 function ListaPrecios({data}){
   const [busqueda,setBusqueda]=useState("");
-  const pfiltrados=data.productos.filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase()));
-  return(<div><div className="info-box">Precios de venta que debes cobrar al cargar las máquinas.</div><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto..."/><div className="section"><div className="section-header"><h3>Precios de venta</h3></div><div className="table-wrap"><table><thead><tr><th>Producto</th><th>Proveedor</th><th>Precio de venta</th></tr></thead><tbody>{pfiltrados.map(p=>(<tr key={p.id}><td><strong>{p.nombre}</strong></td><td style={{color:"var(--muted)"}}>{p.proveedor}</td><td><span className="precio-real">{fmt(p.precioVenta||(p.costo*(1+p.margen/100)))}</span></td></tr>))}</tbody></table></div></div></div>);
+  const pfiltrados=[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre)).filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase()));
+  return(<div><div className="info-box">Precios de venta que debes cobrar al cargar las máquinas.</div><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto..." total={data.productos.length} filtrado={pfiltrados.length}/><div className="section"><div className="section-header"><h3>Precios de venta</h3></div><div className="table-wrap"><table><thead><tr><th>Producto</th><th>Proveedor</th><th>Precio de venta</th></tr></thead><tbody>{pfiltrados.map(p=>(<tr key={p.id}><td><strong>{p.nombre}</strong></td><td style={{color:"var(--muted)"}}>{p.proveedor}</td><td><span className="precio-real">{fmt(p.precioVenta||(p.costo*(1+p.margen/100)))}</span></td></tr>))}</tbody></table></div></div></div>);
 }
 
 // ─── PROVEEDORES ─────────────────────────────────────────────────────────────────
 function Proveedores({data,save,del,soloEditar=false}){
   const [busqueda,setBusqueda]=useState("");
-  const provFiltrados=data.proveedores.filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.contacto?.toLowerCase().includes(busqueda.toLowerCase()));
+  const provFiltrados=[...data.proveedores].sort((a,b)=>a.nombre.localeCompare(b.nombre)).filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.contacto?.toLowerCase().includes(busqueda.toLowerCase()));
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
   const EF={nombre:"",contacto:"",telefono:""};const [form,setForm]=useState(EF);
   const doSave=()=>{
@@ -632,7 +636,7 @@ function Proveedores({data,save,del,soloEditar=false}){
     setModal(false);setForm(EF);setEditando(null);
   };
   return(
-    <div><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar proveedor..."/>
+    <div><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar proveedor..." total={data.proveedores.length} filtrado={provFiltrados.length}/>
   
       <div className="section">
         <div className="section-header"><h3>Proveedores</h3><button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Agregar</button></div>
@@ -724,7 +728,7 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
 // ─── STOCK ──────────────────────────────────────────────────────────────────────
 function Stock({data,save,del,soloLectura=false,esAdmin=false}){
   const [busqueda,setBusqueda]=useState("");
-  const stockFiltrado=data.stock.filter(s=>{const p=data.productos.find(p=>p.id===s.productoId);return !busqueda||p?.nombre.toLowerCase().includes(busqueda.toLowerCase());});
+  const stockFiltrado=[...data.stock].sort((a,b)=>{const pa=data.productos.find(p=>p.id===a.productoId);const pb=data.productos.find(p=>p.id===b.productoId);return(pa?.nombre||"").localeCompare(pb?.nombre||"");}).filter(s=>{const p=data.productos.find(p=>p.id===s.productoId);return !busqueda||p?.nombre.toLowerCase().includes(busqueda.toLowerCase());});
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
   const EF={productoId:"",cantidad:"",minimo:"",fechaVenc:"",fechaReg:""};const [form,setForm]=useState(EF);
   const doSave=()=>{
@@ -749,7 +753,7 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
           {!soloLectura&&<button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Entrada</button>}
         </div>
         {soloLectura&&<div className="view-only-badge" style={{margin:"12px 16px 0"}}><Icon name="lock" size={13}/> Solo visualización</div>}
-        <div style={{padding:"0 16px 12px"}}><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto en stock..."/></div>
+        <div style={{padding:"0 16px 12px"}}><SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto en stock..." total={data.stock.length} filtrado={stockFiltrado.length}/></div>
         <div className="table-wrap"><table>
           <thead><tr><th>Producto</th><th>F.Ingreso</th><th>F.Vencimiento</th><th>Cantidad</th><th>Mínimo</th><th>Estado</th>{!soloLectura&&<th>Acciones</th>}</tr></thead>
           <tbody>{stockFiltrado.map(s=>{
@@ -1907,10 +1911,10 @@ function ProductosEco({data,save,del}){
 
 function ListaPreciosEco({data}){
   const [busqueda,setBusqueda]=useState("");
-  const conEco2=data.productos.filter(p=>p.precioEco&&(!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())));
+  const conEco2=[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre)).filter(p=>p.precioEco&&(!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())));
   return(
     <div>
-      <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto económico..."/>
+      <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar producto económico..." total={data.productos.filter(p=>p.precioEco).length} filtrado={conEco2.length}/>
     <div className="info-box">Lista de precios económicos — todos los productos con su precio reducido configurado.</div>
       <div className="section">
         <div className="section-header"><h3>Lista de precios económica</h3></div>
@@ -2817,9 +2821,203 @@ function Reportes({data}){
 
 
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: CIERRE DEL DÍA
+// ═══════════════════════════════════════════════════════════════════════════════
+function CierreDia({data}){
+  const [fecha,setFecha]=useState(today());
+
+  // ── Cobranzas del día ──────────────────────────────────────────────────────
+  const cobranzasDia=data.cobranzas.filter(c=>c.fecha===fecha);
+  const totalCobrado=cobranzasDia.reduce((s,c)=>s+(c.monto||0),0);
+  const totalVerificado=cobranzasDia.filter(c=>c.verificado).reduce((s,c)=>s+(c.monto||0),0);
+  const totalPendiente=totalCobrado-totalVerificado;
+  const totalSencilloCob=cobranzasDia.reduce((s,c)=>s+(c.sencillo||0),0);
+
+  // ── Sencillo del día ───────────────────────────────────────────────────────
+  const sencilloDia=data.sencillo.filter(s=>s.fecha===fecha);
+  const totalEntregado=sencilloDia.reduce((s,r)=>s+(r.totalEntregado||0),0);
+  const totalUsado=sencilloDia.reduce((s,r)=>s+(r.usos||[]).reduce((a,u)=>a+(u.total||0),0),0);
+  const totalDevuelto=sencilloDia.reduce((s,r)=>s+(r.devolucion?.total||0),0);
+  const sencilloPendiente=totalEntregado-totalUsado-totalDevuelto;
+
+  // ── Neto del día ───────────────────────────────────────────────────────────
+  const netoEsperado=totalCobrado-totalEntregado;
+  const netoReal=totalVerificado-totalEntregado+totalDevuelto;
+
+  // ── Agrupado por abastecedor ───────────────────────────────────────────────
+  const porResponsable={};
+  cobranzasDia.forEach(c=>{
+    const r=c.responsable||"Sin nombre";
+    if(!porResponsable[r])porResponsable[r]={nombre:r,maquinas:[],total:0,verificado:0,pendiente:0};
+    const maq=data.maquinas.find(m=>m.id===c.maquinaId);
+    porResponsable[r].maquinas.push({nombre:maq?.nombre||"—",ubicacion:maq?.ubicacion||"",monto:c.monto||0,verificado:!!c.verificado,sencillo:c.sencillo||0,comentario:data.sugerencias.find(s=>s.cobId===c.id)?.mensaje||null});
+    porResponsable[r].total+=c.monto||0;
+    if(c.verificado)porResponsable[r].verificado+=c.monto||0;
+    else porResponsable[r].pendiente+=c.monto||0;
+  });
+
+  const STATUS_COLOR={true:"var(--green)",false:"var(--accent)"};
+
+  return(
+    <div>
+      {/* Selector de fecha */}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px"}}>
+        <Icon name="calendar" size={16}/>
+        <span style={{fontWeight:700,fontSize:15}}>Cierre del día</span>
+        <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}
+          style={{marginLeft:"auto",padding:"7px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none"}}/>
+      </div>
+
+      {/* Cards resumen */}
+      <div className="cards" style={{marginBottom:16}}>
+        <div className="card">
+          <div className="card-label">💰 Total cobrado</div>
+          <div className="card-value green">{fmt(totalCobrado)}</div>
+          <div className="card-sub">{cobranzasDia.length} máquinas</div>
+        </div>
+        <div className="card">
+          <div className="card-label">✅ Verificado</div>
+          <div className="card-value green">{fmt(totalVerificado)}</div>
+          <div className="card-sub">{cobranzasDia.filter(c=>c.verificado).length} confirmados</div>
+        </div>
+        <div className="card">
+          <div className="card-label">⏳ Pendiente verificar</div>
+          <div className="card-value amber">{fmt(totalPendiente)}</div>
+          <div className="card-sub">{cobranzasDia.filter(c=>!c.verificado).length} por revisar</div>
+        </div>
+        <div className="card">
+          <div className="card-label">💵 Sencillo entregado</div>
+          <div className="card-value blue">{fmt(totalEntregado)}</div>
+          <div className="card-sub">vs {fmt(totalDevuelto)} devuelto</div>
+        </div>
+        <div className="card">
+          <div className="card-label">{Math.abs(sencilloPendiente)<0.01?"✅ Sencillo cuadrado":"⚠️ Sencillo pendiente"}</div>
+          <div className={`card-value ${Math.abs(sencilloPendiente)<0.01?"green":"red"}`}>{fmt(Math.abs(sencilloPendiente))}</div>
+          <div className="card-sub">{Math.abs(sencilloPendiente)<0.01?"Todo devuelto":"Por devolver/rendir"}</div>
+        </div>
+        <div className="card">
+          <div className="card-label">📊 Neto esperado</div>
+          <div className="card-value green">{fmt(netoEsperado)}</div>
+          <div className="card-sub">Cobrado − sencillo</div>
+        </div>
+      </div>
+
+      {/* Sin datos */}
+      {cobranzasDia.length===0&&sencilloDia.length===0&&(
+        <div className="section"><div style={{padding:32,textAlign:"center",color:"var(--muted)",fontSize:14}}>
+          <div style={{fontSize:40,marginBottom:12}}>📭</div>
+          Sin registros para el {fecha}
+        </div></div>
+      )}
+
+      {/* Detalle por abastecedor */}
+      {Object.values(porResponsable).map(r=>(
+        <div key={r.nombre} className="section" style={{marginBottom:14}}>
+          <div className="section-header">
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:36,height:36,borderRadius:9,background:"rgba(245,158,11,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>🔧</div>
+              <div>
+                <div style={{fontWeight:700,fontSize:14}}>{r.nombre}</div>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{r.maquinas.length} máquina(s) visitadas</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              {[["Cobrado",fmt(r.total),"var(--green)"],["Verificado",fmt(r.verificado),"var(--green)"],["Pendiente",fmt(r.pendiente),"var(--accent)"]].map(([l,v,col])=>(
+                <div key={l} style={{textAlign:"center",background:"var(--surface2)",borderRadius:8,padding:"6px 12px"}}>
+                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase"}}>{l}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:col}}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tabla máquinas */}
+          <div className="table-wrap"><table>
+            <thead><tr><th>Máquina</th><th>Ubicación</th><th>Monto</th><th>Sencillo usado</th><th>Estado</th><th>Comentario</th></tr></thead>
+            <tbody>
+              {r.maquinas.map((m,i)=>(
+                <tr key={i}>
+                  <td><strong>{m.nombre}</strong></td>
+                  <td style={{color:"var(--muted)",fontSize:11}}>{m.ubicacion}</td>
+                  <td style={{color:"var(--green)",fontWeight:700}}>{fmt(m.monto)}</td>
+                  <td>{m.sencillo>0?<span style={{fontSize:11,fontWeight:600,color:"var(--accent2)"}}>{fmt(m.sencillo)}</span>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
+                  <td>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,background:m.verificado?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:STATUS_COLOR[m.verificado]}}>
+                      {m.verificado?"✅ Correcto":"⏳ Pendiente"}
+                    </span>
+                  </td>
+                  <td style={{fontSize:11,color:"var(--muted)",fontStyle:m.comentario?"italic":"normal"}}>{m.comentario||"—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </div>
+      ))}
+
+      {/* Sencillo del día */}
+      {sencilloDia.length>0&&(
+        <div className="section">
+          <div className="section-header"><h3>💵 Control de sencillo del día</h3></div>
+          <div style={{padding:"12px 16px"}}>
+            {sencilloDia.map(reg=>{
+              const usado=(reg.usos||[]).reduce((s,u)=>s+(u.total||0),0);
+              const devuelto=reg.devolucion?.total||0;
+              const diff=+(reg.totalEntregado-usado-devuelto).toFixed(2);
+              const cuadra=Math.abs(diff)<0.01;
+              return(
+                <div key={reg.id} style={{background:"var(--surface2)",borderRadius:10,padding:"12px 14px",marginBottom:10,border:`1px solid ${cuadra?"rgba(16,185,129,.3)":"rgba(245,158,11,.3)"}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:8}}>
+                    <div style={{fontWeight:600}}>{reg.responsable||"Sin nombre"}</div>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:cuadra?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:cuadra?"var(--green)":"var(--accent)"}}>
+                      {cuadra?"✅ Cuadrado":`⚠️ Pendiente ${fmt(diff)}`}
+                    </span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8}}>
+                    {[["Entregado",fmt(reg.totalEntregado),"var(--accent)"],["Usado",fmt(usado),"var(--accent2)"],["Devuelto",fmt(devuelto),"var(--green)"],["Diferencia",fmt(diff),cuadra?"var(--green)":"var(--red)"]].map(([l,v,col])=>(
+                      <div key={l} style={{background:"var(--surface)",borderRadius:7,padding:"7px 10px"}}>
+                        <div style={{fontSize:9,color:"var(--muted)",marginBottom:2,textTransform:"uppercase"}}>{l}</div>
+                        <div style={{fontSize:13,fontWeight:700,color:col}}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {reg.nota&&<div style={{marginTop:8,fontSize:11,color:"var(--muted)",fontStyle:"italic"}}>📝 {reg.nota}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Línea de cierre */}
+      {(cobranzasDia.length>0||sencilloDia.length>0)&&(
+        <div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:12,padding:"16px 18px",marginTop:8}}>
+          <div style={{fontSize:13,fontWeight:700,color:"var(--green)",marginBottom:10}}>📊 Resumen de cierre</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+            {[
+              ["Total cobranza",fmt(totalCobrado),"var(--green)"],
+              ["Sencillo entregado",fmt(totalEntregado),"var(--red)"],
+              ["Neto esperado",fmt(netoEsperado),"var(--green)"],
+              ["Verificado",fmt(totalVerificado),"var(--green)"],
+              ["Sin verificar",fmt(totalPendiente),"var(--amber)"],
+              ["Sencillo pendiente",fmt(Math.max(0,sencilloPendiente)),"var(--accent)"],
+            ].map(([l,v,col])=>(
+              <div key={l} style={{background:"var(--surface)",borderRadius:9,padding:"10px 13px"}}>
+                <div style={{fontSize:10,color:"var(--muted)",marginBottom:3,textTransform:"uppercase"}}>{l}</div>
+                <div style={{fontSize:15,fontWeight:700,color:col}}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
-  {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
+  {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"cierreDia",label:"Cierre del día",icon:"bolt"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
   {id:"horario",label:"Horario semanal",icon:"calendar"},{id:"gastos",label:"Gastos adicionales",icon:"bolt"},
   {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"stock",label:"Stock almacén",icon:"stock"},
@@ -2852,7 +3050,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  devoluciones:"Devoluciones",cierreDia:"Cierre del día",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -2875,6 +3073,7 @@ export default function App(){
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
   const RC=()=>{switch(tab){
     case "dashboard":    return <Dashboard data={data}/>;
+    case "cierreDia":    return <CierreDia data={data}/>;
     case "rentabilidad": return <Rentabilidad data={data}/>;
     case "horario":      return <HorarioAdmin data={data} save={save}/>;
     case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor||esAdmin}/>;
