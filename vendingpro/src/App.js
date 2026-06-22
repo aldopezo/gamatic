@@ -238,6 +238,11 @@ const css=`
   }
 `;
 
+const CloseBtn=({onClick})=>(
+  <button onClick={onClick} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",padding:"2px 6px",borderRadius:6,fontSize:22,lineHeight:1,display:"flex",alignItems:"center",flexShrink:0}}
+    onMouseEnter={e=>e.currentTarget.style.color="var(--text)"} onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}>✕</button>
+);
+
 function useFirebase(){
   const [data,setData]=useState(null);
   const [syncCount,setSyncCount]=useState(0);
@@ -1954,6 +1959,7 @@ function StockMaquina({data,save,del,soloLectura=false}){
   const [filas,setFilas]=useState([]);
   const [confirmDel,setConfirmDel]=useState(null);
   const [mes,setMes]=useState(mesActual());
+  const [busquedaSM,setBusquedaSM]=useState("");
   const [modalSugSM,setModalSugSM]=useState(null);
   const [sugTextoSM,setSugTextoSM]=useState("");
   // Modal mover producto entre máquinas
@@ -1999,6 +2005,7 @@ function StockMaquina({data,save,del,soloLectura=false}){
       const anterior=getStockAnterior(mid,p.id);
       return{productoId:p.id,stockAnterior:anterior,residuo:"",traslado:"",fechaVenc:""};
     }));
+    setBusquedaSM("");
     setModal(true);
   };
 
@@ -2150,7 +2157,10 @@ function StockMaquina({data,save,del,soloLectura=false}){
 
       {/* Modal registro inventario */}
       {modal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:680}}>
-        <h3>📋 Registrar inventario de máquina</h3>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+          <h3 style={{margin:0}}>📋 Registrar inventario de máquina</h3>
+          <button onClick={()=>setModal(false)} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",padding:4,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,lineHeight:1}} onMouseEnter={e=>e.currentTarget.style.color="var(--text)"} onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}>✕</button>
+        </div>
         <div className="form-row" style={{marginBottom:14}}>
           <div className="form-group"><label>Máquina</label>
             <select value={maqId} onChange={e=>{setMaqId(e.target.value);const m=maqActivas.find(m=>m.id===e.target.value);if(m)abrirModal(m);}}>
@@ -2160,13 +2170,25 @@ function StockMaquina({data,save,del,soloLectura=false}){
           </div>
           <div className="form-group"><label>Fecha de visita</label><input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
         </div>
+        {/* Buscador */}
+        <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--surface2)",border:`1px solid ${busquedaSM?"var(--accent)":"var(--border)"}`,borderRadius:9,padding:"8px 12px",marginBottom:10,transition:"border-color .15s"}}>
+          <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke={busquedaSM?"var(--accent)":"var(--muted)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input value={busquedaSM} onChange={e=>setBusquedaSM(e.target.value)}
+            placeholder="Buscar producto..."
+            style={{background:"none",border:"none",outline:"none",color:"var(--text)",fontSize:13,width:"100%",fontFamily:"'DM Sans',sans-serif"}}/>
+          {busquedaSM&&<button onClick={()=>setBusquedaSM("")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:16,padding:0,lineHeight:1,flexShrink:0}}>✕</button>}
+        </div>
         {/* Cabecera referencia */}
         <div style={{display:"flex",gap:6,padding:"6px 12px",background:"var(--surface2)",borderRadius:7,marginBottom:8,fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>
           <span style={{flex:1}}>Producto — Residuo / Traslado / Final / Ventas</span>
           <span style={{color:"var(--accent)"}}>Solo llena Residuo y Traslado</span>
         </div>
-        <div style={{maxHeight:400,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
-          {filas.map((f,idx)=>{
+        <div style={{maxHeight:380,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
+          {filas.filter(f=>{
+              if(!busquedaSM)return true;
+              const prod=data.productos.find(p=>p.id===f.productoId);
+              return prod?.nombre.toLowerCase().includes(busquedaSM.toLowerCase());
+            }).map((f,idx)=>{
             const prod=data.productos.find(p=>p.id===f.productoId);
             const vc=calcVentas(f);
             const sf=calcStockFinal(f);
@@ -2222,12 +2244,15 @@ function StockMaquina({data,save,del,soloLectura=false}){
       {/* Modal sugerencia */}
       {modalSugSM&&<div className="modal-overlay">
         <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:16,padding:"24px 22px",width:"90%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-            <div style={{width:38,height:38,borderRadius:10,background:"rgba(245,158,11,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💡</div>
-            <div>
-              <div style={{fontSize:15,fontWeight:700}}>Sugerencia</div>
-              <div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>Máquina: <strong style={{color:"var(--accent)"}}>{modalSugSM.maqNombre}</strong> — {modalSugSM.fecha}</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:38,height:38,borderRadius:10,background:"rgba(245,158,11,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>💡</div>
+              <div>
+                <div style={{fontSize:15,fontWeight:700}}>Sugerencia</div>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>Máquina: <strong style={{color:"var(--accent)"}}>{modalSugSM.maqNombre}</strong> — {modalSugSM.fecha}</div>
+              </div>
             </div>
+            <CloseBtn onClick={()=>setModalSugSM(null)}/>
           </div>
           <div className="form-group" style={{marginBottom:16}}>
             <label style={{fontSize:11,fontWeight:600,color:"var(--muted)",letterSpacing:".05em",textTransform:"uppercase",display:"block",marginBottom:6}}>Tu sugerencia o comentario</label>
@@ -2243,7 +2268,10 @@ function StockMaquina({data,save,del,soloLectura=false}){
       </div>}
       {/* Modal mover producto entre máquinas */}
       {modalMover&&<div className="modal-overlay"><div className="modal" style={{maxWidth:440}}>
-        <h3>🔄 Mover producto entre máquinas</h3>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+          <h3 style={{margin:0}}>🔄 Mover producto entre máquinas</h3>
+          <button onClick={()=>setModalMover(false)} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",padding:4,borderRadius:6,display:"flex",fontSize:20,lineHeight:1}}>✕</button>
+        </div>
         <div className="info-box" style={{fontSize:12,marginBottom:14}}>
           Registra el movimiento de unidades de una máquina a otra. Quedará en el historial de traslados del admin.
         </div>
