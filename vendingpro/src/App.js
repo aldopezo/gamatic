@@ -240,7 +240,10 @@ const css=`
 
 function useFirebase(){
   const [data,setData]=useState(null);
-  const [syncing,setSyncing]=useState(false);
+  const [syncCount,setSyncCount]=useState(0);
+  const syncing=syncCount>0;
+  const incSync=()=>setSyncCount(n=>n+1);
+  const decSync=()=>setSyncCount(n=>Math.max(0,n-1));
   useEffect(()=>{
     return onValue(ref(db,"gamatic"),(snap)=>{
       const val=snap.val();
@@ -256,9 +259,9 @@ function useFirebase(){
       });
     });
   },[]);
-  const save=async(path,id,val)=>{setSyncing(true);await set(ref(db,`gamatic/${path}/${id}`),val);setSyncing(false);};
-  const saveMulti=async(ops)=>{setSyncing(true);for(const[p,i,v]of ops)await set(ref(db,`gamatic/${p}/${i}`),v);setSyncing(false);};
-  const del=async(path,id)=>{setSyncing(true);await remove(ref(db,`gamatic/${path}/${id}`));setSyncing(false);};
+  const save=async(path,id,val)=>{incSync();try{await set(ref(db,`gamatic/${path}/${id}`),val);}finally{decSync();}};
+  const saveMulti=async(ops)=>{incSync();try{for(const[p,i,v]of ops)await set(ref(db,`gamatic/${p}/${i}`),v);}finally{decSync();}};
+  const del=async(path,id)=>{incSync();try{await remove(ref(db,`gamatic/${path}/${id}`));}finally{decSync();}};
   return{data,save,saveMulti,del,syncing};
 }
 
@@ -1951,8 +1954,21 @@ function StockMaquina({data,save,del,soloLectura=false}){
   const [filas,setFilas]=useState([]);
   const [confirmDel,setConfirmDel]=useState(null);
   const [mes,setMes]=useState(mesActual());
-  const [modalSugSM,setModalSugSM]=useState(null); // {maqId, maqNombre, fecha}
+  const [modalSugSM,setModalSugSM]=useState(null);
   const [sugTextoSM,setSugTextoSM]=useState("");
+  // Modal mover producto entre máquinas
+  const [modalMover,setModalMover]=useState(false);
+  const EFM={productoId:"",maqOrigen:"",maqDestino:"",cantidad:"",fecha:today()};
+  const [formMover,setFormMover]=useState(EFM);
+  const doMover=async()=>{
+    if(!formMover.productoId||!formMover.maqOrigen||!formMover.maqDestino||!formMover.cantidad)return;
+    if(formMover.maqOrigen===formMover.maqDestino)return;
+    const qty=+formMover.cantidad;
+    // Registrar como traslado en colección traslados
+    const tId=uid();
+    await save("traslados",tId,{id:tId,fecha:formMover.fecha,maquinaId:formMover.maqDestino,productoId:formMover.productoId,cantidad:qty,responsable:"Movimiento entre máquinas",origenMaqId:formMover.maqOrigen,origenStockMaquina:false,esMovimiento:true});
+    setModalMover(false);setFormMover(EFM);
+  };
   const maqActivas=data.maquinas.filter(m=>m.activa);
 
   const abrirSugSM=(maqId,maqNombre,fecha)=>{setModalSugSM({maqId,maqNombre,fecha});setSugTextoSM("");};
@@ -1978,8 +1994,8 @@ function StockMaquina({data,save,del,soloLectura=false}){
     const mid=maq?maq.id:"";
     setMaqId(mid);
     setFecha(today());
-    // Pre-cargar filas con stock anterior automático
-    setFilas(data.productos.map(p=>{
+    // Pre-cargar filas ordenadas A-Z con stock anterior automático
+    setFilas([...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(p=>{
       const anterior=getStockAnterior(mid,p.id);
       return{productoId:p.id,stockAnterior:anterior,residuo:"",traslado:"",fechaVenc:""};
     }));
@@ -2065,6 +2081,15 @@ function StockMaquina({data,save,del,soloLectura=false}){
         </div>
       )}
 
+      {/* Botón mover entre máquinas */}
+      {!soloLectura&&maqActivas.length>=2&&(
+        <div style={{marginBottom:14}}>
+          <button className="btn btn-secondary" onClick={()=>{setFormMover(EFM);setModalMover(true);}}>
+            <Icon name="transfer" size={14}/> Mover producto entre máquinas
+          </button>
+        </div>
+      )}
+
       {/* Historial */}
       {Object.keys(porMaq).length===0
         ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin registros en {nombreMes(mes)}.</div></div>
@@ -2135,15 +2160,10 @@ function StockMaquina({data,save,del,soloLectura=false}){
           </div>
           <div className="form-group"><label>Fecha de visita</label><input type="date" value={fecha} onChange={e=>setFecha(e.target.value)}/></div>
         </div>
-        {/* Cabecera tabla */}
-        <div style={{display:"grid",gridTemplateColumns:"2fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 1fr",gap:6,padding:"7px 10px",background:"var(--surface2)",borderRadius:7,marginBottom:6,fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>
-          <span>Producto</span>
-          <span style={{textAlign:"center",color:"var(--muted)"}}>Ant.</span>
-          <span style={{textAlign:"center"}}>Residuo</span>
-          <span style={{textAlign:"center",color:"var(--accent2)"}}>Traslado</span>
-          <span style={{textAlign:"center",color:"var(--green)"}}>Final</span>
-          <span style={{textAlign:"center",color:"var(--accent)"}}>Ventas</span>
-          <span style={{textAlign:"center",color:"var(--muted)"}}>F.Venc</span>
+        {/* Cabecera referencia */}
+        <div style={{display:"flex",gap:6,padding:"6px 12px",background:"var(--surface2)",borderRadius:7,marginBottom:8,fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>
+          <span style={{flex:1}}>Producto — Residuo / Traslado / Final / Ventas</span>
+          <span style={{color:"var(--accent)"}}>Solo llena Residuo y Traslado</span>
         </div>
         <div style={{maxHeight:400,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
           {filas.map((f,idx)=>{
@@ -2152,33 +2172,42 @@ function StockMaquina({data,save,del,soloLectura=false}){
             const sf=calcStockFinal(f);
             const tieneActividad=f.residuo!==""||f.traslado!=="";
             return(
-              <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 1fr",gap:6,alignItems:"center",padding:"5px 4px",borderRadius:7,background:tieneActividad?"rgba(245,158,11,.04)":"transparent"}}>
-                <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prod?.nombre||"—"}</div>
-                {/* Stock anterior — solo lectura */}
-                <div style={{textAlign:"center",fontSize:12,color:"var(--muted)",fontWeight:600}}>
-                  {f.stockAnterior!==null?f.stockAnterior:<span style={{fontSize:10,color:"var(--muted)"}}>—</span>}
+              <div key={idx} style={{background:tieneActividad?"rgba(245,158,11,.06)":"var(--surface2)",borderRadius:9,padding:"10px 12px",border:tieneActividad?"1px solid rgba(245,158,11,.2)":"1px solid var(--border)",marginBottom:2}}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"var(--text)"}}>{prod?.nombre||"—"}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:tieneActividad&&f.traslado!==""&&+f.traslado>0?8:0}}>
+                <div style={{fontSize:11,fontWeight:600,lineHeight:1.3,wordBreak:"break-word"}}>{prod?.nombre||"—"}</div>
+                <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Anterior</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"var(--muted)"}}>{f.stockAnterior!==null?f.stockAnterior:"—"}</div>
                 </div>
-                {/* Residuo — editable */}
-                <input type="number" min="0" value={f.residuo} onChange={e=>setFila(idx,"residuo",e.target.value)} placeholder="0"
-                  style={{padding:"5px 6px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text)",fontSize:12,textAlign:"center",outline:"none",width:"100%"}}/>
-                {/* Traslado — editable */}
-                <input type="number" min="0" value={f.traslado} onChange={e=>setFila(idx,"traslado",e.target.value)} placeholder="0"
-                  style={{padding:"5px 6px",background:"rgba(59,130,246,.07)",border:"1px solid rgba(59,130,246,.25)",borderRadius:6,color:"var(--text)",fontSize:12,textAlign:"center",outline:"none",width:"100%"}}/>
-                {/* Stock final — calculado */}
-                <div style={{textAlign:"center",fontSize:12,fontWeight:700,color:sf!==null?"var(--text)":"var(--muted)"}}>
-                  {sf!==null?sf:"—"}
+                <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px"}}>
+                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Residuo</div>
+                  <input type="number" min="0" value={f.residuo} onChange={e=>setFila(idx,"residuo",e.target.value)} placeholder="0"
+                    style={{padding:"3px 0",background:"none",border:"none",borderBottom:"2px solid var(--border)",color:"var(--text)",fontSize:14,fontWeight:700,outline:"none",width:"100%",textAlign:"center"}}/>
                 </div>
-                {/* Ventas — calculadas */}
-                <div style={{textAlign:"center",fontSize:12,fontWeight:700,color:vc>0?"var(--green)":vc===0?"var(--muted)":"var(--muted)"}}>
-                  {vc!==null?`${vc}`:"—"}
+                <div style={{background:"rgba(59,130,246,.07)",borderRadius:6,padding:"6px 8px",border:"1px solid rgba(59,130,246,.2)"}}>
+                  <div style={{fontSize:9,color:"var(--accent2)",textTransform:"uppercase",marginBottom:3}}>Traslado</div>
+                  <input type="number" min="0" value={f.traslado} onChange={e=>setFila(idx,"traslado",e.target.value)} placeholder="0"
+                    style={{padding:"3px 0",background:"none",border:"none",borderBottom:"2px solid rgba(59,130,246,.4)",color:"var(--text)",fontSize:14,fontWeight:700,outline:"none",width:"100%",textAlign:"center"}}/>
                 </div>
-                {/* Fecha vencimiento — solo si hay traslado */}
-                {f.traslado!==""&&+f.traslado>0
-                  ?<input type="date" value={f.fechaVenc||""} onChange={e=>setFila(idx,"fechaVenc",e.target.value)}
-                      style={{padding:"4px 5px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:6,color:f.fechaVenc?"var(--accent)":"var(--muted)",fontSize:10,outline:"none",width:"100%"}}/>
-                  :<div style={{textAlign:"center",fontSize:10,color:"var(--muted)"}}>—</div>
-                }
+                <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Final</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{sf!==null?sf:"—"}</div>
+                </div>
+                <div style={{background:vc>0?"rgba(16,185,129,.08)":"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center",border:vc>0?"1px solid rgba(16,185,129,.2)":"none"}}>
+                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Ventas</div>
+                  <div style={{fontSize:13,fontWeight:700,color:vc>0?"var(--green)":"var(--muted)"}}>{vc!==null?vc:"—"}</div>
+                </div>
               </div>
+              {/* Fecha vencimiento — solo si hay traslado */}
+              {f.traslado!==""&&+f.traslado>0&&(
+                <div style={{marginTop:6}}>
+                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>F. Vencimiento</div>
+                  <input type="date" value={f.fechaVenc||""} onChange={e=>setFila(idx,"fechaVenc",e.target.value)}
+                    style={{padding:"5px 8px",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:6,color:f.fechaVenc?"var(--accent)":"var(--muted)",fontSize:12,outline:"none",width:"100%"}}/>
+                </div>
+              )}
+            </div>
             );
           })}
         </div>
@@ -2212,6 +2241,52 @@ function StockMaquina({data,save,del,soloLectura=false}){
           </div>
         </div>
       </div>}
+      {/* Modal mover producto entre máquinas */}
+      {modalMover&&<div className="modal-overlay"><div className="modal" style={{maxWidth:440}}>
+        <h3>🔄 Mover producto entre máquinas</h3>
+        <div className="info-box" style={{fontSize:12,marginBottom:14}}>
+          Registra el movimiento de unidades de una máquina a otra. Quedará en el historial de traslados del admin.
+        </div>
+        <div className="form-group"><label>Producto</label>
+          <select value={formMover.productoId} onChange={e=>setFormMover({...formMover,productoId:e.target.value})}>
+            <option value="">Seleccionar...</option>
+            {[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Máquina origen (sale de aquí)</label>
+            <select value={formMover.maqOrigen} onChange={e=>setFormMover({...formMover,maqOrigen:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Máquina destino (va aquí)</label>
+            <select value={formMover.maqDestino} onChange={e=>setFormMover({...formMover,maqDestino:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {maqActivas.filter(m=>m.id!==formMover.maqOrigen).map(m=><option key={m.id} value={m.id}>{m.nombre}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Cantidad a mover</label>
+            <input type="number" min="1" value={formMover.cantidad} onChange={e=>setFormMover({...formMover,cantidad:e.target.value})} placeholder="0"/>
+          </div>
+          <div className="form-group"><label>Fecha</label>
+            <input type="date" value={formMover.fecha} onChange={e=>setFormMover({...formMover,fecha:e.target.value})}/>
+          </div>
+        </div>
+        {formMover.maqOrigen&&formMover.maqOrigen===formMover.maqDestino&&(
+          <div style={{color:"var(--red)",fontSize:12,marginBottom:8}}>⚠️ Origen y destino no pueden ser la misma máquina</div>
+        )}
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>setModalMover(false)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doMover}
+            disabled={!formMover.productoId||!formMover.maqOrigen||!formMover.maqDestino||!formMover.cantidad||formMover.maqOrigen===formMover.maqDestino}>
+            Registrar movimiento
+          </button>
+        </div>
+      </div></div>}
+
       {confirmDel&&<ConfirmDelete texto="¿Eliminar este registro? Las ventas generadas no se eliminarán." onConfirm={()=>{del("stockMaquina",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
