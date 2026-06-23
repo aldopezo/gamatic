@@ -2184,52 +2184,56 @@ function StockMaquina({data,save,del,soloLectura=false}){
           <span style={{color:"var(--accent)"}}>Solo llena Residuo y Traslado</span>
         </div>
         <div style={{maxHeight:380,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
-          {filas.filter(f=>{
-              if(!busquedaSM)return true;
-              const prod=data.productos.find(p=>p.id===f.productoId);
-              return prod?.nombre.toLowerCase().includes(busquedaSM.toLowerCase());
-            }).map((f,idx)=>{
+          {filas.map((f,realIdx)=>{
+            // Filtrar por búsqueda usando el índice REAL para setFila
             const prod=data.productos.find(p=>p.id===f.productoId);
+            if(busquedaSM&&!prod?.nombre.toLowerCase().includes(busquedaSM.toLowerCase()))return null;
             const vc=calcVentas(f);
             const sf=calcStockFinal(f);
             const tieneActividad=f.residuo!==""||f.traslado!=="";
             return(
-              <div key={idx} style={{background:tieneActividad?"rgba(245,158,11,.06)":"var(--surface2)",borderRadius:9,padding:"10px 12px",border:tieneActividad?"1px solid rgba(245,158,11,.2)":"1px solid var(--border)",marginBottom:2}}>
-              <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"var(--text)"}}>{prod?.nombre||"—"}</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:tieneActividad&&f.traslado!==""&&+f.traslado>0?8:0}}>
-                <div style={{fontSize:11,fontWeight:600,lineHeight:1.3,wordBreak:"break-word"}}>{prod?.nombre||"—"}</div>
-                <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
-                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Anterior</div>
-                  <div style={{fontSize:13,fontWeight:700,color:"var(--muted)"}}>{f.stockAnterior!==null?f.stockAnterior:"—"}</div>
+              <div key={f.productoId} style={{background:tieneActividad?"rgba(245,158,11,.06)":"var(--surface2)",borderRadius:9,padding:"10px 12px",border:tieneActividad?"1px solid rgba(245,158,11,.2)":"1px solid var(--border)",marginBottom:2}}>
+                {/* Nombre del producto */}
+                <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:"var(--text)"}}>{prod?.nombre||"—"}</div>
+                {/* Grid de campos */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:f.traslado!==""&&+f.traslado>0?8:0}}>
+                  {/* Stock anterior — solo lectura */}
+                  <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Anterior</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"var(--muted)"}}>{f.stockAnterior!==null?f.stockAnterior:"—"}</div>
+                  </div>
+                  {/* Residuo — editable con índice REAL */}
+                  <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Residuo</div>
+                    <input type="number" min="0" value={f.residuo} onChange={e=>setFila(realIdx,"residuo",e.target.value)} placeholder="0"
+                      style={{padding:"3px 0",background:"none",border:"none",borderBottom:"2px solid var(--border)",color:"var(--text)",fontSize:14,fontWeight:700,outline:"none",width:"100%",textAlign:"center"}}/>
+                  </div>
+                  {/* Traslado — editable con índice REAL */}
+                  <div style={{background:"rgba(59,130,246,.07)",borderRadius:6,padding:"6px 8px",border:"1px solid rgba(59,130,246,.2)"}}>
+                    <div style={{fontSize:9,color:"var(--accent2)",textTransform:"uppercase",marginBottom:3}}>Traslado</div>
+                    <input type="number" min="0" value={f.traslado} onChange={e=>setFila(realIdx,"traslado",e.target.value)} placeholder="0"
+                      style={{padding:"3px 0",background:"none",border:"none",borderBottom:"2px solid rgba(59,130,246,.4)",color:"var(--text)",fontSize:14,fontWeight:700,outline:"none",width:"100%",textAlign:"center"}}/>
+                  </div>
+                  {/* Stock final — calculado */}
+                  <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Final</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{sf!==null?sf:"—"}</div>
+                  </div>
+                  {/* Ventas calculadas */}
+                  <div style={{background:vc>0?"rgba(16,185,129,.08)":"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center",border:vc>0?"1px solid rgba(16,185,129,.2)":"none"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Ventas</div>
+                    <div style={{fontSize:13,fontWeight:700,color:vc>0?"var(--green)":"var(--muted)"}}>{vc!==null?vc:"—"}</div>
+                  </div>
                 </div>
-                <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px"}}>
-                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Residuo</div>
-                  <input type="number" min="0" value={f.residuo} onChange={e=>setFila(idx,"residuo",e.target.value)} placeholder="0"
-                    style={{padding:"3px 0",background:"none",border:"none",borderBottom:"2px solid var(--border)",color:"var(--text)",fontSize:14,fontWeight:700,outline:"none",width:"100%",textAlign:"center"}}/>
-                </div>
-                <div style={{background:"rgba(59,130,246,.07)",borderRadius:6,padding:"6px 8px",border:"1px solid rgba(59,130,246,.2)"}}>
-                  <div style={{fontSize:9,color:"var(--accent2)",textTransform:"uppercase",marginBottom:3}}>Traslado</div>
-                  <input type="number" min="0" value={f.traslado} onChange={e=>setFila(idx,"traslado",e.target.value)} placeholder="0"
-                    style={{padding:"3px 0",background:"none",border:"none",borderBottom:"2px solid rgba(59,130,246,.4)",color:"var(--text)",fontSize:14,fontWeight:700,outline:"none",width:"100%",textAlign:"center"}}/>
-                </div>
-                <div style={{background:"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center"}}>
-                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Final</div>
-                  <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{sf!==null?sf:"—"}</div>
-                </div>
-                <div style={{background:vc>0?"rgba(16,185,129,.08)":"var(--surface)",borderRadius:6,padding:"6px 8px",textAlign:"center",border:vc>0?"1px solid rgba(16,185,129,.2)":"none"}}>
-                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>Ventas</div>
-                  <div style={{fontSize:13,fontWeight:700,color:vc>0?"var(--green)":"var(--muted)"}}>{vc!==null?vc:"—"}</div>
-                </div>
+                {/* Fecha vencimiento — solo si hay traslado */}
+                {f.traslado!==""&&+f.traslado>0&&(
+                  <div style={{marginTop:6}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>F. Vencimiento</div>
+                    <input type="date" value={f.fechaVenc||""} onChange={e=>setFila(realIdx,"fechaVenc",e.target.value)}
+                      style={{padding:"5px 8px",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:6,color:f.fechaVenc?"var(--accent)":"var(--muted)",fontSize:12,outline:"none",width:"100%"}}/>
+                  </div>
+                )}
               </div>
-              {/* Fecha vencimiento — solo si hay traslado */}
-              {f.traslado!==""&&+f.traslado>0&&(
-                <div style={{marginTop:6}}>
-                  <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:3}}>F. Vencimiento</div>
-                  <input type="date" value={f.fechaVenc||""} onChange={e=>setFila(idx,"fechaVenc",e.target.value)}
-                    style={{padding:"5px 8px",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:6,color:f.fechaVenc?"var(--accent)":"var(--muted)",fontSize:12,outline:"none",width:"100%"}}/>
-                </div>
-              )}
-            </div>
             );
           })}
         </div>
