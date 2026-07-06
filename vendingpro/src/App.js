@@ -25,7 +25,7 @@ const SEED={
     s2:{id:"s2",productoId:"p2",cantidad:60,minimo:15},
     s3:{id:"s3",productoId:"p3",cantidad:35,minimo:8},
   },
-  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},stockMaquina:{},sencillo:{},tickets:{},productosEco:{},
+  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},stockMaquina:{},sencillo:{},tickets:{},productosEco:{},personal:{},
   horario:{lunes:{maquinas:[]},martes:{maquinas:[]},miercoles:{maquinas:[]},jueves:{maquinas:[]},viernes:{maquinas:[]},sabado:{maquinas:[]},domingo:{maquinas:[]}},
 };
 
@@ -69,6 +69,7 @@ const Icon=({name,size=18})=>{
     pricetag:"M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z",
     layers:"M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
     coin:"M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+    personal:"M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
     wrench:"M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
     trophy:"M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
     kit:"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
@@ -95,7 +96,7 @@ const Logo=()=>(
 
 const css=`
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
-  :root{--bg:#0a0e1a;--surface:#111827;--surface2:#1a2235;--border:#1e2d45;--accent:#f59e0b;--accent2:#3b82f6;--green:#10b981;--red:#ef4444;--text:#f1f5f9;--muted:#64748b;--radius:12px;}
+  :root{--bg:#f8fafc;--surface:#ffffff;--surface2:#f1f5f9;--border:#e2e8f0;--accent:#f59e0b;--accent2:#3b82f6;--green:#10b981;--red:#ef4444;--text:#0f172a;--muted:#64748b;--radius:12px;}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
   h1,h2,h3,h4{font-family:'Syne',sans-serif}
@@ -259,7 +260,7 @@ function useFirebase(){
         traslados:objToArr(val.traslados),ventas:objToArr(val.ventas),
         cobranzas:objToArr(val.cobranzas),gastos:objToArr(val.gastos||{}),
         sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),stockMaquina:objToArr(val.stockMaquina||{}),sencillo:objToArr(val.sencillo||{}),tickets:objToArr(val.tickets||{}),
-        productosEco:objToArr(val.productosEco||{}),
+        productosEco:objToArr(val.productosEco||{}),personal:objToArr(val.personal||{}),
         horario:val.horario||SEED.horario,
       });
     });
@@ -911,7 +912,7 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
               <div key={idx} className="prod-row">
                 <select value={it.productoId} onChange={e=>setItem(idx,"productoId",e.target.value)}>
                   <option value="">Seleccionar...</option>
-                  {data.productos.map(p=>{const s=data.stock.find(s=>s.productoId===p.id);return<option key={p.id} value={p.id}>{p.nombre} (stock:{s?.cantidad||0})</option>;})}
+                  {[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(p=>{const s=data.stock.find(s=>s.productoId===p.id);return<option key={p.id} value={p.id}>{p.nombre} (stock:{s?.cantidad||0})</option>;})}
                 </select>
                 <input type="number" value={it.cantidad} onChange={e=>setItem(idx,"cantidad",e.target.value)} placeholder="0"/>
                 <button className="btn btn-danger btn-sm" style={{padding:"5px 7px"}} onClick={()=>removeItem(idx)} disabled={items.length===1}>✕</button>
@@ -3122,6 +3123,176 @@ function CierreDia({data}){
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: PERSONAL
+// ═══════════════════════════════════════════════════════════════════════════════
+const ROLES_PERSONAL=["Abastecedor","Almacenero","Supervisor","Administrador","Otro"];
+const TURNOS=["Tiempo completo","Medio tiempo","Por horas","Por días"];
+
+function Personal({data,save,del}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [busqueda,setBusqueda]=useState("");
+  const [verDetalle,setVerDetalle]=useState(null);
+  const EF={nombre:"",rol:ROLES_PERSONAL[0],turno:TURNOS[0],sueldo:"",telefono:"",dni:"",fechaIngreso:today(),activo:true,notas:""};
+  const [form,setForm]=useState(EF);
+
+  const doSave=()=>{
+    if(!form.nombre||!form.sueldo)return;
+    if(editando)save("personal",editando.id,{...editando,...form,sueldo:+form.sueldo});
+    else{const id=uid();save("personal",id,{id,...form,sueldo:+form.sueldo});}
+    setModal(false);setForm(EF);setEditando(null);
+  };
+  const abrirEditar=(p)=>{
+    setForm({nombre:p.nombre,rol:p.rol,turno:p.turno,sueldo:String(p.sueldo),telefono:p.telefono||"",dni:p.dni||"",fechaIngreso:p.fechaIngreso||today(),activo:p.activo!==false,notas:p.notas||""});
+    setEditando(p);setModal(true);
+  };
+  const toggleActivo=(p)=>save("personal",p.id,{...p,activo:!p.activo});
+
+  const personalFiltrado=[...data.personal]
+    .sort((a,b)=>a.nombre.localeCompare(b.nombre))
+    .filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.rol.toLowerCase().includes(busqueda.toLowerCase()));
+
+  const activos=data.personal.filter(p=>p.activo!==false);
+  const totalSueldos=activos.reduce((s,p)=>s+(p.sueldo||0),0);
+  const ROL_COLOR={Abastecedor:"blue",Almacenero:"green",Supervisor:"amber",Administrador:"red",Otro:"blue"};
+
+  return(
+    <div>
+      {/* Cards resumen */}
+      <div className="cards">
+        <div className="card"><div className="card-label">Personal activo</div><div className="card-value blue">{activos.length}</div><div className="card-sub">{data.personal.filter(p=>p.activo===false).length} inactivos</div></div>
+        <div className="card"><div className="card-label">Planilla mensual</div><div className="card-value amber">{fmt(totalSueldos)}</div><div className="card-sub">Solo activos</div></div>
+        {ROLES_PERSONAL.filter(r=>data.personal.some(p=>p.rol===r&&p.activo!==false)).map(r=>(
+          <div key={r} className="card"><div className="card-label">{r}s</div><div className="card-value green">{data.personal.filter(p=>p.rol===r&&p.activo!==false).length}</div></div>
+        ))}
+      </div>
+
+      <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por nombre o rol..." total={data.personal.length} filtrado={personalFiltrado.length}/>
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
+        <button className="btn btn-primary" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={14}/> Agregar personal</button>
+      </div>
+
+      {personalFiltrado.length===0
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin personal registrado.</div></div>
+        :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+          {personalFiltrado.map(p=>(
+            <div key={p.id} className="section" style={{marginBottom:0}}>
+              <div style={{padding:"14px 16px"}}>
+                {/* Header card */}
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{width:42,height:42,borderRadius:10,background:`rgba(${p.activo!==false?"59,130,246":"100,116,139"},0.15)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>
+                      {p.rol==="Abastecedor"?"🔧":p.rol==="Almacenero"?"🏭":p.rol==="Supervisor"?"👁️":p.rol==="Administrador"?"🔐":"👤"}
+                    </div>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14}}>{p.nombre}</div>
+                      <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
+                        <span className={`badge ${ROL_COLOR[p.rol]||"blue"}`}>{p.rol}</span>
+                        <span style={{fontSize:10,color:"var(--muted)"}}>{p.turno}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:20,background:p.activo!==false?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:p.activo!==false?"var(--green)":"var(--red)",flexShrink:0}}>
+                    {p.activo!==false?"Activo":"Inactivo"}
+                  </span>
+                </div>
+                {/* Info */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                  <div style={{background:"var(--surface2)",borderRadius:7,padding:"7px 10px"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:2}}>Sueldo/mes</div>
+                    <div style={{fontSize:14,fontWeight:700,color:"var(--accent)"}}>{fmt(p.sueldo)}</div>
+                  </div>
+                  <div style={{background:"var(--surface2)",borderRadius:7,padding:"7px 10px"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:2}}>Ingreso</div>
+                    <div style={{fontSize:12,fontWeight:600}}>{p.fechaIngreso||"—"}</div>
+                  </div>
+                  {p.telefono&&<div style={{background:"var(--surface2)",borderRadius:7,padding:"7px 10px"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:2}}>Teléfono</div>
+                    <div style={{fontSize:12}}>{p.telefono}</div>
+                  </div>}
+                  {p.dni&&<div style={{background:"var(--surface2)",borderRadius:7,padding:"7px 10px"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:2}}>DNI</div>
+                    <div style={{fontSize:12}}>{p.dni}</div>
+                  </div>}
+                </div>
+                {p.notas&&<div style={{fontSize:11,color:"var(--muted)",fontStyle:"italic",marginBottom:10,padding:"6px 8px",background:"var(--surface2)",borderRadius:6}}>📝 {p.notas}</div>}
+                {/* Acciones */}
+                <div style={{display:"flex",gap:6}}>
+                  <button className="btn btn-secondary btn-sm" style={{flex:1}} onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/> Editar</button>
+                  <button className="btn btn-secondary btn-sm" style={{color:p.activo!==false?"var(--red)":"var(--green)"}} onClick={()=>toggleActivo(p)}>
+                    {p.activo!==false?"Desactivar":"Activar"}
+                  </button>
+                  <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={12}/></button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      }
+
+      {/* Modal crear/editar */}
+      {modal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:500}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <h3 style={{margin:0}}>{editando?"Editar personal":"Agregar personal"}</h3>
+          <CloseBtn onClick={()=>{setModal(false);setEditando(null);}}/>
+        </div>
+        {editando&&<div className="edit-banner">Editando: <strong>{editando.nombre}</strong></div>}
+        <div className="form-row">
+          <div className="form-group"><label>Nombre completo</label>
+            <input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Juan Pérez García"/>
+          </div>
+          <div className="form-group"><label>DNI</label>
+            <input value={form.dni} onChange={e=>setForm({...form,dni:e.target.value})} placeholder="12345678"/>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Rol</label>
+            <select value={form.rol} onChange={e=>setForm({...form,rol:e.target.value})}>
+              {ROLES_PERSONAL.map(r=><option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Turno</label>
+            <select value={form.turno} onChange={e=>setForm({...form,turno:e.target.value})}>
+              {TURNOS.map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Sueldo mensual (S/)</label>
+            <input type="number" step="0.01" value={form.sueldo} onChange={e=>setForm({...form,sueldo:e.target.value})} placeholder="Ej: 1500.00"/>
+          </div>
+          <div className="form-group"><label>Teléfono</label>
+            <input value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})} placeholder="999-888-777"/>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Fecha de ingreso</label>
+            <input type="date" value={form.fechaIngreso} onChange={e=>setForm({...form,fechaIngreso:e.target.value})}/>
+          </div>
+          {editando&&<div className="form-group"><label>Estado</label>
+            <select value={form.activo} onChange={e=>setForm({...form,activo:e.target.value==="true"})}>
+              <option value="true">Activo</option>
+              <option value="false">Inactivo</option>
+            </select>
+          </div>}
+        </div>
+        <div className="form-group"><label>Notas (opcional)</label>
+          <input value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})} placeholder="Ej: Conductor con licencia, experiencia en vending..."/>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave} disabled={!form.nombre||!form.sueldo}>{editando?"Guardar cambios":"Agregar"}</button>
+        </div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar a "${confirmDel.nombre}" del registro de personal?`} onConfirm={()=>{del("personal",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
   {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"cierreDia",label:"Cierre del día",icon:"bolt"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
@@ -3134,6 +3305,7 @@ const ADMIN_NAV=[
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
   {section:"Análisis"},{id:"reportes",label:"Reportes",icon:"trophy"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
+  {section:"Administración"},{id:"personal",label:"Personal",icon:"personal"},
 ];
 const ABASTECEDOR_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
@@ -3157,7 +3329,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",cierreDia:"Cierre del día",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -3181,6 +3353,7 @@ export default function App(){
   const RC=()=>{switch(tab){
     case "dashboard":    return <Dashboard data={data}/>;
     case "cierreDia":    return <CierreDia data={data}/>;
+    case "personal":     return <Personal data={data} save={save} del={del}/>;
     case "rentabilidad": return <Rentabilidad data={data}/>;
     case "horario":      return <HorarioAdmin data={data} save={save}/>;
     case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor||esAdmin}/>;
