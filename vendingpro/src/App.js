@@ -96,7 +96,7 @@ const Logo=()=>(
 
 const css=`
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
-  :root{--bg:#f8fafc;--surface:#ffffff;--surface2:#f1f5f9;--border:#e2e8f0;--accent:#f59e0b;--accent2:#3b82f6;--green:#10b981;--red:#ef4444;--text:#0f172a;--muted:#64748b;--radius:12px;}
+  :root{--bg:#e8edf5;--surface:#f4f7fb;--surface2:#eaeff7;--border:#d0d9e8;--accent:#f59e0b;--accent2:#3b82f6;--green:#10b981;--red:#ef4444;--text:#1e293b;--muted:#64748b;--radius:12px;}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
   h1,h2,h3,h4{font-family:'Syne',sans-serif}
@@ -159,17 +159,17 @@ const css=`
   .prod-row select:focus,.prod-row input:focus{border-color:var(--accent)}
   .add-prod-btn{background:rgba(245,158,11,.12);border:1px dashed var(--accent);border-radius:8px;padding:7px;color:var(--accent);cursor:pointer;font-size:12px;font-weight:600;width:100%;display:flex;align-items:center;justify-content:center;gap:5px}
   /* LOGIN mejorado */
-  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px}
-  .login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:32px 28px;width:100%;max-width:480px}
+  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0e1a;padding:20px}
+  .login-card{background:#111827;border:1px solid #1e2d45;border-radius:20px;padding:32px 28px;width:100%;max-width:480px}
   .login-logo{text-align:center;margin-bottom:24px}
-  .login-logo p{color:var(--muted);font-size:13px;margin-top:8px}
+  .login-logo p{color:#64748b;font-size:13px;margin-top:8px}
   .role-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
-  .role-card{padding:18px 12px;border:2px solid var(--border);border-radius:14px;cursor:pointer;text-align:center;transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:6px}
-  .role-card:hover{border-color:var(--accent);background:rgba(245,158,11,.04)}
-  .role-card.selected{border-color:var(--accent);background:rgba(245,158,11,.1)}
+  .role-card{padding:18px 12px;border:2px solid #1e2d45;border-radius:14px;cursor:pointer;text-align:center;transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:6px;background:#1a2235}
+  .role-card:hover{border-color:var(--accent);background:rgba(245,158,11,.1)}
+  .role-card.selected{border-color:var(--accent);background:rgba(245,158,11,.15)}
   .role-card .role-icon{font-size:28px;line-height:1}
-  .role-card h4{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap}
-  .role-card p{font-size:10px;color:var(--muted);line-height:1.3}
+  .role-card h4{font-size:13px;font-weight:700;color:#f1f5f9;white-space:nowrap}
+  .role-card p{font-size:10px;color:#64748b;line-height:1.3}
   @media(max-width:500px){
     .role-grid{grid-template-columns:1fr;gap:10px}
     .role-card{flex-direction:row;padding:14px 18px;text-align:left;gap:16px;align-items:center}
@@ -191,8 +191,10 @@ const css=`
   .profit-negative{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3)}
   .profit-neutral{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3)}
   .alert-box{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:8px;color:var(--red);font-size:12px;margin-bottom:12px}
-  .loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;background:var(--bg)}
-  .loading p{color:var(--muted);font-size:14px}
+  .loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;background:#0a0e1a}
+  .login-card .form-group input,.login-card .form-group select{background:#1a2235;border-color:#1e2d45;color:#f1f5f9}
+  .login-card .form-group label{color:#64748b}
+  .loading p{color:#64748b;font-size:14px}
   .spinner{animation:spin 1s linear infinite;color:var(--accent)}
   @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   .syncing{position:fixed;bottom:16px;right:16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px;z-index:200}
