@@ -96,7 +96,7 @@ const Logo=()=>(
 
 const css=`
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
-  :root{--bg:#e8edf5;--surface:#f4f7fb;--surface2:#d4dce9;--border:#d0d9e8;--accent:#f59e0b;--accent2:#3b82f6;--green:#10b981;--red:#ef4444;--text:#1e293b;--muted:#64748b;--radius:12px;}
+  :root{--bg:#ffffff;--surface:#f1f5f9;--surface2:#e2e8f0;--border:#cbd5e1;--accent:#f59e0b;--accent2:#3b82f6;--green:#10b981;--red:#ef4444;--text:#1e293b;--muted:#64748b;--radius:12px;}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
   h1,h2,h3,h4{font-family:'Syne',sans-serif}
