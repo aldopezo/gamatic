@@ -31,6 +31,7 @@ const SEED={
   },
   listasPrecios:{},
   cafeteras:{},
+  ventasCafeteras:{},
   horario:{lunes:{maquinas:[]},martes:{maquinas:[]},miercoles:{maquinas:[]},jueves:{maquinas:[]},viernes:{maquinas:[]},sabado:{maquinas:[]},domingo:{maquinas:[]}},
 };
 
@@ -288,7 +289,7 @@ function useFirebase(){
         traslados:objToArr(val.traslados),ventas:objToArr(val.ventas),
         cobranzas:objToArr(val.cobranzas),gastos:objToArr(val.gastos||{}),
         sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),stockMaquina:objToArr(val.stockMaquina||{}),sencillo:objToArr(val.sencillo||{}),tickets:objToArr(val.tickets||{}),
-        productosEco:objToArr(val.productosEco||{}),personal:objToArr(val.personal||{}),usuarios:objToArr(val.usuarios||{}),listasPrecios:objToArr(val.listasPrecios||{}),cafeteras:objToArr(val.cafeteras||{}),
+        productosEco:objToArr(val.productosEco||{}),personal:objToArr(val.personal||{}),usuarios:objToArr(val.usuarios||{}),listasPrecios:objToArr(val.listasPrecios||{}),cafeteras:objToArr(val.cafeteras||{}),ventasCafeteras:objToArr(val.ventasCafeteras||{}),
         horario:val.horario||SEED.horario,
       });
     });
@@ -4202,6 +4203,310 @@ function Cafeteras({data,save,del,esAdmin=false}){
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: VENTAS DE CAFETERAS (Abastecedor registra, Admin visualiza)
+// ═══════════════════════════════════════════════════════════════════════════════
+function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [mes,setMes]=useState(mesActual());
+
+  // Form estado
+  const EF={
+    fecha:today(),
+    cafeteraId:"",
+    responsable:"",
+    cafe:{cantidad:"",ingreso:""},
+    chocolate:{cantidad:"",ingreso:""},
+    capuchino:{cantidad:"",ingreso:""},
+    notas:"",
+  };
+  const [form,setForm]=useState({...EF,responsable:sesionUsuario?.nombre||""});
+  const setBebida=(beb,campo,val)=>setForm(f=>({...f,[beb]:{...f[beb],[campo]:val}}));
+
+  // Cálculos del form en tiempo real
+  const totalVasos=(f)=>BEBIDAS_CAFETERA.reduce((s,b)=>s+(+f[b.id]?.cantidad||0),0);
+  const totalIngreso=(f)=>BEBIDAS_CAFETERA.reduce((s,b)=>s+(+f[b.id]?.ingreso||0),0);
+
+  // Costo estimado basado en la cafetera seleccionada
+  const getCostoEstimado=(f)=>{
+    const caf=data.cafeteras?.find(c=>c.id===f.cafeteraId);
+    if(!caf)return 0;
+    return BEBIDAS_CAFETERA.reduce((s,b)=>{
+      const qty=+f[b.id]?.cantidad||0;
+      const costoVaso=calcCostoVasoGlobal(caf,b.id);
+      return s+qty*costoVaso;
+    },0);
+  };
+
+  // Función global de costo (igual a la de Cafeteras)
+  const calcCostoVasoGlobal=(caf,bebida)=>{
+    const EFR={cafe:{cafe_gr:7,leche_ml:0,chocolate_gr:0,azucar_gr:5,agua_ml:150},chocolate:{cafe_gr:0,leche_ml:150,chocolate_gr:20,azucar_gr:10,agua_ml:50},capuchino:{cafe_gr:7,leche_ml:100,chocolate_gr:5,azucar_gr:5,agua_ml:100}};
+    const rec=(caf.recetas||EFR)[bebida]||{};
+    let costo=0;
+    costo+=(+caf.costoCafeKg||0)/1000*(rec.cafe_gr||0);
+    costo+=(+caf.costoLecheLt||0)/1000*(rec.leche_ml||0);
+    costo+=(+caf.costoChocolateKg||0)/1000*(rec.chocolate_gr||0);
+    costo+=(+caf.costoAzucarKg||0)/1000*(rec.azucar_gr||0);
+    costo+=(+caf.costoAgua1000ml||0)/1000*(rec.agua_ml||0);
+    costo+=(+caf.costoVaso||0)+(+caf.costoTapa||0);
+    costo+=(+caf.costoExtra1||0)+(+caf.costoExtra2||0);
+    return costo;
+  };
+
+  const doSave=()=>{
+    if(!form.cafeteraId)return;
+    const id=uid();
+    const registro={
+      id:editando?.id||id,
+      fecha:form.fecha,
+      cafeteraId:form.cafeteraId,
+      responsable:form.responsable||sesionUsuario?.nombre||"",
+      usuarioId:sesionUsuario?.id||null,
+      bebidas:{
+        cafe:{cantidad:+form.cafe.cantidad||0,ingreso:+form.cafe.ingreso||0},
+        chocolate:{cantidad:+form.chocolate.cantidad||0,ingreso:+form.chocolate.ingreso||0},
+        capuchino:{cantidad:+form.capuchino.cantidad||0,ingreso:+form.capuchino.ingreso||0},
+      },
+      totalVasos:totalVasos(form),
+      totalIngreso:+totalIngreso(form).toFixed(2),
+      costoEstimado:+getCostoEstimado(form).toFixed(2),
+      notas:form.notas,
+    };
+    if(editando) save("ventasCafeteras",editando.id,registro);
+    else save("ventasCafeteras",id,registro);
+    setModal(false);setForm({...EF,responsable:sesionUsuario?.nombre||""});setEditando(null);
+  };
+
+  const abrirEditar=(v)=>{
+    setForm({
+      fecha:v.fecha,cafeteraId:v.cafeteraId,responsable:v.responsable||"",notas:v.notas||"",
+      cafe:{cantidad:v.bebidas?.cafe?.cantidad||"",ingreso:v.bebidas?.cafe?.ingreso||""},
+      chocolate:{cantidad:v.bebidas?.chocolate?.cantidad||"",ingreso:v.bebidas?.chocolate?.ingreso||""},
+      capuchino:{cantidad:v.bebidas?.capuchino?.cantidad||"",ingreso:v.bebidas?.capuchino?.ingreso||""},
+    });
+    setEditando(v);setModal(true);
+  };
+
+  const ventasMes=(data.ventasCafeteras||[]).filter(v=>v.fecha?.startsWith(mes))
+    .sort((a,b)=>b.fecha.localeCompare(a.fecha));
+
+  const totalMesVasos=ventasMes.reduce((s,v)=>s+(v.totalVasos||0),0);
+  const totalMesIngreso=ventasMes.reduce((s,v)=>s+(v.totalIngreso||0),0);
+  const totalMesCosto=ventasMes.reduce((s,v)=>s+(v.costoEstimado||0),0);
+  const totalMesGanancia=totalMesIngreso-totalMesCosto;
+
+  const fmtS=(n)=>`S/ ${(+n||0).toFixed(2)}`;
+
+  return(
+    <div>
+      <MesNav mes={mes} setMes={setMes}/>
+
+      {/* Cards resumen */}
+      <div className="cards">
+        <div className="card"><div className="card-label">☕ Vasos vendidos</div><div className="card-value amber">{totalMesVasos}</div><div className="card-sub">{ventasMes.length} registros</div></div>
+        <div className="card"><div className="card-label">💰 Ingreso total</div><div className="card-value green">{fmtS(totalMesIngreso)}</div></div>
+        <div className="card"><div className="card-label">📦 Costo estimado</div><div className="card-value blue">{fmtS(totalMesCosto)}</div></div>
+        <div className="card"><div className="card-label">📈 Ganancia estimada</div><div className={`card-value ${totalMesGanancia>=0?"green":"red"}`}>{fmtS(totalMesGanancia)}</div></div>
+      </div>
+
+      {/* Detalle por bebida del mes */}
+      {ventasMes.length>0&&(()=>{
+        const porBebida={};
+        BEBIDAS_CAFETERA.forEach(b=>{
+          porBebida[b.id]={vasos:0,ingreso:0};
+          ventasMes.forEach(v=>{porBebida[b.id].vasos+=(v.bebidas?.[b.id]?.cantidad||0);porBebida[b.id].ingreso+=(v.bebidas?.[b.id]?.ingreso||0);});
+        });
+        return(
+          <div className="section" style={{marginBottom:16}}>
+            <div className="section-header"><h3>Resumen por bebida — {nombreMes(mes)}</h3></div>
+            <div style={{padding:"12px 16px",display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+              {BEBIDAS_CAFETERA.map(b=>(
+                <div key={b.id} style={{background:"#fffbf0",borderRadius:10,padding:"12px",border:"1px solid rgba(245,158,11,.2)",textAlign:"center"}}>
+                  <div style={{fontSize:28,marginBottom:4}}>{b.emoji}</div>
+                  <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{b.nombre}</div>
+                  <div style={{fontSize:20,fontWeight:800,color:"var(--accent)"}}>{porBebida[b.id].vasos}</div>
+                  <div style={{fontSize:10,color:"var(--muted)",marginBottom:4}}>vasos</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"var(--green)"}}>{fmtS(porBebida[b.id].ingreso)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Botón registrar */}
+      {!esAdmin&&data.cafeteras?.length>0&&(
+        <div style={{marginBottom:14}}>
+          <button className="btn btn-primary" onClick={()=>{setForm({...EF,responsable:sesionUsuario?.nombre||""});setEditando(null);setModal(true);}}>
+            <Icon name="plus" size={14}/> Registrar ventas del día
+          </button>
+        </div>
+      )}
+      {esAdmin&&(
+        <div style={{marginBottom:14}}>
+          <button className="btn btn-primary" onClick={()=>{setForm({...EF,responsable:sesionUsuario?.nombre||""});setEditando(null);setModal(true);}}>
+            <Icon name="plus" size={14}/> Registrar ventas
+          </button>
+        </div>
+      )}
+
+      {/* Lista de registros */}
+      {ventasMes.length===0
+        ?<div className="section"><div style={{padding:28,textAlign:"center",color:"var(--muted)",fontSize:13}}>
+            <div style={{fontSize:36,marginBottom:10}}>☕</div>
+            Sin ventas registradas en {nombreMes(mes)}.
+          </div></div>
+        :ventasMes.map(v=>{
+          const caf=data.cafeteras?.find(c=>c.id===v.cafeteraId);
+          const ganancia=(v.totalIngreso||0)-(v.costoEstimado||0);
+          return(
+            <div key={v.id} className="section" style={{marginBottom:12}}>
+              <div style={{padding:"14px 16px"}}>
+                {/* Header */}
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:12}}>
+                  <div>
+                    <div style={{fontWeight:800,fontSize:15}}>☕ {caf?.nombre||"—"}</div>
+                    <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>
+                      📅 {v.fecha} · 👤 {v.responsable||"—"}
+                    </div>
+                    {v.notas&&<div style={{fontSize:11,color:"var(--muted)",fontStyle:"italic",marginTop:2}}>📝 {v.notas}</div>}
+                  </div>
+                  <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                    {(esAdmin||v.usuarioId===sesionUsuario?.id)&&(
+                      <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(v)}><Icon name="edit" size={12}/></button>
+                    )}
+                    {esAdmin&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(v)}><Icon name="trash" size={12}/></button>}
+                  </div>
+                </div>
+
+                {/* Bebidas */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:12}}>
+                  {BEBIDAS_CAFETERA.map(b=>{
+                    const qty=v.bebidas?.[b.id]?.cantidad||0;
+                    const ing=v.bebidas?.[b.id]?.ingreso||0;
+                    if(!qty&&!ing)return null;
+                    return(
+                      <div key={b.id} style={{background:"#fffbf0",borderRadius:9,padding:"10px 12px",border:"1px solid rgba(245,158,11,.2)",textAlign:"center"}}>
+                        <div style={{fontSize:22}}>{b.emoji}</div>
+                        <div style={{fontSize:11,fontWeight:600,marginBottom:4}}>{b.nombre}</div>
+                        <div style={{fontSize:18,fontWeight:800,color:"var(--accent)"}}>{qty} <span style={{fontSize:11,fontWeight:400}}>vasos</span></div>
+                        <div style={{fontSize:12,fontWeight:700,color:"var(--green)"}}>{fmtS(ing)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Resumen financiero */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+                  {[
+                    ["Total vasos",v.totalVasos,"var(--accent)"],
+                    ["Ingreso",fmtS(v.totalIngreso),"var(--green)"],
+                    ["Costo est.",fmtS(v.costoEstimado),"var(--muted)"],
+                    ["Ganancia",fmtS(ganancia),ganancia>=0?"var(--green)":"var(--red)"],
+                  ].map(([l,val,col])=>(
+                    <div key={l} style={{background:"var(--surface2)",borderRadius:8,padding:"7px 10px",textAlign:"center"}}>
+                      <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase",marginBottom:2}}>{l}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:col}}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })
+      }
+
+      {/* Modal registrar ventas */}
+      {modal&&<div className="modal-overlay"><div style={{background:"#fff",border:"1px solid rgba(245,158,11,.3)",borderRadius:16,padding:"24px 22px",width:"92%",maxWidth:540,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(245,158,11,.12)"}}>
+        <ModalHeader titulo={editando?"Editar registro":"Registrar ventas del día"} subtitulo={editando?`${editando.fecha}`:null} onClose={()=>{setModal(false);setEditando(null);}}/>
+
+        <div className="form-row">
+          <div className="form-group"><label>Cafetera</label>
+            <select value={form.cafeteraId} onChange={e=>setForm({...form,cafeteraId:e.target.value})}>
+              <option value="">Seleccionar...</option>
+              {(data.cafeteras||[]).map(c=><option key={c.id} value={c.id}>{c.nombre}{c.ubicacion?` — ${c.ubicacion}`:""}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Fecha</label>
+            <input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/>
+          </div>
+        </div>
+
+        <div className="form-group"><label>Responsable</label>
+          <input value={form.responsable} onChange={e=>setForm({...form,responsable:e.target.value})} placeholder="Nombre del abastecedor"/>
+        </div>
+
+        {/* Bebidas */}
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginBottom:10}}>Bebidas vendidas hoy</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {BEBIDAS_CAFETERA.map(b=>{
+              // Precio sugerido si hay cafetera seleccionada
+              const caf=data.cafeteras?.find(c=>c.id===form.cafeteraId);
+              const costoVaso=caf?calcCostoVasoGlobal(caf,b.id):0;
+              const precioSug=caf?costoVaso*(1+(caf.margenGanancia||50)/100):0;
+              const qty=+form[b.id]?.cantidad||0;
+              const ingresoAuto=qty*precioSug;
+              return(
+                <div key={b.id} style={{background:"#fffbf0",borderRadius:10,padding:"12px 14px",border:"1px solid rgba(245,158,11,.2)"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                    <span style={{fontSize:22}}>{b.emoji}</span>
+                    <span style={{fontWeight:700,fontSize:14}}>{b.nombre}</span>
+                    {precioSug>0&&<span style={{fontSize:10,color:"var(--accent)",marginLeft:"auto"}}>Precio sug: {fmtS(precioSug)}/vaso</span>}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <div className="form-group" style={{marginBottom:0}}>
+                      <label>Vasos vendidos</label>
+                      <input type="number" min="0" value={form[b.id].cantidad}
+                        onChange={e=>{
+                          setBebida(b.id,"cantidad",e.target.value);
+                          // Auto-calcular ingreso si hay precio sugerido
+                          if(precioSug>0&&!form[b.id].ingreso)
+                            setBebida(b.id,"ingreso",(+e.target.value*precioSug).toFixed(2));
+                        }}
+                        placeholder="0"/>
+                    </div>
+                    <div className="form-group" style={{marginBottom:0}}>
+                      <label>Ingreso cobrado (S/)</label>
+                      <input type="number" min="0" step="0.01" value={form[b.id].ingreso}
+                        onChange={e=>setBebida(b.id,"ingreso",e.target.value)}
+                        placeholder={precioSug>0&&qty>0?ingresoAuto.toFixed(2):"0.00"}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Totales en tiempo real */}
+        {(totalVasos(form)>0||totalIngreso(form)>0)&&(
+          <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,textAlign:"center"}}>
+              <div><div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase"}}>Total vasos</div><div style={{fontSize:18,fontWeight:800,color:"var(--accent)"}}>{totalVasos(form)}</div></div>
+              <div><div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase"}}>Ingreso</div><div style={{fontSize:18,fontWeight:800,color:"var(--green)"}}>{fmtS(totalIngreso(form))}</div></div>
+              <div><div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase"}}>Ganancia est.</div><div style={{fontSize:18,fontWeight:800,color:"var(--green)"}}>{fmtS(totalIngreso(form)-getCostoEstimado(form))}</div></div>
+            </div>
+          </div>
+        )}
+
+        <div className="form-group"><label>Notas (opcional)</label>
+          <input value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})} placeholder="Ej: Se acabó el café a las 3pm..."/>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave} disabled={!form.cafeteraId}>{editando?"Guardar cambios":"Registrar"}</button>
+        </div>
+      </div></div>}
+
+      {confirmDel&&<ConfirmDelete texto="¿Eliminar este registro de ventas?" onConfirm={()=>{del("ventasCafeteras",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
   {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"cierreDia",label:"Cierre del día",icon:"bolt"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
@@ -4212,9 +4517,9 @@ const ADMIN_NAV=[
   {id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
-  {section:"Cafeteras"},{id:"cafeteras",label:"Control cafeteras",icon:"coffee"},
+  {section:"Cafeteras"},{id:"cafeteras",label:"Control cafeteras",icon:"coffee"},{id:"ventasCafeteras",label:"Ventas cafeteras",icon:"chart"},
   {section:"Análisis"},{id:"reportes",label:"Reportes",icon:"trophy"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
-  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
+  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},{id:"ventasCafeteras",label:"Ventas cafeteras",icon:"coffee"},
   {section:"Administración"},{id:"personal",label:"Personal",icon:"personal"},{id:"gestionUsuarios",label:"Gestión de usuarios",icon:"users"},
 ];
 const ABASTECEDOR_NAV=[
@@ -4239,7 +4544,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -4295,6 +4600,7 @@ export default function App(){
     case "gestionUsuarios": return <GestionUsuarios data={data} save={save} del={del}/>;
     case "adminListasPrecios": return <AdminListasPrecios data={data} save={save} del={del}/>;
     case "cafeteras":    return <Cafeteras data={data} save={save} del={del} esAdmin={esAdmin}/>;
+    case "ventasCafeteras": return <VentasCafeteras data={data} save={save} del={del} esAdmin={esAdmin} sesionUsuario={sesionUsuario}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "rentabilidad": return <Rentabilidad data={data}/>;
     case "horario":      return <HorarioAdmin data={data} save={save}/>;
