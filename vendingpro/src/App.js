@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { db } from "./firebase";
 import { ref, onValue, set, push, remove } from "firebase/database";
 
-const CLAVES = { admin:"123", abastecedor:"", almacenero:"" };
+const CLAVES = { admin:"123", abastecedor:"", almacenero:"" }; // legacy, no usado
 
 const SEED={
   productos:{
@@ -25,7 +25,12 @@ const SEED={
     s2:{id:"s2",productoId:"p2",cantidad:60,minimo:15},
     s3:{id:"s3",productoId:"p3",cantidad:35,minimo:8},
   },
-  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},stockMaquina:{},sencillo:{},tickets:{},productosEco:{},personal:{},
+  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},stockMaquina:{},sencillo:{},tickets:{},productosEco:{},personal:{},usuarios:{
+    u_admin:{id:"u_admin",nombre:"Administrador",dni:"00000000",rol:"admin",activo:true,token:null,password:"gamatic2024",creadoEn:"2026-01-01"},
+    u_almacenero:{id:"u_almacenero",nombre:"Almacenero",dni:"00000001",rol:"almacenero",activo:true,token:null,password:"almacen",creadoEn:"2026-01-01"},
+  },
+  listasPrecios:{},
+  cafeteras:{},
   horario:{lunes:{maquinas:[]},martes:{maquinas:[]},miercoles:{maquinas:[]},jueves:{maquinas:[]},viernes:{maquinas:[]},sabado:{maquinas:[]},domingo:{maquinas:[]}},
 };
 
@@ -70,6 +75,9 @@ const Icon=({name,size=18})=>{
     layers:"M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
     coin:"M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
     personal:"M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
+    users:"M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
+    pricelist:"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
+    coffee:"M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zm4-7v3M12 1v3M8 1v3",
     wrench:"M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
     trophy:"M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
     kit:"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
@@ -96,12 +104,12 @@ const Logo=()=>(
 
 const css=`
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
-  :root{--bg:#ffffff;--surface:#f1f5f9;--surface2:#e2e8f0;--border:#cbd5e1;--accent:#f59e0b;--accent2:#3b82f6;--green:#10b981;--red:#ef4444;--text:#1e293b;--muted:#64748b;--radius:12px;}
+  :root{--bg:#ffffff;--surface:#ffffff;--surface2:#fffbf0;--border:rgba(245,158,11,.25);--accent:#f59e0b;--accent2:#f59e0b;--green:#10b981;--red:#ef4444;--text:#1a1a1a;--muted:#888;--radius:12px;}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
   h1,h2,h3,h4{font-family:'Syne',sans-serif}
   .app{display:flex;min-height:100vh;position:relative}
-  .sidebar{width:240px;background:#111827;border-right:1px solid #1e2d45;display:flex;flex-direction:column;flex-shrink:0;z-index:50}
+  .sidebar{width:240px;background:#111827;border-right:2px solid #f59e0b;display:flex;flex-direction:column;flex-shrink:0;z-index:50}
   .sidebar-logo{padding:18px 16px 14px;border-bottom:1px solid #1e2d45;display:flex;align-items:center;justify-content:space-between;min-height:64px}
   .sidebar-role{margin:10px 12px;background:#1a2235;border-radius:8px;padding:7px 11px;font-size:11px;color:#64748b;display:flex;align-items:center;gap:6px}
   .sidebar-role span{color:var(--accent);font-weight:600}
@@ -114,24 +122,24 @@ const css=`
   .logout-btn:hover{color:var(--red)}
   .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:49}
   .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-  .topbar{padding:0 16px;background:#111827;border-bottom:1px solid #1e2d45;display:flex;align-items:center;justify-content:space-between;height:56px;gap:10px}
+  .topbar{padding:0 16px;background:#111827;border-bottom:2px solid #f59e0b;display:flex;align-items:center;justify-content:space-between;height:56px;gap:10px}
   .topbar h1{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#f1f5f9}
   .topbar-date{font-size:11px;color:#64748b;white-space:nowrap;display:none}
   .hamburger{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px;border-radius:8px;flex-shrink:0}
   .content{flex:1;padding:16px;overflow-y:auto}
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px;margin-bottom:16px}
-  .card{background:#dce3ef;border:1px solid #c8d3e3;border-radius:var(--radius);padding:14px}
+  .card{background:#ffffff;border:1px solid rgba(245,158,11,.25);border-radius:var(--radius);padding:14px;box-shadow:0 2px 8px rgba(245,158,11,.08)}
   .card-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
   .card-value{font-size:20px;font-family:'Syne',sans-serif;font-weight:700}
   .card-value.green{color:var(--green)}.card-value.amber{color:var(--accent)}.card-value.blue{color:var(--accent2)}.card-value.red{color:var(--red)}
   .card-sub{font-size:11px;color:var(--muted);margin-top:3px}
-  .section{background:#dce3ef;border:1px solid #c8d3e3;border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
-  .section-header{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #c8d3e3;flex-wrap:wrap;gap:8px}
+  .section{background:#ffffff;border:1px solid rgba(245,158,11,.25);border-radius:var(--radius);margin-bottom:16px;overflow:hidden;box-shadow:0 2px 8px rgba(245,158,11,.06)}
+  .section-header{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(245,158,11,.2);flex-wrap:wrap;gap:8px}
   .section-header h3{font-size:13px;font-weight:700}
   .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   table{width:100%;border-collapse:collapse;font-size:12px;min-width:460px}
-  th{text-align:left;padding:8px 14px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:#cfd8e8;border-bottom:1px solid #c8d3e3}
-  td{padding:10px 14px;border-bottom:1px solid #c8d3e3;color:var(--text)}
+  th{text-align:left;padding:8px 14px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);background:#fffbf0;border-bottom:1px solid rgba(245,158,11,.2)}
+  td{padding:10px 14px;border-bottom:1px solid rgba(245,158,11,.1);color:var(--text)}
   tr:last-child td{border-bottom:none}
   tr:hover td{background:rgba(255,255,255,.02)}
   .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600}
@@ -145,11 +153,11 @@ const css=`
   .btn-danger{background:rgba(239,68,68,.15);color:var(--red)}.btn-danger:hover{background:rgba(239,68,68,.28)}
   .btn-sm{padding:3px 9px;font-size:11px}
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:flex-end;justify-content:center;z-index:100;backdrop-filter:blur(4px)}
-  .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:22px 20px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto}
+  .modal{background:#ffffff;border:1px solid rgba(245,158,11,.3);border-radius:16px 16px 0 0;padding:22px 20px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto}
   .modal h3{font-size:16px;font-weight:700;margin-bottom:16px}
   .form-group{margin-bottom:12px}
   .form-group label{display:block;font-size:10px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
-  .form-group input,.form-group select{width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}
+  .form-group input,.form-group select{width:100%;padding:9px 12px;background:#ffffff;border:1px solid rgba(245,158,11,.3);border-radius:8px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}
   .form-group input:focus,.form-group select:focus{border-color:var(--accent)}
   .form-group select option{background:var(--surface2)}
   .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -178,11 +186,11 @@ const css=`
     .role-card p{font-size:12px}
     .login-card{padding:28px 20px}
   }
-  .mes-nav{display:flex;align-items:center;gap:10px;background:#cfd8e8;border:1px solid #c8d3e3;border-radius:10px;padding:6px 12px;margin-bottom:16px}
+  .mes-nav{display:flex;align-items:center;gap:10px;background:#fffbf0;border:1px solid rgba(245,158,11,.3);border-radius:10px;padding:6px 12px;margin-bottom:16px}
   .mes-nav span{font-weight:700;font-size:13px;flex:1;text-align:center}
   .mes-nav button{background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;border-radius:6px;display:flex}
   .mes-nav button:hover{background:var(--border);color:var(--text)}
-  .filtro-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:#cfd8e8;border-radius:10px;border:1px solid #c8d3e3}
+  .filtro-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:#fffbf0;border-radius:10px;border:1px solid rgba(245,158,11,.25)}
   .filtro-bar select,.filtro-bar input{padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none}
   .filtro-bar select:focus,.filtro-bar input:focus{border-color:var(--accent)}
   .filtro-label{font-size:11px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:4px}
@@ -199,7 +207,7 @@ const css=`
   @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   .syncing{position:fixed;bottom:16px;right:16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px;z-index:200}
   .horario-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:4px}
-  .dia-col{background:#cfd8e8;border:1px solid #c8d3e3;border-radius:8px;overflow:hidden}
+  .dia-col{background:#ffffff;border:1px solid rgba(245,158,11,.25);border-radius:8px;overflow:hidden;box-shadow:0 2px 6px rgba(245,158,11,.06)}
   .dia-header{padding:5px 7px;font-size:9px;font-weight:700;text-transform:uppercase;background:rgba(245,158,11,.1);color:var(--accent);border-bottom:1px solid var(--border)}
   .dia-body{padding:5px}
   .dia-maq{font-size:9px;padding:3px 5px;background:var(--surface);border-radius:4px;margin-bottom:3px;border:1px solid var(--border)}
@@ -207,8 +215,8 @@ const css=`
   .precio-estimado{font-size:11px;color:var(--muted);text-decoration:line-through}
   .precio-real{font-size:13px;font-weight:700;color:var(--green)}
   .precio-eco{font-size:13px;font-weight:700;color:var(--accent2)}
-  .info-box{background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.25);border-radius:9px;padding:9px 13px;font-size:12px;color:var(--accent2);margin-bottom:11px}
-  .edit-banner{background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--accent);margin-bottom:14px}
+  .info-box{background:#fffbf0;border:1px solid rgba(245,158,11,.3);border-radius:9px;padding:9px 13px;font-size:12px;color:var(--accent);margin-bottom:11px}
+  .edit-banner{background:#fffbf0;border:1px solid rgba(245,158,11,.4);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--accent);margin-bottom:14px}
   .confirm-modal{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.3);border-radius:14px;padding:24px;text-align:center}
   .view-only-badge{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:8px 13px;font-size:12px;color:var(--accent2);margin-bottom:12px;display:flex;align-items:center;gap:6px}
   .maq-check{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px}
@@ -241,6 +249,24 @@ const css=`
   }
 `;
 
+function ModalHeader({titulo,onClose,subtitulo=null,dirty=false}){
+  const handleClose=()=>{
+    if(dirty&&!window.confirm("Tienes cambios sin guardar. Salir de todas formas?"))return;
+    onClose();
+  };
+  return(
+    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:16,gap:10}}>
+      <div>
+        <div style={{fontSize:17,fontWeight:700,fontFamily:"Syne,sans-serif"}}>{titulo}</div>
+        {subtitulo&&<div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>{subtitulo}</div>}
+      </div>
+      <button onClick={handleClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",padding:"2px 8px",borderRadius:6,fontSize:22,lineHeight:1,flexShrink:0}}
+        onMouseEnter={e=>e.currentTarget.style.color="var(--red)"}
+        onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}>x</button>
+    </div>
+  );
+}
+
 const CloseBtn=({onClick})=>(
   <button onClick={onClick} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",padding:"2px 6px",borderRadius:6,fontSize:22,lineHeight:1,display:"flex",alignItems:"center",flexShrink:0}}
     onMouseEnter={e=>e.currentTarget.style.color="var(--text)"} onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}>✕</button>
@@ -262,7 +288,7 @@ function useFirebase(){
         traslados:objToArr(val.traslados),ventas:objToArr(val.ventas),
         cobranzas:objToArr(val.cobranzas),gastos:objToArr(val.gastos||{}),
         sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),stockMaquina:objToArr(val.stockMaquina||{}),sencillo:objToArr(val.sencillo||{}),tickets:objToArr(val.tickets||{}),
-        productosEco:objToArr(val.productosEco||{}),personal:objToArr(val.personal||{}),
+        productosEco:objToArr(val.productosEco||{}),personal:objToArr(val.personal||{}),usuarios:objToArr(val.usuarios||{}),listasPrecios:objToArr(val.listasPrecios||{}),cafeteras:objToArr(val.cafeteras||{}),
         horario:val.horario||SEED.horario,
       });
     });
@@ -306,7 +332,7 @@ function ConfirmDelete({texto,onConfirm,onCancel}){
 // ─── SEARCH BAR ──────────────────────────────────────────────────────────────────
 function SearchBar({value,onChange,placeholder="Buscar...",total=null,filtrado=null}){
   return(
-    <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--surface2)",border:`1px solid ${value?"var(--accent)":"var(--border)"}`,borderRadius:9,padding:"8px 13px",marginBottom:14,transition:"border-color .15s"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,background:"#ffffff",border:`1px solid ${value?"var(--accent)":"rgba(245,158,11,.25)"}`,borderRadius:9,padding:"8px 13px",marginBottom:14,transition:"border-color .15s"}}>
       <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={value?"var(--accent)":"var(--muted)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       <input
         value={value} onChange={e=>onChange(e.target.value)}
@@ -324,45 +350,45 @@ function SearchBar({value,onChange,placeholder="Buscar...",total=null,filtrado=n
 
 
 // ─── LOGIN ──────────────────────────────────────────────────────────────────────
-function LoginScreen({onLogin}){
-  const [role,setRole]=useState("admin");
-  const [clave,setClave]=useState("");
+function LoginScreen({onLogin,usuarios=[]}){
+  const [dni,setDni]=useState("");
+  const [pass,setPass]=useState("");
   const [error,setError]=useState("");
-  const ROLES=[
-    ["admin","🔐","Administrador","Gestión total"],
-    ["abastecedor","🔧","Abastecedor","Operaciones de campo"],
-    ["almacenero","🏭","Almacenero","Gestión de almacén"],
-  ];
   const intentar=()=>{
-    const req=CLAVES[role];
-    if(req&&clave!==req){setError("Clave incorrecta");return;}
-    setError("");onLogin(role);
+    if(!dni.trim()||!pass.trim()){setError("Ingresa tu DNI y contraseña");return;}
+    const u=usuarios.find(u=>u.dni===dni.trim()&&u.password===pass&&u.activo!==false);
+    if(!u){setError("DNI o contraseña incorrectos");return;}
+    setError("");onLogin({tipo:"usuario",role:u.rol,usuario:u});
   };
   return(
     <div className="login-screen">
       <div className="login-card">
         <div className="login-logo">
-          <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo/></div>
-          <p>Sistema de gestión de máquinas expendedoras</p>
+          <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><Logo/></div>
+          <p style={{textAlign:"center",color:"#64748b",fontSize:13}}>Sistema de gestión de máquinas expendedoras</p>
         </div>
-        <p style={{fontSize:12,color:"var(--muted)",marginBottom:14}}>Selecciona tu perfil:</p>
-        <div className="role-grid">
-          {ROLES.map(([r,ico,lbl,sub])=>(
-            <div key={r} className={`role-card ${role===r?"selected":""}`} onClick={()=>{setRole(r);setClave("");setError("");}}>
-              <span className="role-icon">{ico}</span><h4>{lbl}</h4><p>{sub}</p>
-            </div>
-          ))}
+        <div style={{marginBottom:20,textAlign:"center"}}>
+          <div style={{fontSize:13,fontWeight:600,color:"#94a3b8",marginBottom:4}}>Ingresa con tu cuenta GAMATIC</div>
         </div>
-        {CLAVES[role]&&(
-          <div className="form-group" style={{marginBottom:14}}>
-            <label>Clave de acceso</label>
-            <input type="password" value={clave} onChange={e=>{setClave(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&intentar()} placeholder="Ingresa la clave..." autoFocus/>
-            {error&&<div style={{color:"var(--red)",fontSize:12,marginTop:5}}>⚠️ {error}</div>}
-          </div>
-        )}
-        <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={intentar}>
+        <div className="form-group">
+          <label>DNI</label>
+          <input value={dni} onChange={e=>{setDni(e.target.value);setError("");}}
+            onKeyDown={e=>e.key==="Enter"&&document.getElementById("pass-input")?.focus()}
+            placeholder="Ingresa tu DNI" maxLength={8} autoFocus
+            style={{letterSpacing:2,fontSize:16}}/>
+        </div>
+        <div className="form-group" style={{marginBottom:20}}>
+          <label>Contraseña</label>
+          <input id="pass-input" type="password" value={pass} onChange={e=>{setPass(e.target.value);setError("");}}
+            onKeyDown={e=>e.key==="Enter"&&intentar()} placeholder="Tu contraseña"/>
+          {error&&<div style={{color:"var(--red)",fontSize:12,marginTop:6,display:"flex",alignItems:"center",gap:5}}>⚠️ {error}</div>}
+        </div>
+        <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:14,fontSize:15,borderRadius:10}} onClick={intentar}>
           <Icon name="lock" size={15}/>Ingresar
         </button>
+        <div style={{textAlign:"center",fontSize:11,color:"#475569",marginTop:14}}>
+          ¿Sin acceso? Contacta al administrador del sistema.
+        </div>
       </div>
     </div>
   );
@@ -439,6 +465,9 @@ function Rentabilidad({data}){
   return(
     <div>
       <MesNav mes={mes} setMes={setMes}/>
+      {maqsFiltro&&maqsFiltro.length>0&&<div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"9px 14px",marginBottom:12,fontSize:12,color:"var(--green)"}}>
+        📅 Solo mostrando tus <strong>{maqsFiltro.length} máquina(s) asignadas hoy</strong>.
+      </div>}
       {maqActivas.map(m=>{
         const vm=ventasMes.filter(v=>v.maquinaId===m.id);
         const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
@@ -517,7 +546,7 @@ function GastosAdicionales({data,save,del}){
         </table></div>
       </div>
       {modal&&<div className="modal-overlay"><div className="modal">
-        <h3>{editando?"Editar gasto":"Agregar gasto adicional"}</h3>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>{editando?"Editar gasto":"Agregar gasto adicional"}</h3><CloseBtn onClick={()=>{setModal(false);setEditando(null);}}/></div>
         {editando&&<div className="edit-banner">Editando: <strong>{editando.descripcion}</strong></div>}
         <div className="form-group"><label>Descripción</label><input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} placeholder="Ej: Servicio de luz, mantenimiento..."/></div>
         <div className="form-group"><label>Máquina (opcional)</label>
@@ -601,7 +630,7 @@ function Productos({data,save,del,soloEditar=false}){
         </table></div>
       </div>
       {modal&&<div className="modal-overlay"><div className="modal">
-        <h3>{editando?"Editar producto":"Nuevo producto"}</h3>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>{editando?"Editar producto":"Nuevo producto"}</h3><CloseBtn onClick={()=>{setModal(false);setEditando(null);}}/></div>
         {editando&&<div className="edit-banner">✏️ Editando: <strong>{editando.nombre}</strong></div>}
         <div className="form-row">
           <div className="form-group"><label>Nombre</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Coca Cola 500ml"/></div>
@@ -664,7 +693,7 @@ function Proveedores({data,save,del,soloEditar=false}){
         </table></div>
       </div>
       {modal&&<div className="modal-overlay"><div className="modal">
-        <h3>{editando?"Editar proveedor":"Nuevo proveedor"}</h3>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>{editando?"Editar proveedor":"Nuevo proveedor"}</h3><CloseBtn onClick={()=>{setModal(false);setEditando(null);}}/></div>
         {editando&&<div className="edit-banner">Editando: <strong>{editando.nombre}</strong></div>}
         <div className="form-group"><label>Empresa</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})}/></div>
         <div className="form-row">
@@ -891,7 +920,7 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
       </div>
       {/* Modal nuevo traslado */}
       {modal&&<div className="modal-overlay"><div className="modal">
-        <h3>Registrar traslado</h3>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>Registrar traslado</h3><CloseBtn onClick={()=>{setModal(false);}}/></div>
         <div className="form-row">
           <div className="form-group"><label>Fecha del traslado</label><input type="date" value={fechaReg} onChange={e=>setFechaReg(e.target.value)}/></div>
         </div>
@@ -1192,23 +1221,23 @@ function Ventas({data,save,del,esAdmin=false,soloLectura=false}){
 }
 
 // ─── COBRANZAS con check y comentario ────────────────────────────────────────
-function Cobranzas({data,save,del,usuario,esAdmin=false}){
+function Cobranzas({data,save,del,usuario,esAdmin=false,maqsFiltro=null,sesionUsuario=null}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
-  const [form,setForm]=useState({maquinaId:"",monto:"",fecha:today(),sencillo:false,montoSencillo:""});
+  const [form,setForm]=useState({maquinaId:"",monto:"",fecha:today(),sencillo:false,montoSencillo:"",responsable:""});
   const [formEdit,setFormEdit]=useState({fecha:"",maquinaId:"",monto:""});
   const [mes,setMes]=useState(mesActual());
   // Comentario modal
   const [modalCom,setModalCom]=useState(null); // {cobId, maqNombre, fecha}
   const [comTexto,setComTexto]=useState("");
   const [verCom,setVerCom]=useState(null);
-  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const maqActivas=data.maquinas.filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
 
   const doSave=()=>{
     if(!form.maquinaId||!form.monto)return;
     const id=uid();
-    save("cobranzas",id,{id,fecha:form.fecha,maquinaId:form.maquinaId,monto:+form.monto,responsable:usuario,verificado:false,comentarioId:null,sencillo:form.sencillo?+form.montoSencillo||0:0});
+    save("cobranzas",id,{id,fecha:form.fecha,maquinaId:form.maquinaId,monto:+form.monto,responsable:sesionUsuario?.nombre||usuario,verificado:false,comentarioId:null,sencillo:form.sencillo?+form.montoSencillo||0:0});
     setModal(false);setForm({maquinaId:"",monto:"",fecha:today(),sencillo:false,montoSencillo:""});
   };
   const toggleVerificado=(cob)=>save("cobranzas",cob.id,{...cob,verificado:!cob.verificado});
@@ -1396,213 +1425,319 @@ function Cobranzas({data,save,del,usuario,esAdmin=false}){
 const DIAS=["lunes","martes","miercoles","jueves","viernes","sabado","domingo"];
 const DL={lunes:"Lun",martes:"Mar",miercoles:"Mié",jueves:"Jue",viernes:"Vie",sabado:"Sáb",domingo:"Dom"};
 
+// Estructura del horario en Firebase:
+// horario/{dia} = { asignaciones: { usuarioId: { maquinas:[maqId,...], comentario:"" } }, mensajeGeneral:"" }
+
 function HorarioAdmin({data,save}){
-  const [ed,setEd]=useState(false);
-  const [draft,setDraft]=useState(null);
-  const [comentarioModal,setComentarioModal]=useState(null); // {dia, maqId}
-  const [textoComentario,setTextoComentario]=useState("");
+  const [modalUsuario,setModalUsuario]=useState(null); // {usuarioId, dia}
+  const [selMaqs,setSelMaqs]=useState([]);
+  const [comentario,setComentario]=useState("");
+  const [msgModal,setMsgModal]=useState(null); // {dia} para mensaje general
+  const [msgTexto,setMsgTexto]=useState("");
 
-  const abrir=()=>{
-    const d={};
-    DIAS.forEach(dia=>{d[dia]={maquinas:(data.horario[dia]?.maquinas||[]).slice(),comentarios:{...(data.horario[dia]?.comentarios||{})},mensajeGeneral:data.horario[dia]?.mensajeGeneral||""};});
-    setDraft(d);setEd(true);
-  };
-  const tog=(dia,id)=>setDraft(p=>{const l=[...(p[dia]?.maquinas||[])];const i=l.indexOf(id);if(i>=0)l.splice(i,1);else l.push(id);return{...p,[dia]:{...p[dia],maquinas:l}};});
-  const setMsg=(dia,val)=>setDraft(p=>({...p,[dia]:{...p[dia],mensajeGeneral:val}}));
-  const guardar=async()=>{for(const dia of DIAS)await save("horario",dia,draft[dia]);setEd(false);};
-
-  // Comentario por maquina en el listado (no en el modal de edicion)
-  const abrirComentario=(dia,maqId)=>{
-    const actual=(data.horario[dia]?.comentarios||{})[maqId]||"";
-    setTextoComentario(actual);
-    setComentarioModal({dia,maqId});
-  };
-  const guardarComentario=async()=>{
-    if(!comentarioModal)return;
-    const{dia,maqId}=comentarioModal;
-    const diaActual=data.horario[dia]||{maquinas:[],comentarios:{},mensajeGeneral:""};
-    const nuevosComentarios={...(diaActual.comentarios||{}), [maqId]:textoComentario};
-    await save("horario",dia,{...diaActual,comentarios:nuevosComentarios});
-    setComentarioModal(null);setTextoComentario("");
-  };
-
+  const usuariosActivos=(data.usuarios||[]).filter(u=>u.activo!==false&&u.rol!=="admin");
   const h=data.horario||{};
+
+  // Obtener máquinas asignadas a un usuario en un día
+  const getMaqsUsuario=(dia,uid)=>h[dia]?.asignaciones?.[uid]?.maquinas||[];
+  const getComUsuario=(dia,uid)=>h[dia]?.asignaciones?.[uid]?.comentario||"";
+  const getMsgGeneral=(dia)=>h[dia]?.mensajeGeneral||"";
+
+  // Contar máquinas asignadas a cualquier usuario en un día
+  const getMaqsTotales=(dia)=>{
+    const asig=h[dia]?.asignaciones||{};
+    const todas=new Set();
+    Object.values(asig).forEach(a=>(a.maquinas||[]).forEach(m=>todas.add(m)));
+    return [...todas];
+  };
+
+  const abrirAsignacion=(uid,dia)=>{
+    setSelMaqs(getMaqsUsuario(dia,uid));
+    setComentario(getComUsuario(dia,uid));
+    setModalUsuario({uid,dia});
+  };
+
+  const guardarAsignacion=async()=>{
+    if(!modalUsuario)return;
+    const{uid,dia}=modalUsuario;
+    const diaActual=h[dia]||{asignaciones:{},mensajeGeneral:""};
+    const nuevasAsig={...diaActual.asignaciones,[uid]:{maquinas:selMaqs,comentario}};
+    await save("horario",dia,{...diaActual,asignaciones:nuevasAsig});
+    setModalUsuario(null);setSelMaqs([]);setComentario("");
+  };
+
+  const guardarMsg=async()=>{
+    if(!msgModal)return;
+    const{dia}=msgModal;
+    const diaActual=h[dia]||{asignaciones:{},mensajeGeneral:""};
+    await save("horario",dia,{...diaActual,mensajeGeneral:msgTexto});
+    setMsgModal(null);setMsgTexto("");
+  };
+
+  const togMaq=(id)=>setSelMaqs(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+
+  const ROL_COLOR={abastecedor:"rgba(59,130,246,.1)",almacenero:"rgba(16,185,129,.1)"};
+  const ROL_BORDER={abastecedor:"rgba(59,130,246,.3)",almacenero:"rgba(16,185,129,.3)"};
+  const ROL_TEXT={abastecedor:"var(--accent2)",almacenero:"var(--green)"};
+
   return(
     <div>
-      <div className="section">
-        <div className="section-header"><h3>Horario semanal del abastecedor</h3><button className="btn btn-primary btn-sm" onClick={abrir}><Icon name="edit" size={13}/> Editar</button></div>
-        <div style={{padding:12}}>
-          <div className="horario-grid">
-            {DIAS.map(dia=>{
-              const ids=h[dia]?.maquinas||[];
-              const comentarios=h[dia]?.comentarios||{};
-              const msgGeneral=h[dia]?.mensajeGeneral||"";
-              return(
-                <div key={dia} className="dia-col">
-                  <div className="dia-header">{DL[dia]}</div>
-                  <div className="dia-body">
-                    {msgGeneral&&<div style={{fontSize:9,background:"rgba(245,158,11,.12)",border:"1px solid rgba(245,158,11,.3)",borderRadius:4,padding:"3px 6px",marginBottom:4,color:"var(--accent)"}}>{msgGeneral}</div>}
-                    {ids.length===0?<div className="dia-empty">Libre</div>:ids.map(id=>{
-                      const m=data.maquinas.find(m=>m.id===id);
-                      const com=comentarios[id]||"";
-                      return(
-                        <div key={id} style={{marginBottom:4}}>
-                          <div className="dia-maq" style={{cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onClick={()=>abrirComentario(dia,id)}>
-                            <span>📍 {m?.nombre||id}</span>
-                            <span style={{fontSize:9,color:"var(--accent)",opacity:.7}}>✏️</span>
-                          </div>
-                          {com&&<div style={{fontSize:9,color:"var(--accent2)",padding:"2px 5px",fontStyle:"italic",background:"rgba(59,130,246,.08)",borderRadius:4,marginTop:2}}>{com}</div>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+      {/* Info */}
+      <div style={{background:"rgba(59,130,246,.06)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"11px 14px",fontSize:12,marginBottom:16,color:"var(--muted)"}}>
+        <strong style={{color:"var(--accent2)"}}>📅 Horario semanal</strong> — Asigna las máquinas que debe visitar cada usuario por día. Cada usuario solo verá sus máquinas asignadas al iniciar sesión.
       </div>
 
-      {/* Modal editar horario */}
-      {ed&&draft&&<div className="modal-overlay"><div className="modal" style={{maxWidth:600}}>
-        <h3>Editar horario semanal</h3>
-        <p style={{fontSize:12,color:"var(--muted)",marginBottom:13}}>Toca las máquinas para asignar/quitar. Agrega un mensaje general por día (opcional).</p>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-          {DIAS.map(dia=>(
-            <div key={dia}>
-              <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",color:"var(--accent)",marginBottom:5,textAlign:"center"}}>{DL[dia]}</div>
-              {data.maquinas.map(m=>{
-                const sel=(draft[dia]?.maquinas||[]).includes(m.id);
-                return(<div key={m.id} onClick={()=>tog(dia,m.id)} style={{padding:"4px 6px",borderRadius:6,marginBottom:4,cursor:"pointer",fontSize:10,background:sel?"rgba(245,158,11,.15)":"var(--surface2)",border:`1px solid ${sel?"var(--accent)":"var(--border)"}`,color:sel?"var(--accent)":"var(--muted)",textAlign:"center",transition:"all .12s"}}>{m.nombre}</div>);
-              })}
-              <input
-                value={draft[dia]?.mensajeGeneral||""}
-                onChange={e=>setMsg(dia,e.target.value)}
-                placeholder="Mensaje..."
-                style={{width:"100%",padding:"4px 6px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text)",fontSize:10,outline:"none",marginTop:4}}
-              />
-            </div>
-          ))}
-        </div>
-        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEd(false)}>Cancelar</button><button className="btn btn-primary" onClick={guardar}>Guardar horario</button></div>
-      </div></div>}
-
-      {/* Modal comentario por maquina */}
-      {comentarioModal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:380}}>
-        <h3>Comentario para máquina</h3>
-        {(()=>{const{dia,maqId}=comentarioModal;const m=data.maquinas.find(m=>m.id===maqId);return(
-          <div>
-            <div className="edit-banner">📍 {m?.nombre} — {DL[dia]}</div>
-            <div className="form-group">
-              <label>Instrucción o comentario para el abastecedor</label>
-              <textarea value={textoComentario} onChange={e=>setTextoComentario(e.target.value)} placeholder="Ej: Llevar productos adicionales, revisar dispensador..." style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",minHeight:90,resize:"vertical"}}/>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={()=>setComentarioModal(null)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={guardarComentario}>Guardar comentario</button>
-            </div>
+      {/* Grid: filas=usuarios, columnas=días */}
+      {usuariosActivos.length===0
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)"}}>Sin usuarios activos. Crea usuarios en Gestión de usuarios primero.</div></div>
+        :<div className="section">
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+              <thead>
+                <tr style={{background:"var(--surface2)"}}>
+                  <th style={{padding:"10px 14px",fontSize:11,fontWeight:700,color:"var(--muted)",textAlign:"left",borderBottom:"1px solid var(--border)",minWidth:130}}>Usuario</th>
+                  {DIAS.map(dia=>(
+                    <th key={dia} style={{padding:"8px 6px",fontSize:11,fontWeight:700,color:"var(--muted)",textAlign:"center",borderBottom:"1px solid var(--border)",minWidth:90}}>
+                      <div>{DL[dia]}</div>
+                      {getMsgGeneral(dia)&&<div style={{fontSize:8,color:"var(--accent)",fontWeight:400,marginTop:2}}>📢 msg</div>}
+                      <button onClick={()=>{setMsgTexto(getMsgGeneral(dia));setMsgModal({dia});}}
+                        style={{fontSize:8,background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:"1px 4px",borderRadius:4,marginTop:2}}>✏️ msg</button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {usuariosActivos.map(u=>(
+                  <tr key={u.id} style={{borderBottom:"1px solid var(--border)"}}>
+                    <td style={{padding:"10px 14px"}}>
+                      <div style={{fontWeight:700,fontSize:13}}>{u.nombre}</div>
+                      <div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>{u.rol} · DNI {u.dni}</div>
+                    </td>
+                    {DIAS.map(dia=>{
+                      const maqs=getMaqsUsuario(dia,u.id);
+                      const com=getComUsuario(dia,u.id);
+                      return(
+                        <td key={dia} style={{padding:"6px",textAlign:"center",verticalAlign:"top"}}>
+                          <div onClick={()=>abrirAsignacion(u.id,dia)}
+                            style={{minHeight:36,padding:"5px 6px",borderRadius:8,cursor:"pointer",border:`1px dashed ${maqs.length>0?ROL_BORDER[u.rol]||"rgba(245,158,11,.3)":"var(--border)"}`,background:maqs.length>0?ROL_COLOR[u.rol]||"rgba(245,158,11,.08)":"transparent",transition:"all .15s"}}
+                            onMouseEnter={e=>e.currentTarget.style.borderColor="var(--accent)"}
+                            onMouseLeave={e=>e.currentTarget.style.borderColor=maqs.length>0?ROL_BORDER[u.rol]||"rgba(245,158,11,.3)":"var(--border)"}>
+                            {maqs.length===0
+                              ?<div style={{fontSize:9,color:"var(--muted)"}}>+ Asignar</div>
+                              :<div>
+                                {maqs.map(mid=>{
+                                  const m=data.maquinas.find(x=>x.id===mid);
+                                  return<div key={mid} style={{fontSize:9,fontWeight:600,color:ROL_TEXT[u.rol]||"var(--accent)",marginBottom:2}}>📍 {m?.nombre||mid}</div>;
+                                })}
+                                {com&&<div style={{fontSize:8,color:"var(--muted)",fontStyle:"italic",marginTop:2,borderTop:"1px solid var(--border)",paddingTop:2}}>💬 {com.slice(0,30)}{com.length>30?"...":""}</div>}
+                              </div>
+                            }
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        );})()}
+        </div>
+      }
+
+      {/* Modal asignar máquinas a usuario en un día */}
+      {modalUsuario&&(()=>{
+        const u=(data.usuarios||[]).find(x=>x.id===modalUsuario.uid);
+        return(
+          <div className="modal-overlay"><div className="modal" style={{maxWidth:500}}>
+            <ModalHeader titulo={`Asignar máquinas — ${DL[modalUsuario.dia]}`} subtitulo={`👤 ${u?.nombre||""} · ${u?.rol||""}`} onClose={()=>{setModalUsuario(null);setSelMaqs([]);setComentario("");}}/>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>Máquinas para este día</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+                {[...data.maquinas].sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(m=>{
+                  const sel=selMaqs.includes(m.id);
+                  return(
+                    <div key={m.id} onClick={()=>togMaq(m.id)}
+                      style={{padding:"8px 10px",borderRadius:9,cursor:"pointer",border:`2px solid ${sel?"var(--accent)":"var(--border)"}`,background:sel?"rgba(245,158,11,.1)":"var(--surface2)",transition:"all .15s"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?"var(--accent)":"var(--border)"}`,background:sel?"var(--accent)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          {sel&&<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>}
+                        </div>
+                        <div style={{fontSize:11,fontWeight:600,color:sel?"var(--text)":"var(--muted)"}}>{m.nombre}</div>
+                      </div>
+                      {m.ubicacion&&<div style={{fontSize:9,color:"var(--muted)",marginTop:3,paddingLeft:22}}>{m.ubicacion}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {selMaqs.length>0&&<div style={{marginBottom:4,fontSize:11,color:"var(--accent)",fontWeight:600}}>✅ {selMaqs.length} máquina(s) seleccionadas</div>}
+            <div className="form-group">
+              <label>Instrucción o comentario para este día (opcional)</label>
+              <textarea value={comentario} onChange={e=>setComentario(e.target.value)}
+                placeholder="Ej: Llevar productos adicionales, coordinar con encargado..."
+                style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none",fontFamily:"DM Sans,sans-serif",minHeight:80,resize:"vertical"}}/>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
+              {selMaqs.length>0&&<button onClick={()=>setSelMaqs([])} style={{fontSize:11,color:"var(--red)",background:"none",border:"none",cursor:"pointer",padding:0}}>✕ Limpiar selección</button>}
+              <div className="modal-actions" style={{margin:0}}>
+                <button className="btn btn-secondary" onClick={()=>{setModalUsuario(null);setSelMaqs([]);setComentario("");}}>Cancelar</button>
+                <button className="btn btn-primary" onClick={guardarAsignacion}>Guardar asignación</button>
+              </div>
+            </div>
+          </div></div>
+        );
+      })()}
+
+      {/* Modal mensaje general del día */}
+      {msgModal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+        <ModalHeader titulo={`Mensaje general — ${DL[msgModal.dia]}`} subtitulo="Visible para todos los usuarios ese día" onClose={()=>setMsgModal(null)}/>
+        <div className="form-group">
+          <label>Mensaje para todos los usuarios</label>
+          <textarea autoFocus value={msgTexto} onChange={e=>setMsgTexto(e.target.value)}
+            placeholder="Ej: Hoy hay reunión a las 6pm, llevar uniforme..."
+            style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none",fontFamily:"DM Sans,sans-serif",minHeight:90,resize:"vertical"}}/>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>setMsgModal(null)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={guardarMsg}>Guardar mensaje</button>
+        </div>
       </div></div>}
     </div>
   );
 }
 
-function MiHorario({data,save,puedeComentarMaq=false}){
+// MÓDULOS RESTAURADOS DEL BACKUP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ESTADOS_TICKET=["Abierto","En proceso","Resuelto"];
+const COLOR_ESTADO={"Abierto":"red","En proceso":"amber","Resuelto":"green"};
+const TIPOS_FALLA=["Dispensador trabado","Pantalla no funciona","No acepta monedas","No da cambio","Producto atascado","Falla eléctrica","Puerta no cierra","Otro"];
+const MONEDAS=[0.10,0.20,0.50,1.00,2.00,5.00];
+const ROLES_PERSONAL=["Abastecedor","Almacenero","Supervisor","Administrador","Otro"];
+const TURNOS=["Tiempo completo","Medio tiempo","Por horas","Por días"];
+
+function MiHorario({data,save,puedeComentarMaq=false,sesionUsuario=null}){
   const de=["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
-  const da=de[new Date().getDay()];const h=data.horario||{};const mh=h[da]?.maquinas||[];
-  const comentariosHoy=h[da]?.comentarios||{};
-  const msgHoy=h[da]?.mensajeGeneral||"";
+  const da=de[new Date().getDay()];
+  const h=data.horario||{};
   const [comModal,setComModal]=useState(null);
   const [comTexto,setComTexto]=useState("");
-  const abrirCom=(dia,maqId)=>{
-    const actual=(h[dia]?.comentarios||{})[maqId]||"";
-    setComTexto(actual);setComModal({dia,maqId});
+
+  const getMisMaqs=()=>{
+    if(!sesionUsuario)return h[da]?.maquinas||[];
+    const asig=h[da]?.asignaciones?.[sesionUsuario.id];
+    if(asig?.maquinas?.length>0)return asig.maquinas;
+    const old_maqs=h[da]?.maquinas||[];
+    const old_coms=h[da]?.comentarios||{};
+    return old_maqs.filter(mid=>{const uid2=old_coms[mid+"-usuario"];return !uid2||uid2===sesionUsuario.id;});
   };
+  const misMaqs=getMisMaqs();
+  const miComentario=sesionUsuario?h[da]?.asignaciones?.[sesionUsuario.id]?.comentario||"":"";
+  const msgGeneral=h[da]?.mensajeGeneral||"";
+  const DIAS_SEMANA=[{key:"lunes",lbl:"Lunes"},{key:"martes",lbl:"Martes"},{key:"miercoles",lbl:"Miércoles"},{key:"jueves",lbl:"Jueves"},{key:"viernes",lbl:"Viernes"},{key:"sabado",lbl:"Sábado"},{key:"domingo",lbl:"Domingo"}];
+  const diaLabel=DIAS_SEMANA.find(d=>d.key===da)?.lbl||da;
+
   const guardarCom=async()=>{
-    if(!comModal)return;
-    const{dia,maqId}=comModal;
-    const diaData=h[dia]||{maquinas:[],comentarios:{},mensajeGeneral:""};
-    const nuevos={...(diaData.comentarios||{}),[maqId]:comTexto};
-    await save("horario",dia,{...diaData,comentarios:nuevos});
+    if(!comModal||!comTexto.trim())return;
+    const{maqId}=comModal;
+    const id=uid();
+    save("sugerencias",id,{id,maquinaId:maqId,mensaje:comTexto.trim(),fecha:today(),usuarioId:sesionUsuario?.id,usuarioNombre:sesionUsuario?.nombre});
     setComModal(null);setComTexto("");
   };
+
   return(
     <div>
-      {/* Resumen de hoy */}
-      <div style={{marginBottom:14,background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.25)",borderRadius:12,padding:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}><Icon name="calendar" size={14}/><span style={{fontWeight:700,fontSize:14}}>Hoy — {da.charAt(0).toUpperCase()+da.slice(1)}</span></div>
-        {msgHoy&&<div style={{background:"rgba(245,158,11,.15)",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,padding:"8px 12px",fontSize:12,color:"var(--accent)",marginBottom:10,display:"flex",alignItems:"center",gap:6}}><span>📢</span>{msgHoy}</div>}
-        {mh.length===0
-          ?<p style={{color:"var(--muted)",fontSize:13}}>No tienes máquinas asignadas hoy.</p>
-          :mh.map(id=>{
-            const m=data.maquinas.find(m=>m.id===id);
-            const com=comentariosHoy[id]||"";
-            return(
-              <div key={id} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:9,padding:"10px 13px",marginBottom:7}}>
-                <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:com?6:0}}>
-                  <Icon name="location" size={14}/>
-                  <div><div style={{fontWeight:700,fontSize:13}}>{m?.nombre}</div><div style={{fontSize:11,color:"var(--muted)"}}>{m?.ubicacion}</div></div>
-                </div>
-                {com&&<div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:7,padding:"6px 10px",fontSize:12,color:"var(--accent2)",display:"flex",alignItems:"flex-start",gap:6}}><span>💬</span><span>{com}</span></div>}
-              </div>
-            );
-          })
-        }
+      {/* Header */}
+      <div style={{background:"linear-gradient(135deg,#111827,#1a2235)",borderRadius:12,padding:"16px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={{fontSize:11,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:4}}>Hoy es</div>
+          <div style={{fontSize:20,fontWeight:800,color:"#f1f5f9"}}>{diaLabel}</div>
+          {sesionUsuario&&<div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>👤 {sesionUsuario.nombre}</div>}
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:11,color:"#64748b",marginBottom:2}}>Máquinas hoy</div>
+          <div style={{fontSize:28,fontWeight:800,color:misMaqs.length>0?"var(--accent)":"#475569"}}>{misMaqs.length}</div>
+        </div>
       </div>
 
-      {/* Semana completa */}
-      <div className="section">
-        <div className="section-header"><h3>Mi horario semanal</h3></div>
-        <div style={{padding:12}}>
-          <div className="horario-grid">
-            {DIAS.map(dia=>{
-              const ids=h[dia]?.maquinas||[];const esh=dia===da;
-              const coms=h[dia]?.comentarios||{};
-              const msg=h[dia]?.mensajeGeneral||"";
+      {msgGeneral&&<div style={{background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",gap:10}}>
+        <span style={{fontSize:18,flexShrink:0}}>📢</span>
+        <div><div style={{fontSize:11,fontWeight:700,color:"var(--accent)",marginBottom:2}}>Mensaje del admin</div><div style={{fontSize:13}}>{msgGeneral}</div></div>
+      </div>}
+
+      {miComentario&&<div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",gap:10}}>
+        <span style={{fontSize:18,flexShrink:0}}>💬</span>
+        <div><div style={{fontSize:11,fontWeight:700,color:"var(--accent2)",marginBottom:2}}>Instrucción para hoy</div><div style={{fontSize:13}}>{miComentario}</div></div>
+      </div>}
+
+      {misMaqs.length===0
+        ?<div className="section"><div style={{padding:32,textAlign:"center"}}>
+            <div style={{fontSize:40,marginBottom:12}}>🎉</div>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>¡Día libre!</div>
+            <div style={{fontSize:13,color:"var(--muted)"}}>No tienes máquinas asignadas para {diaLabel}.</div>
+          </div></div>
+        :<div>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Mis máquinas de hoy</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:12}}>
+            {misMaqs.map(maqId=>{
+              const m=data.maquinas.find(x=>x.id===maqId);
               return(
-                <div key={dia} className="dia-col" style={esh?{border:"1px solid var(--accent)"}:{}}>
-                  <div className="dia-header" style={esh?{background:"rgba(245,158,11,.25)"}:{}}>{DL[dia]}{esh&&" ★"}</div>
-                  <div className="dia-body">
-                    {msg&&<div style={{fontSize:9,background:"rgba(245,158,11,.12)",borderRadius:4,padding:"2px 5px",marginBottom:4,color:"var(--accent)"}}>{msg}</div>}
-                    {ids.length===0?<div className="dia-empty">Libre</div>:ids.map(id=>{
-                      const m=data.maquinas.find(m=>m.id===id);
-                      const com=coms[id]||"";
-                      return(
-                        <div key={id} style={{marginBottom:3}}>
-                          <div className="dia-maq">📍 {m?.nombre||id}</div>
-                          {com&&<div style={{fontSize:9,color:"var(--accent2)",padding:"2px 5px",fontStyle:"italic",background:"rgba(59,130,246,.08)",borderRadius:3,marginTop:1}}>💬 {com}</div>}
-                        </div>
-                      );
-                    })}
+                <div key={maqId} className="section" style={{marginBottom:0}}>
+                  <div style={{padding:"14px 16px"}}>
+                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:puedeComentarMaq?10:0}}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:15}}>{m?.nombre||maqId}</div>
+                        {m?.ubicacion&&<div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>📍 {m.ubicacion}</div>}
+                      </div>
+                      <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:m?.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m?.activa?"var(--green)":"var(--red)",flexShrink:0}}>{m?.activa?"Activa":"Inactiva"}</span>
+                    </div>
+                    {puedeComentarMaq&&<button onClick={()=>{setComModal({dia:da,maqId});setComTexto("");}}
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,border:"1px dashed var(--border)",background:"transparent",color:"var(--muted)",cursor:"pointer",fontSize:11,fontWeight:600,width:"100%",justifyContent:"center"}}>
+                      💡 Agregar sugerencia
+                    </button>}
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
-      </div>
-      {comModal&&puedeComentarMaq&&<div className="modal-overlay"><div className="modal" style={{maxWidth:380}}>
-        <h3>Comentario para máquina</h3>
-        {(()=>{const{dia,maqId}=comModal;const m=data.maquinas.find(m=>m.id===maqId);return(
-          <div>
-            <div className="edit-banner">📍 {m?.nombre} — {DL[dia]}</div>
-            <div className="form-group">
-              <label>Tu comentario o nota</label>
-              <textarea value={comTexto} onChange={e=>setComTexto(e.target.value)} placeholder="Ej: Llevar productos extra, revisar dispensador..." style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",minHeight:90,resize:"vertical"}}/>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={()=>setComModal(null)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={guardarCom}>Guardar comentario</button>
-            </div>
+      }
+
+      {/* Semana completa */}
+      <div className="section" style={{marginTop:16}}>
+        <div className="section-header"><h3>Mi semana</h3></div>
+        <div style={{padding:"10px 16px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+            {DIAS_SEMANA.map(({key,lbl})=>{
+              const asig=h[key]?.asignaciones?.[sesionUsuario?.id];
+              const maqs=asig?.maquinas||(sesionUsuario?[]:h[key]?.maquinas||[]);
+              const esHoy=key===da;
+              return(
+                <div key={key} style={{borderRadius:9,padding:"8px 6px",background:esHoy?"rgba(245,158,11,.1)":"var(--surface2)",border:`1px solid ${esHoy?"var(--accent)":"var(--border)"}`,textAlign:"center"}}>
+                  <div style={{fontSize:10,fontWeight:700,color:esHoy?"var(--accent)":"var(--muted)",marginBottom:5}}>{lbl.slice(0,3).toUpperCase()}</div>
+                  {maqs.length===0?<div style={{fontSize:9,color:"var(--muted)"}}>Libre</div>
+                    :maqs.map(mid=>{const m=data.maquinas.find(x=>x.id===mid);return<div key={mid} style={{fontSize:8,fontWeight:600,color:esHoy?"var(--accent)":"var(--text)",marginBottom:2}}>📍{m?.nombre||mid}</div>;})}
+                </div>
+              );
+            })}
           </div>
-        );})()}
+        </div>
+      </div>
+
+      {comModal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+        <ModalHeader titulo="Agregar sugerencia" subtitulo={data.maquinas.find(m=>m.id===comModal.maqId)?.nombre} onClose={()=>setComModal(null)}/>
+        <div className="form-group"><label>Tu sugerencia</label>
+          <textarea autoFocus value={comTexto} onChange={e=>setComTexto(e.target.value)} placeholder="Ej: Falta producto X, revisar dispensador..."
+            style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none",fontFamily:"DM Sans,sans-serif",minHeight:100,resize:"vertical"}}/>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>setComModal(null)}>Cancelar</button>
+          <button className="btn btn-primary" onClick={guardarCom} disabled={!comTexto.trim()}>Guardar</button>
+        </div>
       </div></div>}
     </div>
   );
 }
-
-// ─── SUGERENCIAS ─────────────────────────────────────────────────────────────────
 function Sugerencias({data,save,del,soloLectura=false}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
@@ -1667,14 +1802,12 @@ function Sugerencias({data,save,del,soloLectura=false}){
   );
 }
 
-// ─── DEVOLUCIONES ─────────────────────────────────────────────────────────────────
-const MOTIVOS_DEV=["Producto vencido","Producto con poca venta","Producto con fallas"];
-function Devoluciones({data,save,del,soloLectura=false,esAdmin=false}){
+function Devoluciones({data,save,del,soloLectura=false,esAdmin=false,maqsFiltro=null,sesionUsuario=null}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
   const [mes,setMes]=useState(mesActual());
-  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const maqActivas=data.maquinas.filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
 
   // Estado para nuevo registro (multi-producto)
   const EF_HEADER={maquinaId:"",fecha:today(),motivo:MOTIVOS_DEV[0],observacion:""};
@@ -1835,7 +1968,6 @@ function Devoluciones({data,save,del,soloLectura=false,esAdmin=false}){
   );
 }
 
-// ─── PRODUCTOS ECONÓMICOS ─────────────────────────────────────────────────────────
 function ProductosEco({data,save,del}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
@@ -1950,12 +2082,7 @@ function ListaPreciosEco({data}){
 }
 
 
-// ─── STOCK POR MÁQUINA ──────────────────────────────────────────────────────────
-// Lógica:
-//   Ventas calculadas = StockAnterior (residuo) + TrasladosDía - StockActual (después de abastecer)
-//   El abastecedor registra: máquina, fecha, producto, residuo (antes), cantidad traslado, stock final (después)
-
-function StockMaquina({data,save,del,soloLectura=false}){
+function StockMaquina({data,save,del,soloLectura=false,maqsFiltro=null,sesionUsuario=null}){
   const [modal,setModal]=useState(false);
   const [maqId,setMaqId]=useState("");
   const [fecha,setFecha]=useState(today());
@@ -1978,7 +2105,7 @@ function StockMaquina({data,save,del,soloLectura=false}){
     await save("traslados",tId,{id:tId,fecha:formMover.fecha,maquinaId:formMover.maqDestino,productoId:formMover.productoId,cantidad:qty,responsable:"Movimiento entre máquinas",origenMaqId:formMover.maqOrigen,origenStockMaquina:false,esMovimiento:true});
     setModalMover(false);setFormMover(EFM);
   };
-  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const maqActivas=data.maquinas.filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
 
   const abrirSugSM=(maqId,maqNombre,fecha)=>{setModalSugSM({maqId,maqNombre,fecha});setSugTextoSM("");};
   const guardarSugSM=()=>{
@@ -2069,7 +2196,10 @@ function StockMaquina({data,save,del,soloLectura=false}){
       <MesNav mes={mes} setMes={setMes}/>
       {!soloLectura&&(
         <div style={{marginBottom:16}}>
-          <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"12px 16px",fontSize:13,marginBottom:12}}>
+          {maqsFiltro&&maqsFiltro.length>0&&<div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,color:"var(--green)"}}>
+          📅 Mostrando tus <strong>{maqsFiltro.length} máquina(s) asignadas hoy</strong>.
+        </div>}
+      <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"12px 16px",fontSize:13,marginBottom:12}}>
             <strong style={{color:"var(--accent2)"}}>Nueva lógica simplificada</strong><br/>
             <span style={{color:"var(--muted)",fontSize:12}}>
               Solo llenas <strong>Residuo</strong> (lo que quedó) y <strong>Traslado</strong> (lo que pusiste).
@@ -2328,13 +2458,6 @@ function StockMaquina({data,save,del,soloLectura=false}){
 }
 
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MÓDULO: TICKETS DE MANTENIMIENTO
-// ═══════════════════════════════════════════════════════════════════════════════
-const ESTADOS_TICKET=["Abierto","En proceso","Resuelto"];
-const COLOR_ESTADO={"Abierto":"red","En proceso":"amber","Resuelto":"green"};
-const TIPOS_FALLA=["Dispensador trabado","Pantalla no funciona","No acepta monedas","No da cambio","Producto atascado","Falla eléctrica","Puerta no cierra","Otro"];
-
 function Tickets({data,save,del,esAdmin=false}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
@@ -2499,19 +2622,14 @@ function Tickets({data,save,del,esAdmin=false}){
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MÓDULO: CONTROL DE SENCILLO
-// ═══════════════════════════════════════════════════════════════════════════════
-const MONEDAS=[0.10,0.20,0.50,1.00,2.00,5.00];
-
-function ControlSencillo({data,save,del,esAdmin=false}){
+function ControlSencillo({data,save,del,esAdmin=false,sesionUsuario=null}){
   const [modalEntregar,setModalEntregar]=useState(false);
   const [modalUso,setModalUso]=useState(null);
   const [modalDev,setModalDev]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
   const [mes,setMes]=useState(mesActual());
   const [fMonedas,setFMonedas]=useState(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));
-  const [fAbas,setFAbas]=useState("");
+  const [fAbas,setFAbas]=useState(sesionUsuario?.nombre||"");
   const [fFecha,setFFecha]=useState(today());
   const [fNota,setFNota]=useState("");
   const [uMaqId,setUMaqId]=useState("");
@@ -2520,6 +2638,7 @@ function ControlSencillo({data,save,del,esAdmin=false}){
   const [dMonedas,setDMonedas]=useState(MONEDAS.reduce((o,m)=>({...o,[m]:""}),{}));
   const [dFecha,setDFecha]=useState(today());
   const maqActivas=data.maquinas.filter(m=>m.activa);
+  // ControlSencillo no filtra máquinas (el sencillo es por día completo)
   const totalMonedas=(obj)=>MONEDAS.reduce((s,m)=>s+(+obj[m]||0)*m,0);
 
   const doEntregar=()=>{
@@ -2684,12 +2803,9 @@ function ControlSencillo({data,save,del,esAdmin=false}){
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MÓDULO 2: PRE-KIT DE REPOSICIÓN
-// ═══════════════════════════════════════════════════════════════════════════════
-function PreKit({data}){
+function PreKit({data,maqsFiltro=null}){
   const [maqId,setMaqId]=useState("");
-  const maqActivas=data.maquinas.filter(m=>m.activa);
+  const maqActivas=data.maquinas.filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
 
   // Calcular pre-kit para una máquina:
   // Stock actual en máquina = último registro de StockMaquina (stockFinal)
@@ -2801,9 +2917,6 @@ function PreKit({data}){
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MÓDULO 3: REPORTE DE PRODUCTOS MÁS VENDIDOS
-// ═══════════════════════════════════════════════════════════════════════════════
 function Reportes({data}){
   const [mes,setMes]=useState(mesActual());
   const [maqFiltro,setMaqFiltro]=useState("todas");
@@ -2932,9 +3045,6 @@ function Reportes({data}){
 
 
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MÓDULO: CIERRE DEL DÍA
-// ═══════════════════════════════════════════════════════════════════════════════
 function CierreDia({data}){
   const [fecha,setFecha]=useState(today());
 
@@ -3126,12 +3236,6 @@ function CierreDia({data}){
 }
 
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MÓDULO: PERSONAL
-// ═══════════════════════════════════════════════════════════════════════════════
-const ROLES_PERSONAL=["Abastecedor","Almacenero","Supervisor","Administrador","Otro"];
-const TURNOS=["Tiempo completo","Medio tiempo","Por horas","Por días"];
-
 function Personal({data,save,del}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
@@ -3295,19 +3399,823 @@ function Personal({data,save,del}){
   );
 }
 
+
+// ─── PANTALLA DE REGISTRO (link único) ────────────────────────────────────────
+function RegistroScreen({usuario,onRegistrado}){
+  const [pass,setPass]=useState("");
+  const [pass2,setPass2]=useState("");
+  const [error,setError]=useState("");
+  const [listo,setListo]=useState(false);
+  const doRegistrar=async()=>{
+    if(pass.length<6){setError("La contraseña debe tener al menos 6 caracteres");return;}
+    if(pass!==pass2){setError("Las contraseñas no coinciden");return;}
+    await onRegistrado(pass);setListo(true);
+  };
+  if(listo)return(
+    <div className="login-screen"><div className="login-card" style={{textAlign:"center"}}>
+      <div style={{fontSize:50,marginBottom:12}}>✅</div>
+      <h3 style={{color:"#f1f5f9",marginBottom:8}}>¡Registro completado!</h3>
+      <p style={{color:"#64748b",fontSize:13,marginBottom:20}}>Ya puedes ingresar con tu DNI y contraseña.</p>
+      <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13}} onClick={()=>window.location.href=window.location.pathname}>Ir al inicio de sesión</button>
+    </div></div>
+  );
+  return(
+    <div className="login-screen"><div className="login-card">
+      <div className="login-logo"><div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo/></div><p>Registro de usuario</p></div>
+      <div style={{background:"rgba(16,185,129,.1)",border:"1px solid rgba(16,185,129,.3)",borderRadius:10,padding:"12px 14px",marginBottom:20}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#10b981",marginBottom:4}}>Bienvenido, {usuario.nombre}</div>
+        <div style={{fontSize:11,color:"#64748b"}}>DNI: {usuario.dni} · Rol: {usuario.rol||"Abastecedor"}</div>
+      </div>
+      <div className="form-group"><label>Crear contraseña</label>
+        <input type="password" value={pass} onChange={e=>{setPass(e.target.value);setError("");}} placeholder="Mínimo 6 caracteres" autoFocus/>
+      </div>
+      <div className="form-group" style={{marginBottom:14}}><label>Confirmar contraseña</label>
+        <input type="password" value={pass2} onChange={e=>{setPass2(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&doRegistrar()} placeholder="Repite la contraseña"/>
+        {error&&<div style={{color:"var(--red)",fontSize:12,marginTop:5}}>⚠️ {error}</div>}
+      </div>
+      <button className="btn btn-primary" style={{width:"100%",justifyContent:"center",padding:13,fontSize:14}} onClick={doRegistrar}>Crear contraseña e ingresar</button>
+    </div></div>
+  );
+}
+
+// ─── GESTIÓN DE USUARIOS ──────────────────────────────────────────────────────
+function GestionUsuarios({data,save,del}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [busqueda,setBusqueda]=useState("");
+  const [linkCopiado,setLinkCopiado]=useState(null);
+  const EF={nombre:"",dni:"",rol:"abastecedor",password:"",crearPass:true};
+  const [form,setForm]=useState(EF);
+  const generarToken=()=>Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
+  const baseUrl=window.location.origin+window.location.pathname;
+  const doSave=()=>{
+    if(!form.nombre||!form.dni)return;
+    if(editando){
+      const upd={...editando,nombre:form.nombre,dni:form.dni,rol:form.rol};
+      if(form.password)upd.password=form.password;
+      save("usuarios",editando.id,upd);
+    }else{
+      const id=uid();
+      const token=form.crearPass?null:generarToken();
+      const password=form.crearPass&&form.password?form.password:null;
+      save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,activo:true,token,password,creadoEn:today()});
+    }
+    setModal(false);setForm(EF);setEditando(null);
+  };
+  const copiarLink=(u)=>{
+    const link=baseUrl+"?registro="+u.token;
+    navigator.clipboard.writeText(link).then(()=>{setLinkCopiado(u.id);setTimeout(()=>setLinkCopiado(null),2500);});
+  };
+  const toggleActivo=(u)=>save("usuarios",u.id,{...u,activo:!u.activo});
+  const usuariosFiltrados=[...data.usuarios].sort((a,b)=>a.nombre.localeCompare(b.nombre))
+    .filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.dni?.includes(busqueda));
+  return(
+    <div>
+      <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:10,padding:"12px 16px",fontSize:13,marginBottom:16}}>
+        <strong style={{color:"var(--accent)"}}>🔐 Cómo funciona el acceso</strong><br/>
+        <span style={{color:"var(--muted)",fontSize:12}}>
+          Todos los usuarios ingresan con <strong>DNI + contraseña</strong>. Puedes crear la contraseña tú mismo al crear el usuario, o enviar el link para que el usuario la cree. Acceso inicial del sistema: DNI <strong>00000000</strong> / contraseña <strong>gamatic2024</strong>.
+        </span>
+      </div>
+      <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por nombre o DNI..." total={data.usuarios.length} filtrado={usuariosFiltrados.length}/>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
+        <button className="btn btn-primary" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={14}/> Crear usuario</button>
+      </div>
+      {usuariosFiltrados.length===0
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin usuarios creados.</div></div>
+        :usuariosFiltrados.map(u=>(
+          <div key={u.id} className="section" style={{marginBottom:12}}>
+            <div style={{padding:"14px 16px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:42,height:42,borderRadius:10,background:"rgba(59,130,246,.12)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>
+                    {u.rol==="abastecedor"?"🔧":"🏭"}
+                  </div>
+                  <div>
+                    <div style={{fontSize:15,fontWeight:700}}>{u.nombre}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
+                      <span style={{fontSize:11,color:"var(--muted)"}}>DNI: <strong>{u.dni}</strong></span>
+                      <span className="badge blue">{u.rol}</span>
+                      <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:u.password?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:u.password?"var(--green)":"var(--accent)"}}>
+                        {u.password?"✅ Con acceso":"⏳ Pendiente registro"}
+                      </span>
+                      {!u.activo&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(239,68,68,.15)",color:"var(--red)"}}>Inactivo</span>}
+                    </div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                  {!u.password&&u.token&&(
+                    <button onClick={()=>copiarLink(u)}
+                      style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:8,border:"1px solid var(--accent)",background:"rgba(245,158,11,.08)",color:"var(--accent)",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                      {linkCopiado===u.id?"✅ ¡Copiado!":"🔗 Copiar link registro"}
+                    </button>
+                  )}
+                  {u.password&&(
+                    <button onClick={()=>{if(window.confirm("¿Reiniciar contraseña?"))save("usuarios",u.id,{...u,password:null,token:generarToken()});}}
+                      style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--muted)",cursor:"pointer",fontSize:12}}>
+                      🔄 Reiniciar contraseña
+                    </button>
+                  )}
+                  <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:u.nombre,dni:u.dni,rol:u.rol});setEditando(u);setModal(true);}}><Icon name="edit" size={12}/></button>
+                  <button className="btn btn-secondary btn-sm" style={{color:u.activo!==false?"var(--red)":"var(--green)"}} onClick={()=>toggleActivo(u)}>{u.activo!==false?"Desactivar":"Activar"}</button>
+                  <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(u)}><Icon name="trash" size={12}/></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))
+      }
+      {modal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:440}}>
+        <ModalHeader titulo={editando?"Editar usuario":"Crear usuario"} subtitulo={editando?"Editando: "+editando.nombre:null} onClose={()=>{setModal(false);setEditando(null);}}/>
+        <div className="form-row">
+          <div className="form-group"><label>Nombre completo</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Juan Pérez García"/></div>
+          <div className="form-group"><label>DNI</label><input value={form.dni} onChange={e=>setForm({...form,dni:e.target.value})} placeholder="12345678" maxLength={8}/></div>
+        </div>
+        <div className="form-group"><label>Rol</label>
+          <select value={form.rol} onChange={e=>setForm({...form,rol:e.target.value})}>
+            <option value="admin">🔐 Administrador</option>
+            <option value="abastecedor">🔧 Abastecedor</option>
+            <option value="almacenero">🏭 Almacenero</option>
+          </select>
+        </div>
+        {!editando&&(
+          <div style={{background:"var(--surface2)",borderRadius:9,padding:"12px 14px",marginBottom:14,border:"1px solid var(--border)"}}>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:"var(--text)"}}>Método de acceso</div>
+            <div style={{display:"flex",gap:8,marginBottom:form.crearPass?10:0}}>
+              <button onClick={()=>setForm({...form,crearPass:true})}
+                style={{flex:1,padding:"8px",borderRadius:8,border:`2px solid ${form.crearPass?"var(--accent)":"var(--border)"}`,background:form.crearPass?"rgba(245,158,11,.1)":"var(--surface)",cursor:"pointer",fontSize:12,fontWeight:600,color:form.crearPass?"var(--accent)":"var(--muted)"}}>
+                🔑 Asignar contraseña yo
+              </button>
+              <button onClick={()=>setForm({...form,crearPass:false,password:""})}
+                style={{flex:1,padding:"8px",borderRadius:8,border:`2px solid ${!form.crearPass?"var(--accent2)":"var(--border)"}`,background:!form.crearPass?"rgba(59,130,246,.1)":"var(--surface)",cursor:"pointer",fontSize:12,fontWeight:600,color:!form.crearPass?"var(--accent2)":"var(--muted)"}}>
+                🔗 Enviar link al usuario
+              </button>
+            </div>
+            {form.crearPass&&(
+              <div className="form-group" style={{marginBottom:0}}>
+                <label>Contraseña para este usuario</label>
+                <input type="text" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}
+                  placeholder="Ej: juan2024" autoComplete="new-password"/>
+              </div>
+            )}
+          </div>
+        )}
+        {editando&&(
+          <div className="form-group">
+            <label>Nueva contraseña (dejar vacío para no cambiar)</label>
+            <input type="text" value={form.password||""} onChange={e=>setForm({...form,password:e.target.value})}
+              placeholder="Nueva contraseña (opcional)" autoComplete="new-password"/>
+          </div>
+        )}
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave}
+            disabled={!form.nombre||!form.dni||(form.crearPass&&!editando&&!form.password)}>
+            {editando?"Guardar cambios":form.crearPass?"Crear usuario":"Crear y generar link"}
+          </button>
+        </div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto={"¿Eliminar al usuario "+confirmDel.nombre+"?"} onConfirm={()=>{del("usuarios",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: LISTAS DE PRECIOS (Admin)
+// Crea listas con precios por producto, asigna a máquinas
+// ═══════════════════════════════════════════════════════════════════════════════
+function AdminListasPrecios({data,save,del}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [modalAsignar,setModalAsignar]=useState(null); // lista a asignar
+  const EF={nombre:"",descripcion:"",precios:{},visible:true};
+  const [form,setForm]=useState(EF);
+
+  const doSave=()=>{
+    if(!form.nombre)return;
+    if(editando)save("listasPrecios",editando.id,{...editando,...form});
+    else{const id=uid();save("listasPrecios",id,{id,...form,creadoEn:today()});}
+    setModal(false);setForm(EF);setEditando(null);
+  };
+  const abrirEditar=(l)=>{
+    setForm({nombre:l.nombre,descripcion:l.descripcion||"",precios:l.precios||{},visible:l.visible!==false});
+    setEditando(l);setModal(true);
+  };
+  const setPrecio=(prodId,val)=>setForm(f=>({...f,precios:{...f.precios,[prodId]:val}}));
+  const toggleVisible=(l)=>save("listasPrecios",l.id,{...l,visible:!l.visible});
+
+  // Asignar lista a máquinas
+  const getMaqsConLista=(listaId)=>data.maquinas.filter(m=>m.listaPrecios===listaId);
+  const asignarAMaquina=(maqId,listaId)=>{
+    const m=data.maquinas.find(x=>x.id===maqId);
+    if(m)save("maquinas",maqId,{...m,listaPrecios:listaId||null});
+  };
+
+  const productos=[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre));
+
+  return(
+    <div>
+      <div style={{background:"rgba(59,130,246,.06)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"11px 14px",fontSize:12,marginBottom:16,color:"var(--muted)"}}>
+        <strong style={{color:"var(--accent2)"}}>💰 Listas de precios por zona</strong> — Crea una lista para cada tipo de ubicación (Clínicas, Malls, Minas, etc.) con los precios específicos para esa zona. Luego asigna la lista a cada máquina.
+      </div>
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
+        <button className="btn btn-primary" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={14}/> Nueva lista de precios</button>
+      </div>
+
+      {(data.listasPrecios||[]).length===0
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)"}}>Sin listas creadas. Crea tu primera lista.</div></div>
+        :(data.listasPrecios||[]).map(lista=>{
+          const maqsAsig=getMaqsConLista(lista.id);
+          return(
+            <div key={lista.id} className="section" style={{marginBottom:14}}>
+              <div style={{padding:"14px 16px"}}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+                      <div style={{fontSize:16,fontWeight:800}}>{lista.nombre}</div>
+                      <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:lista.visible!==false?"rgba(16,185,129,.15)":"rgba(100,116,139,.15)",color:lista.visible!==false?"var(--green)":"var(--muted)"}}>
+                        {lista.visible!==false?"✅ Visible abastecedor":"🔒 Oculta"}
+                      </span>
+                    </div>
+                    {lista.descripcion&&<div style={{fontSize:12,color:"var(--muted)"}}>{lista.descripcion}</div>}
+                    <div style={{fontSize:11,color:"var(--accent2)",marginTop:4}}>
+                      📍 {maqsAsig.length>0?maqsAsig.map(m=>m.nombre).join(", "):"Sin máquinas asignadas"}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>setModalAsignar(lista)}>📍 Asignar máquinas</button>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>toggleVisible(lista)}>
+                      {lista.visible!==false?"🔒 Ocultar":"✅ Mostrar"}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(lista)}><Icon name="edit" size={12}/></button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(lista)}><Icon name="trash" size={12}/></button>
+                  </div>
+                </div>
+
+                {/* Preview precios */}
+                {productos.filter(p=>lista.precios?.[p.id]).length>0&&(
+                  <div style={{marginTop:12,borderTop:"1px solid var(--border)",paddingTop:10}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>Precios personalizados ({productos.filter(p=>lista.precios?.[p.id]).length} productos)</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {productos.filter(p=>lista.precios?.[p.id]).slice(0,6).map(p=>(
+                        <span key={p.id} style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:"rgba(245,158,11,.1)",color:"var(--accent)",fontWeight:600}}>
+                          {p.nombre}: S/ {lista.precios[p.id]}
+                        </span>
+                      ))}
+                      {productos.filter(p=>lista.precios?.[p.id]).length>6&&(
+                        <span style={{fontSize:11,color:"var(--muted)",padding:"3px 9px"}}>+{productos.filter(p=>lista.precios?.[p.id]).length-6} más</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })
+      }
+
+      {/* Modal crear/editar lista */}
+      {modal&&<div className="modal-overlay"><div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:16,padding:"24px 22px",width:"92%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.12)"}}>
+        <ModalHeader titulo={editando?"Editar lista de precios":"Nueva lista de precios"} subtitulo={editando?editando.nombre:null} onClose={()=>{setModal(false);setEditando(null);}}/>
+        <div className="form-row">
+          <div className="form-group"><label>Nombre de la lista</label>
+            <input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Clínicas, Malls, Minas..."/>
+          </div>
+          <div className="form-group"><label>Descripción (opcional)</label>
+            <input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} placeholder="Ej: Para máquinas en centros de salud"/>
+          </div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>
+            Precios por producto — deja vacío para usar el precio estándar
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:8}}>
+            {productos.map(p=>{
+              const precioBase=p.precioVenta||(p.costo*(1+(p.margen||0)/100));
+              const precioCustom=form.precios?.[p.id]||"";
+              return(
+                <div key={p.id} style={{background:"var(--surface2)",borderRadius:9,padding:"10px 12px",border:`1px solid ${precioCustom?"var(--accent)":"var(--border)"}`,transition:"border-color .15s"}}>
+                  <div style={{fontSize:12,fontWeight:700,marginBottom:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nombre}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{fontSize:10,color:"var(--muted)",flexShrink:0}}>Base: S/{precioBase.toFixed(2)}</div>
+                    <input type="number" step="0.01" value={precioCustom} onChange={e=>setPrecio(p.id,e.target.value)}
+                      placeholder={precioBase.toFixed(2)}
+                      style={{flex:1,padding:"5px 8px",background:precioCustom?"rgba(245,158,11,.08)":"var(--surface)",border:`1px solid ${precioCustom?"var(--accent)":"var(--border)"}`,borderRadius:6,color:precioCustom?"var(--accent)":"var(--muted)",fontSize:13,fontWeight:700,outline:"none",width:"100%"}}/>
+                  </div>
+                  {precioCustom&&<div style={{fontSize:9,color:"var(--accent)",marginTop:3}}>
+                    Diferencia: {(+precioCustom-precioBase)>0?"+":""}S/{(+precioCustom-precioBase).toFixed(2)}
+                  </div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,padding:"9px 12px",background:"var(--surface2)",borderRadius:8}}>
+          <input type="checkbox" id="chk-visible" checked={form.visible} onChange={e=>setForm({...form,visible:e.target.checked})} style={{width:16,height:16,cursor:"pointer"}}/>
+          <label htmlFor="chk-visible" style={{fontSize:13,cursor:"pointer"}}>Visible para el abastecedor en campo</label>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave} disabled={!form.nombre}>{editando?"Guardar cambios":"Crear lista"}</button>
+        </div>
+      </div></div>}
+
+      {/* Modal asignar máquinas */}
+      {modalAsignar&&<div className="modal-overlay"><div className="modal" style={{maxWidth:480}}>
+        <ModalHeader titulo="Asignar máquinas" subtitulo={`Lista: ${modalAsignar.nombre}`} onClose={()=>setModalAsignar(null)}/>
+        <div style={{fontSize:12,color:"var(--muted)",marginBottom:12}}>Selecciona las máquinas que usarán esta lista de precios. Una máquina solo puede tener una lista asignada.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {[...data.maquinas].sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(m=>{
+            const listaActual=data.listasPrecios?.find(l=>l.id===m.listaPrecios);
+            const estaAsignada=m.listaPrecios===modalAsignar.id;
+            return(
+              <div key={m.id} onClick={()=>asignarAMaquina(m.id,estaAsignada?null:modalAsignar.id)}
+                style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 13px",borderRadius:9,cursor:"pointer",border:`2px solid ${estaAsignada?"var(--accent)":"var(--border)"}`,background:estaAsignada?"rgba(245,158,11,.08)":"var(--surface2)",transition:"all .15s"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${estaAsignada?"var(--accent)":"var(--border)"}`,background:estaAsignada?"var(--accent)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {estaAsignada&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>}
+                  </div>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700}}>{m.nombre}</div>
+                    <div style={{fontSize:10,color:"var(--muted)"}}>{m.ubicacion}</div>
+                  </div>
+                </div>
+                {listaActual&&!estaAsignada&&(
+                  <span style={{fontSize:10,color:"var(--muted)",padding:"2px 7px",borderRadius:10,background:"var(--surface2)",border:"1px solid var(--border)"}}>
+                    Tiene: {listaActual.nombre}
+                  </span>
+                )}
+                {estaAsignada&&<span style={{fontSize:10,fontWeight:700,color:"var(--accent)"}}>✅ Asignada</span>}
+              </div>
+            );
+          })}
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={()=>setModalAsignar(null)}>Listo</button>
+        </div>
+      </div></div>}
+
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar la lista "${confirmDel.nombre}"? Las máquinas asignadas quedarán sin lista.`} onConfirm={()=>{del("listasPrecios",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: LISTA DE PRECIOS EN CAMPO (Abastecedor)
+// Selecciona su máquina y ve la lista asignada
+// ═══════════════════════════════════════════════════════════════════════════════
+function ListaPreciosCampo({data,maqsFiltro=null}){
+  const [maqId,setMaqId]=useState("");
+  const productos=[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre));
+
+  // Máquinas disponibles (filtradas por asignación del día si aplica)
+  const maqsDisp=data.maquinas.filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
+
+  // Auto-seleccionar si solo hay una máquina
+  useState(()=>{if(maqsDisp.length===1)setMaqId(maqsDisp[0].id);},[]);
+
+  const maq=data.maquinas.find(m=>m.id===maqId);
+  const lista=maq?.listaPrecios?(data.listasPrecios||[]).find(l=>l.id===maq.listaPrecios&&l.visible!==false):null;
+  const listaGeneral=null; // sin lista asignada → usa precios base
+
+  const getPrecio=(p)=>{
+    if(lista?.precios?.[p.id])return +lista.precios[p.id];
+    return p.precioVenta||(p.costo*(1+(p.margen||0)/100));
+  };
+
+  return(
+    <div>
+      {/* Selector de máquina */}
+      <div className="section" style={{marginBottom:16}}>
+        <div style={{padding:"14px 16px"}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Selecciona la máquina</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}}>
+            {maqsDisp.length===0
+              ?<div style={{color:"var(--muted)",fontSize:12}}>Sin máquinas asignadas hoy.</div>
+              :maqsDisp.map(m=>{
+                const l=(data.listasPrecios||[]).find(x=>x.id===m.listaPrecios&&x.visible!==false);
+                return(
+                  <div key={m.id} onClick={()=>setMaqId(m.id)}
+                    style={{padding:"10px 12px",borderRadius:10,cursor:"pointer",border:`2px solid ${maqId===m.id?"var(--accent)":"var(--border)"}`,background:maqId===m.id?"rgba(245,158,11,.08)":"var(--surface2)",transition:"all .15s"}}>
+                    <div style={{fontSize:12,fontWeight:700,marginBottom:3}}>{m.nombre}</div>
+                    {m.ubicacion&&<div style={{fontSize:10,color:"var(--muted)"}}>{m.ubicacion}</div>}
+                    <div style={{marginTop:5,fontSize:10,fontWeight:600,color:l?"var(--accent)":"var(--muted)"}}>
+                      {l?`💰 ${l.nombre}`:"Lista estándar"}
+                    </div>
+                  </div>
+                );
+              })
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* Lista de precios de la máquina seleccionada */}
+      {maqId&&(
+        <div className="section">
+          <div className="section-header">
+            <div>
+              <h3>💰 Precios — {maq?.nombre}</h3>
+              {lista
+                ?<div style={{fontSize:11,color:"var(--accent)",marginTop:2}}>Lista: <strong>{lista.nombre}</strong></div>
+                :<div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Lista estándar</div>
+              }
+            </div>
+          </div>
+          <div className="table-wrap"><table>
+            <thead><tr><th>Producto</th><th>Proveedor</th><th style={{color:"var(--accent)"}}>Precio</th>{lista&&<th style={{color:"var(--muted)"}}>Precio base</th>}</tr></thead>
+            <tbody>
+              {productos.map(p=>{
+                const precio=getPrecio(p);
+                const base=p.precioVenta||(p.costo*(1+(p.margen||0)/100));
+                const diferente=lista?.precios?.[p.id]&&+lista.precios[p.id]!==base;
+                return(
+                  <tr key={p.id} style={{background:diferente?"rgba(245,158,11,.04)":"transparent"}}>
+                    <td><strong>{p.nombre}</strong>{diferente&&<span style={{marginLeft:6,fontSize:9,padding:"1px 5px",borderRadius:10,background:"rgba(245,158,11,.15)",color:"var(--accent)",fontWeight:700}}>ZONA</span>}</td>
+                    <td style={{color:"var(--muted)",fontSize:11}}>{p.proveedor}</td>
+                    <td><span style={{fontWeight:800,fontSize:15,color:diferente?"var(--accent)":"var(--text)"}}>S/ {precio.toFixed(2)}</span></td>
+                    {lista&&<td style={{color:"var(--muted)",fontSize:11}}>{diferente?`S/ ${base.toFixed(2)}`:"-"}</td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: CONTROL DE CAFETERAS
+// ═══════════════════════════════════════════════════════════════════════════════
+// Lógica:
+// El admin registra una cafetera con sus insumos base (café, leche, chocolate, etc.)
+// Indica cuántos vasos rinde cada unidad de insumo y el costo de vasos + agua
+// El sistema calcula el costo por vaso de cada bebida
+//
+// Bebidas estándar: Café, Chocolate, Capuchino
+// Insumos: Café (gr/vaso), Leche (ml/vaso o sachets), Chocolate (gr/vaso),
+//          Vaso (precio unitario), Agua (precio por litro × ml usados)
+
+const BEBIDAS_CAFETERA=[
+  {id:"cafe",nombre:"Café",emoji:"☕",color:"#6f4e37"},
+  {id:"chocolate",nombre:"Chocolate",emoji:"🍫",color:"#4a1942"},
+  {id:"capuchino",nombre:"Capuchino",emoji:"🍵",color:"#c8916e"},
+];
+
+// Insumos posibles
+const INSUMOS_BASE=[
+  {id:"cafe_gr",nombre:"Café",unidad:"gr por vaso",tipo:"por_vaso"},
+  {id:"leche_ml",nombre:"Leche",unidad:"ml por vaso",tipo:"por_vaso"},
+  {id:"chocolate_gr",nombre:"Chocolate",unidad:"gr por vaso",tipo:"por_vaso"},
+  {id:"azucar_gr",nombre:"Azúcar",unidad:"gr por vaso",tipo:"por_vaso"},
+  {id:"vaso",nombre:"Vaso desechable",unidad:"precio unitario (S/)",tipo:"fijo"},
+  {id:"tapa",nombre:"Tapa / sorbete",unidad:"precio unitario (S/)",tipo:"fijo"},
+  {id:"agua_ml",nombre:"Agua",unidad:"ml por vaso",tipo:"agua"},
+  {id:"extra1",nombre:"Insumo extra 1",unidad:"S/ por vaso",tipo:"extra"},
+  {id:"extra2",nombre:"Insumo extra 2",unidad:"S/ por vaso",tipo:"extra"},
+];
+
+function Cafeteras({data,save,del,esAdmin=false}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [tab,setTab]=useState(null); // cafetera seleccionada para ver detalle
+
+  // Form para crear/editar cafetera
+  const EF={
+    nombre:"",ubicacion:"",
+    // Costos base de insumos (precio por unidad)
+    costoCafeKg:0,       // S/ por kg de café
+    costoLecheLt:0,      // S/ por litro de leche
+    costoChocolateKg:0,  // S/ por kg de chocolate
+    costoAzucarKg:0,     // S/ por kg de azúcar
+    costoAgua1000ml:0,   // S/ por litro de agua
+    costoVaso:0,         // S/ por vaso
+    costoTapa:0,         // S/ por tapa/sorbete
+    costoExtra1:0,costoExtra1Nombre:"",
+    costoExtra2:0,costoExtra2Nombre:"",
+    // Recetas por bebida: cuánto insumo usa cada vaso
+    recetas:{
+      cafe:   {cafe_gr:7, leche_ml:0,  chocolate_gr:0, azucar_gr:5,  agua_ml:150},
+      chocolate:{cafe_gr:0,leche_ml:150,chocolate_gr:20,azucar_gr:10, agua_ml:50},
+      capuchino:{cafe_gr:7,leche_ml:100,chocolate_gr:5, azucar_gr:5,  agua_ml:100},
+    },
+    margenGanancia:50,   // % margen sobre costo para precio sugerido
+  };
+  const [form,setForm]=useState(EF);
+  const [receta,setReceta]=useState(EF.recetas);
+
+  const setR=(bebida,insumo,val)=>setReceta(r=>({...r,[bebida]:{...r[bebida],[insumo]:+val||0}}));
+
+  // Calcular costo de un vaso de una bebida
+  const calcCostoVaso=(f,r,bebida)=>{
+    const rec=r[bebida]||{};
+    let costo=0;
+    // Café: S/kg → S/gr = costoCafeKg/1000 × gr_usados
+    costo+=(+f.costoCafeKg||0)/1000*(rec.cafe_gr||0);
+    // Leche: S/lt → S/ml = costoLecheLt/1000 × ml_usados
+    costo+=(+f.costoLecheLt||0)/1000*(rec.leche_ml||0);
+    // Chocolate: S/kg → S/gr
+    costo+=(+f.costoChocolateKg||0)/1000*(rec.chocolate_gr||0);
+    // Azúcar: S/kg → S/gr
+    costo+=(+f.costoAzucarKg||0)/1000*(rec.azucar_gr||0);
+    // Agua: S/lt → S/ml
+    costo+=(+f.costoAgua1000ml||0)/1000*(rec.agua_ml||0);
+    // Vaso + tapa (siempre)
+    costo+=(+f.costoVaso||0)+(+f.costoTapa||0);
+    // Extras fijos
+    costo+=(+f.costoExtra1||0)+(+f.costoExtra2||0);
+    return costo;
+  };
+
+  const precioSugerido=(costo,margen)=>costo*(1+(margen||0)/100);
+
+  const doSave=()=>{
+    if(!form.nombre)return;
+    const obj={...form,recetas:receta};
+    if(editando)save("cafeteras",editando.id,{...editando,...obj});
+    else{const id=uid();save("cafeteras",id,{id,...obj,creadoEn:today()});}
+    setModal(false);setForm(EF);setReceta(EF.recetas);setEditando(null);
+  };
+
+  const abrirEditar=(c)=>{
+    setForm({...EF,...c});
+    setReceta(c.recetas||EF.recetas);
+    setEditando(c);setModal(true);
+  };
+
+  const cafeteras=data.cafeteras||[];
+  const fmtS=(n)=>`S/ ${(+n||0).toFixed(2)}`;
+
+  return(
+    <div>
+      <div style={{background:"#fffbf0",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"11px 14px",fontSize:12,marginBottom:16,color:"var(--muted)"}}>
+        <strong style={{color:"var(--accent)"}}>☕ Control de cafeteras</strong> — Registra los insumos y costos de cada cafetera. El sistema calcula automáticamente el costo real y el precio sugerido de venta por cada bebida.
+      </div>
+
+      {esAdmin&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
+        <button className="btn btn-primary" onClick={()=>{setForm(EF);setReceta(EF.recetas);setEditando(null);setModal(true);}}><Icon name="plus" size={14}/> Nueva cafetera</button>
+      </div>}
+
+      {cafeteras.length===0
+        ?<div className="section"><div style={{padding:32,textAlign:"center",color:"var(--muted)"}}>
+            <div style={{fontSize:40,marginBottom:12}}>☕</div>
+            <div style={{fontSize:14,fontWeight:700}}>Sin cafeteras registradas</div>
+          </div></div>
+        :cafeteras.map(caf=>{
+          const isOpen=tab===caf.id;
+          return(
+            <div key={caf.id} className="section" style={{marginBottom:14}}>
+              {/* Header cafetera */}
+              <div style={{padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}
+                onClick={()=>setTab(isOpen?null:caf.id)}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:44,height:44,borderRadius:12,background:"rgba(245,158,11,.1)",border:"2px solid rgba(245,158,11,.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>☕</div>
+                  <div>
+                    <div style={{fontSize:15,fontWeight:800}}>{caf.nombre}</div>
+                    {caf.ubicacion&&<div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>📍 {caf.ubicacion}</div>}
+                  </div>
+                </div>
+                {/* Preview costos */}
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                  {BEBIDAS_CAFETERA.map(b=>{
+                    const costo=calcCostoVaso(caf,caf.recetas||EF.recetas,b.id);
+                    const precio=precioSugerido(costo,caf.margenGanancia);
+                    return(
+                      <div key={b.id} style={{textAlign:"center",padding:"6px 12px",borderRadius:9,background:"#fffbf0",border:"1px solid rgba(245,158,11,.2)"}}>
+                        <div style={{fontSize:16}}>{b.emoji}</div>
+                        <div style={{fontSize:10,color:"var(--muted)"}}>{b.nombre}</div>
+                        <div style={{fontSize:12,fontWeight:800,color:"var(--accent)"}}>S/ {precio.toFixed(2)}</div>
+                        <div style={{fontSize:9,color:"var(--muted)"}}>costo: S/ {costo.toFixed(2)}</div>
+                      </div>
+                    );
+                  })}
+                  {esAdmin&&<div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(caf)}><Icon name="edit" size={12}/></button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(caf)}><Icon name="trash" size={12}/></button>
+                  </div>}
+                  <span style={{fontSize:18,color:"var(--muted)",transform:isOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+                </div>
+              </div>
+
+              {/* Detalle expandible */}
+              {isOpen&&(
+                <div style={{borderTop:"1px solid rgba(245,158,11,.2)",padding:"16px"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:16}}>
+                    {/* Tabla de costos por bebida */}
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginBottom:10}}>Análisis de costos por vaso</div>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{background:"#fffbf0"}}>
+                            <th style={{padding:"7px 10px",textAlign:"left",borderBottom:"1px solid rgba(245,158,11,.2)",color:"var(--muted)",fontSize:10,textTransform:"uppercase"}}>Bebida</th>
+                            <th style={{padding:"7px 10px",textAlign:"right",borderBottom:"1px solid rgba(245,158,11,.2)",color:"var(--muted)",fontSize:10}}>Costo</th>
+                            <th style={{padding:"7px 10px",textAlign:"right",borderBottom:"1px solid rgba(245,158,11,.2)",color:"var(--accent)",fontSize:10}}>Precio sug.</th>
+                            <th style={{padding:"7px 10px",textAlign:"right",borderBottom:"1px solid rgba(245,158,11,.2)",color:"var(--green)",fontSize:10}}>Ganancia</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {BEBIDAS_CAFETERA.map(b=>{
+                            const rec=caf.recetas||EF.recetas;
+                            const costo=calcCostoVaso(caf,rec,b.id);
+                            const precio=precioSugerido(costo,caf.margenGanancia);
+                            const ganancia=precio-costo;
+                            return(
+                              <tr key={b.id} style={{borderBottom:"1px solid rgba(245,158,11,.08)"}}>
+                                <td style={{padding:"8px 10px"}}><span style={{fontSize:16}}>{b.emoji}</span> {b.nombre}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",color:"var(--muted)"}}>{fmtS(costo)}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:"var(--accent)",fontSize:14}}>{fmtS(precio)}</td>
+                                <td style={{padding:"8px 10px",textAlign:"right",color:"var(--green)",fontWeight:700}}>{fmtS(ganancia)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <div style={{marginTop:8,padding:"7px 10px",background:"#fffbf0",borderRadius:7,fontSize:11,color:"var(--muted)"}}>
+                        Margen configurado: <strong style={{color:"var(--accent)"}}>{caf.margenGanancia||50}%</strong>
+                      </div>
+                    </div>
+
+                    {/* Desglose de insumos */}
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginBottom:10}}>Insumos base</div>
+                      {[
+                        ["☕ Café",`S/ ${caf.costoCafeKg||0}/kg`],
+                        ["🥛 Leche",`S/ ${caf.costoLecheLt||0}/lt`],
+                        ["🍫 Chocolate",`S/ ${caf.costoChocolateKg||0}/kg`],
+                        ["🍬 Azúcar",`S/ ${caf.costoAzucarKg||0}/kg`],
+                        ["💧 Agua",`S/ ${caf.costoAgua1000ml||0}/lt`],
+                        ["🥤 Vaso",`S/ ${caf.costoVaso||0} c/u`],
+                        caf.costoTapa>0&&["🎋 Tapa/sorbete",`S/ ${caf.costoTapa||0} c/u`],
+                        caf.costoExtra1>0&&[`✨ ${caf.costoExtra1Nombre||"Extra 1"}`,`S/ ${caf.costoExtra1||0}/vaso`],
+                        caf.costoExtra2>0&&[`✨ ${caf.costoExtra2Nombre||"Extra 2"}`,`S/ ${caf.costoExtra2||0}/vaso`],
+                      ].filter(Boolean).map(([l,v],i)=>(
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid rgba(245,158,11,.08)",fontSize:12}}>
+                          <span>{l}</span><span style={{fontWeight:600,color:"var(--text)"}}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Recetas */}
+                  <div style={{marginTop:16}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginBottom:10}}>Recetas (ingredientes por vaso)</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
+                      {BEBIDAS_CAFETERA.map(b=>{
+                        const rec=(caf.recetas||EF.recetas)[b.id]||{};
+                        const items=[
+                          rec.cafe_gr>0&&`☕ ${rec.cafe_gr}gr café`,
+                          rec.leche_ml>0&&`🥛 ${rec.leche_ml}ml leche`,
+                          rec.chocolate_gr>0&&`🍫 ${rec.chocolate_gr}gr choc.`,
+                          rec.azucar_gr>0&&`🍬 ${rec.azucar_gr}gr azúcar`,
+                          rec.agua_ml>0&&`💧 ${rec.agua_ml}ml agua`,
+                        ].filter(Boolean);
+                        return(
+                          <div key={b.id} style={{background:"#fffbf0",border:"1px solid rgba(245,158,11,.2)",borderRadius:9,padding:"10px 12px"}}>
+                            <div style={{fontSize:18,marginBottom:4}}>{b.emoji} <strong>{b.nombre}</strong></div>
+                            {items.map((item,i)=><div key={i} style={{fontSize:11,color:"var(--muted)",marginBottom:2}}>{item}</div>)}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })
+      }
+
+      {/* Modal crear/editar */}
+      {modal&&<div className="modal-overlay"><div style={{background:"#fff",border:"1px solid rgba(245,158,11,.3)",borderRadius:16,padding:"24px 22px",width:"92%",maxWidth:680,maxHeight:"94vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(245,158,11,.15)"}}>
+        <ModalHeader titulo={editando?"Editar cafetera":"Nueva cafetera"} subtitulo={editando?editando.nombre:null} onClose={()=>{setModal(false);setEditando(null);}}/>
+
+        {/* Info básica */}
+        <div className="form-row">
+          <div className="form-group"><label>Nombre de la cafetera</label>
+            <input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Cafetera principal, Cafetera Mall Plaza..."/>
+          </div>
+          <div className="form-group"><label>Ubicación (opcional)</label>
+            <input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: Mall Plaza, Clínica San Pablo..."/>
+          </div>
+        </div>
+
+        {/* Costos de insumos */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginBottom:10}}>💰 Costos de insumos</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+            {[
+              ["costoCafeKg","☕ Café (S/ por kg)","Ej: 35"],
+              ["costoLecheLt","🥛 Leche (S/ por litro)","Ej: 4.5"],
+              ["costoChocolateKg","🍫 Chocolate (S/ por kg)","Ej: 18"],
+              ["costoAzucarKg","🍬 Azúcar (S/ por kg)","Ej: 3"],
+              ["costoAgua1000ml","💧 Agua (S/ por litro)","Ej: 0.5"],
+              ["costoVaso","🥤 Vaso desechable (S/ c/u)","Ej: 0.15"],
+              ["costoTapa","🎋 Tapa / sorbete (S/ c/u)","Ej: 0.05"],
+            ].map(([key,label,ph])=>(
+              <div key={key} style={{background:"#fffbf0",borderRadius:9,padding:"10px 12px",border:"1px solid rgba(245,158,11,.2)"}}>
+                <div style={{fontSize:11,fontWeight:600,marginBottom:6,color:"var(--text)"}}>{label}</div>
+                <input type="number" step="0.01" min="0" value={form[key]||""} onChange={e=>setForm({...form,[key]:e.target.value})}
+                  placeholder={ph}
+                  style={{width:"100%",padding:"6px 8px",background:"#fff",border:"1px solid rgba(245,158,11,.3)",borderRadius:6,color:"var(--text)",fontSize:14,fontWeight:700,outline:"none"}}/>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Extras */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginBottom:10}}>✨ Insumos extra (opcional)</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            {[1,2].map(n=>(
+              <div key={n} style={{background:"#fffbf0",borderRadius:9,padding:"10px 12px",border:"1px solid rgba(245,158,11,.15)"}}>
+                <input value={form[`costoExtra${n}Nombre`]||""} onChange={e=>setForm({...form,[`costoExtra${n}Nombre`]:e.target.value})}
+                  placeholder={`Nombre extra ${n} (ej: Canela, Crema...)`}
+                  style={{width:"100%",padding:"5px 8px",background:"#fff",border:"1px solid rgba(245,158,11,.2)",borderRadius:6,color:"var(--text)",fontSize:12,outline:"none",marginBottom:6}}/>
+                <input type="number" step="0.01" min="0" value={form[`costoExtra${n}`]||""} onChange={e=>setForm({...form,[`costoExtra${n}`]:e.target.value})}
+                  placeholder="S/ por vaso"
+                  style={{width:"100%",padding:"5px 8px",background:"#fff",border:"1px solid rgba(245,158,11,.2)",borderRadius:6,color:"var(--accent)",fontSize:13,fontWeight:700,outline:"none"}}/>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recetas por bebida */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginBottom:10}}>📋 Recetas — ingredientes por vaso</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+            {BEBIDAS_CAFETERA.map(b=>(
+              <div key={b.id} style={{background:"#fffbf0",borderRadius:11,padding:"12px",border:"1px solid rgba(245,158,11,.25)"}}>
+                <div style={{fontSize:15,fontWeight:800,marginBottom:10}}>{b.emoji} {b.nombre}</div>
+                {[
+                  ["cafe_gr","☕ Café (gr)","7"],
+                  ["leche_ml","🥛 Leche (ml)","0"],
+                  ["chocolate_gr","🍫 Chocolate (gr)","0"],
+                  ["azucar_gr","🍬 Azúcar (gr)","5"],
+                  ["agua_ml","💧 Agua (ml)","150"],
+                ].map(([k,l,ph])=>(
+                  <div key={k} style={{marginBottom:7}}>
+                    <div style={{fontSize:9,color:"var(--muted)",marginBottom:2}}>{l}</div>
+                    <input type="number" min="0" value={receta[b.id]?.[k]||""} onChange={e=>setR(b.id,k,e.target.value)}
+                      placeholder={ph}
+                      style={{width:"100%",padding:"5px 7px",background:"#fff",border:"1px solid rgba(245,158,11,.2)",borderRadius:6,fontSize:13,fontWeight:600,outline:"none",color:"var(--text)"}}/>
+                  </div>
+                ))}
+                {/* Preview costo en tiempo real */}
+                {(()=>{
+                  const costo=calcCostoVaso(form,receta,b.id);
+                  const precio=precioSugerido(costo,form.margenGanancia||50);
+                  return costo>0&&(
+                    <div style={{marginTop:8,padding:"6px 8px",background:"rgba(245,158,11,.1)",borderRadius:7,textAlign:"center"}}>
+                      <div style={{fontSize:9,color:"var(--muted)"}}>Costo: S/ {costo.toFixed(2)}</div>
+                      <div style={{fontSize:14,fontWeight:800,color:"var(--accent)"}}>Venta: S/ {precio.toFixed(2)}</div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Margen */}
+        <div className="form-group">
+          <label>Margen de ganancia deseado (%)</label>
+          <input type="number" min="0" max="500" value={form.margenGanancia||50} onChange={e=>setForm({...form,margenGanancia:+e.target.value})}
+            placeholder="50"/>
+        </div>
+
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave} disabled={!form.nombre}>{editando?"Guardar cambios":"Crear cafetera"}</button>
+        </div>
+      </div></div>}
+
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar la cafetera "${confirmDel.nombre}"?`} onConfirm={()=>{del("cafeteras",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
   {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"cierreDia",label:"Cierre del día",icon:"bolt"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
   {id:"horario",label:"Horario semanal",icon:"calendar"},{id:"gastos",label:"Gastos adicionales",icon:"bolt"},
-  {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
+  {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},{id:"adminListasPrecios",label:"Listas de precios",icon:"pricelist"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"stock",label:"Stock almacén",icon:"stock"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
   {id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
+  {section:"Cafeteras"},{id:"cafeteras",label:"Control cafeteras",icon:"coffee"},
   {section:"Análisis"},{id:"reportes",label:"Reportes",icon:"trophy"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
-  {section:"Administración"},{id:"personal",label:"Personal",icon:"personal"},
+  {section:"Administración"},{id:"personal",label:"Personal",icon:"personal"},{id:"gestionUsuarios",label:"Gestión de usuarios",icon:"users"},
 ];
 const ABASTECEDOR_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
@@ -3317,7 +4225,7 @@ const ABASTECEDOR_NAV=[
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
   {section:"Análisis"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
-  {section:"Consultas"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"precios",label:"Lista de precios",icon:"tag"},{id:"preciosEco",label:"Precios económicos",icon:"pricetag"},{id:"stock",label:"Stock almacén",icon:"stock"},
+  {section:"Consultas"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"listaPreciosCampo",label:"Lista de precios",icon:"pricelist"},{id:"stock",label:"Stock almacén",icon:"stock"},
 ];
 const ALMACENERO_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
@@ -3331,9 +4239,9 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
-const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭"};
+const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
 
 // ─── APP ──────────────────────────────────────────────────────────────────────────
@@ -3344,21 +4252,53 @@ export default function App(){
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const cerrar=()=>setSidebarOpen(false);
   const navegar=(id)=>{setTab(id);cerrar();};
+  const [sesionUsuario,setSesionUsuario]=useState(null);
   if(!data)return(<><style>{css}</style><div className="loading"><div className="spinner"><Icon name="spin" size={42}/></div><p>Conectando con la base de datos...</p></div></>);
-  if(!usuario)return(<><style>{css}</style><LoginScreen onLogin={role=>{setUsuario(role);setTab(role==="admin"?"dashboard":role==="almacenero"?"stock":"mihorario");}}/></>);
+  // Link de registro ?registro=TOKEN
+  const urlParams=new URLSearchParams(window.location.search);
+  const regToken=urlParams.get("registro");
+  if(regToken){
+    const uReg=(data.usuarios||[]).find(u=>u.token===regToken&&!u.password);
+    if(uReg)return(<><style>{css}</style><RegistroScreen usuario={uReg} onRegistrado={async(pass)=>{await save("usuarios",uReg.id,{...uReg,password:pass,token:null});}}/></>);
+    return(<><style>{css}</style><div className="login-screen"><div className="login-card"><div style={{textAlign:"center",padding:20}}><div style={{fontSize:40,marginBottom:12}}>⚠️</div><p style={{color:"#64748b"}}>Link inválido o ya usado.</p></div></div></div></>);
+  }
+  if(!usuario)return(<><style>{css}</style><LoginScreen usuarios={data?.usuarios||[]} onLogin={(info)=>{
+    const rol=info.usuario.rol;
+    setUsuario(rol);setSesionUsuario(info.usuario);
+    setTab(rol==="admin"?"dashboard":rol==="almacenero"?"stock":"mihorario");
+  }}/></>);
   const esAdmin=usuario==="admin";
   const esAbastecedor=usuario==="abastecedor";
   const esAlmacenero=usuario==="almacenero";
   const nav=esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV;
-  const nombreUsuario=ROL_NOMBRE[usuario]||usuario;
+  const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
+  const rolUsuario=sesionUsuario?.rol||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
+  // Máquinas asignadas al usuario hoy (para filtrar módulos)
+  const maqsAsignadasHoy=(()=>{
+    if(!sesionUsuario)return null; // null = sin filtro (admin/almacenero)
+    const de=["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
+    const da=de[new Date().getDay()];
+    const h=data.horario||{};
+    const asig=h[da]?.asignaciones?.[sesionUsuario.id];
+    if(asig?.maquinas?.length>0)return asig.maquinas;
+    // fallback estructura vieja
+    const old_maqs=h[da]?.maquinas||[];
+    const old_coms=h[da]?.comentarios||{};
+    return old_maqs.filter(mid=>{const uid2=old_coms[mid+"-usuario"];return !uid2||uid2===sesionUsuario.id;});
+  })();
+
   const RC=()=>{switch(tab){
     case "dashboard":    return <Dashboard data={data}/>;
     case "cierreDia":    return <CierreDia data={data}/>;
     case "personal":     return <Personal data={data} save={save} del={del}/>;
+    case "gestionUsuarios": return <GestionUsuarios data={data} save={save} del={del}/>;
+    case "adminListasPrecios": return <AdminListasPrecios data={data} save={save} del={del}/>;
+    case "cafeteras":    return <Cafeteras data={data} save={save} del={del} esAdmin={esAdmin}/>;
+    case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "rentabilidad": return <Rentabilidad data={data}/>;
     case "horario":      return <HorarioAdmin data={data} save={save}/>;
-    case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor||esAdmin}/>;
+    case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor||esAdmin} sesionUsuario={sesionUsuario}/>;
     case "gastos":       return <GastosAdicionales data={data} save={save} del={del}/>;
     case "productos":    return <Productos data={data} save={save} del={del} soloEditar={esAlmacenero}/>;
     case "precios":      return <ListaPrecios data={data}/>;
@@ -3367,13 +4307,13 @@ export default function App(){
     case "stock":        return <Stock data={data} save={save} del={del} soloLectura={esAbastecedor} esAdmin={esAdmin}/>;
     case "traslados":    return <Traslados data={data} save={save} saveMulti={saveMulti} del={del} usuario={nombreUsuario} esAdmin={esAdmin} soloLectura={esAlmacenero}/>;
     case "ventas":       return <Ventas data={data} save={save} del={del} esAdmin={esAdmin} soloLectura={esAbastecedor}/>;
-    case "cobranzas":    return <Cobranzas data={data} save={save} del={del} usuario={nombreUsuario} esAdmin={esAdmin}/>;
+    case "cobranzas":    return <Cobranzas data={data} save={save} del={del} usuario={nombreUsuario} esAdmin={esAdmin} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
     case "preciosEco":   return <ListaPreciosEco data={data}/>;
-    case "devoluciones": return <Devoluciones data={data} save={save} del={del} soloLectura={esAlmacenero} esAdmin={esAdmin} puedeEditar={esAdmin||esAbastecedor}/>;
-    case "stockMaquina":  return <StockMaquina data={data} save={save} del={del} soloLectura={false}/>;
-    case "sencillo":      return <ControlSencillo data={data} save={save} del={del} esAdmin={esAdmin}/>;
+    case "devoluciones": return <Devoluciones data={data} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario} save={save} del={del} soloLectura={esAlmacenero} esAdmin={esAdmin} puedeEditar={esAdmin||esAbastecedor}/>;
+    case "stockMaquina":  return <StockMaquina data={data} save={save} del={del} soloLectura={false} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
+    case "sencillo":      return <ControlSencillo data={data} save={save} del={del} esAdmin={esAdmin} sesionUsuario={sesionUsuario}/>;
     case "tickets":      return <Tickets data={data} save={save} del={del} esAdmin={esAdmin}/>;
-    case "prekit":       return <PreKit data={data}/>;
+    case "prekit":       return <PreKit data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "reportes":     return <Reportes data={data}/>;
     case "sugerencias":  return <Sugerencias data={data} save={save} del={del} soloLectura={esAlmacenero}/>;
     default: return null;
@@ -3387,14 +4327,14 @@ export default function App(){
           <Logo/>
           <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4,display:"flex"}} onClick={cerrar}><Icon name="close" size={18}/></button>
         </div>
-        <div className="sidebar-role">{ROL_ICONO[usuario]} <span>{nombreUsuario}</span></div>
+        <div className="sidebar-role">{ROL_ICONO[rolUsuario]||ROL_ICONO[usuario]} <span style={{display:"flex",flexDirection:"column",gap:1}}><strong style={{color:"#e2e8f0",fontSize:12}}>{nombreUsuario}</strong><span style={{color:"#64748b",fontSize:10,textTransform:"capitalize"}}>{rolUsuario}</span></span></div>
         <nav className="nav">
           {nav.map((item,i)=>item.section
             ?<div key={i} className="nav-section">{item.section}</div>
             :<div key={item.id} className={`nav-item ${tab===item.id?"active":""}`} onClick={()=>navegar(item.id)}><Icon name={item.icon} size={15}/>{item.label}</div>
           )}
         </nav>
-        <div className="logout-btn" onClick={()=>setUsuario(null)}><Icon name="logout" size={15}/> Cerrar sesión</div>
+        <div className="logout-btn" onClick={()=>{setUsuario(null);setSesionUsuario(null);}}><Icon name="logout" size={15}/> Cerrar sesión</div>
       </aside>
       <main className="main">
         <div className="topbar">
