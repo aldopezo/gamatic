@@ -1,43 +1,16 @@
-import { useState, useEffect } from "react";
-import { db } from "./firebase";
-import { ref, onValue, set, push, remove } from "firebase/database";
+import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const SUPABASE_URL = "https://nhtnwwhclseiaaobroro.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5odG53d2hjbHNlaWFhb2Jyb3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMTc4MzQsImV4cCI6MjA5NjY5MzgzNH0.0VidMtsSnpibPZ0WLgORmDIYxVTTtBYh74joIUUtga8";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const CLAVES = { admin:"123", abastecedor:"", almacenero:"" }; // legacy, no usado
 
-const SEED={
-  productos:{
-    p1:{id:"p1",nombre:"Coca Cola 500ml",costo:2.5,margen:40,precioVenta:3.50,precioEco:2.80,proveedor:"Coca-Cola SAC",fecha:"2026-01-01"},
-    p2:{id:"p2",nombre:"Agua San Luis 600ml",costo:1.2,margen:50,precioVenta:1.80,precioEco:1.50,proveedor:"Backus",fecha:"2026-01-01"},
-    p3:{id:"p3",nombre:"Snickers",costo:1.8,margen:45,precioVenta:2.60,precioEco:2.20,proveedor:"Mars Inc.",fecha:"2026-01-01"},
-  },
-  proveedores:{
-    v1:{id:"v1",nombre:"Coca-Cola SAC",contacto:"Juan Pérez",telefono:"999-111-222"},
-    v2:{id:"v2",nombre:"Backus",contacto:"Ana López",telefono:"999-333-444"},
-    v3:{id:"v3",nombre:"Mars Inc.",contacto:"Carlos Ruiz",telefono:"999-555-666"},
-  },
-  maquinas:{
-    m1:{id:"m1",nombre:"Máquina A1",ubicacion:"Mall del Sur - Piso 1",alquiler:450,activa:true},
-    m2:{id:"m2",nombre:"Máquina B2",ubicacion:"Real Plaza - Entrada",alquiler:380,activa:true},
-    m3:{id:"m3",nombre:"Máquina C3",ubicacion:"Aeropuerto - Sala de espera",alquiler:620,activa:true},
-  },
-  stock:{
-    s1:{id:"s1",productoId:"p1",cantidad:48,minimo:10},
-    s2:{id:"s2",productoId:"p2",cantidad:60,minimo:15},
-    s3:{id:"s3",productoId:"p3",cantidad:35,minimo:8},
-  },
-  traslados:{},ventas:{},cobranzas:{},gastos:{},sugerencias:{},devoluciones:{},stockMaquina:{},sencillo:{},tickets:{},productosEco:{},personal:{},usuarios:{
-    u_admin:{id:"u_admin",nombre:"Administrador",dni:"00000000",rol:"admin",activo:true,token:null,password:"gamatic2024",creadoEn:"2026-01-01"},
-    u_almacenero:{id:"u_almacenero",nombre:"Almacenero",dni:"00000001",rol:"almacenero",activo:true,token:null,password:"almacen",creadoEn:"2026-01-01"},
-  },
-  listasPrecios:{},
-  cafeteras:{},
-  ventasCafeteras:{},
-  horario:{lunes:{maquinas:[]},martes:{maquinas:[]},miercoles:{maquinas:[]},jueves:{maquinas:[]},viernes:{maquinas:[]},sabado:{maquinas:[]},domingo:{maquinas:[]}},
-};
 
 const fmt=(n)=>`S/ ${Number(n||0).toFixed(2)}`;
 const today=()=>new Date().toISOString().split("T")[0];
-const objToArr=(o)=>o?Object.values(o):[];
+const objToArr=(o)=>Array.isArray(o)?o:(o?Object.values(o):[]);
 const uid=()=>push(ref(db,"_tmp")).key;
 const mesActual=()=>new Date().toISOString().slice(0,7);
 const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -273,90 +246,179 @@ const CloseBtn=({onClick})=>(
     onMouseEnter={e=>e.currentTarget.style.color="var(--text)"} onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}>✕</button>
 );
 
+// Mapeo de colecciones Firebase → tablas Supabase
+const TABLE_MAP={
+  productos:'productos',
+  proveedores:'proveedores',
+  maquinas:'maquinas',
+  stock:'stock',
+  traslados:'traslados',
+  ventas:'ventas',
+  cobranzas:'cobranzas',
+  gastos:'gastos',
+  sugerencias:'sugerencias',
+  devoluciones:'devoluciones',
+  stockMaquina:'stock_maquina',
+  sencillo:'sencillo',
+  tickets:'tickets',
+  productosEco:'productos_eco',
+  personal:'personal',
+  usuarios:'usuarios',
+  listasPrecios:'listas_precios',
+  cafeteras:'cafeteras',
+  ventasCafeteras:'ventas_cafeteras',
+  horario:'horario',
+};
+
+// Convertir snake_case de Supabase → camelCase para el frontend
+const toCamel=(obj)=>{
+  if(!obj||typeof obj!=='object')return obj;
+  if(Array.isArray(obj))return obj.map(toCamel);
+  const out={};
+  for(const k in obj){
+    const cam=k.replace(/_([a-z])/g,(_,l)=>l.toUpperCase());
+    out[cam]=toCamel(obj[k]);
+  }
+  return out;
+};
+
+// Convertir camelCase → snake_case para guardar en Supabase
+const toSnake=(obj)=>{
+  if(!obj||typeof obj!=='object')return obj;
+  if(Array.isArray(obj))return obj.map(toSnake);
+  const out={};
+  for(const k in obj){
+    const sn=k.replace(/[A-Z]/g,l=>'_'+l.toLowerCase());
+    const v=obj[k];
+    // JSONB fields → keep as-is (already objects)
+    out[sn]=v;
+  }
+  return out;
+};
+
 function useFirebase(){
   const [data,setData]=useState(null);
   const [syncCount,setSyncCount]=useState(0);
   const syncing=syncCount>0;
   const incSync=()=>setSyncCount(n=>n+1);
   const decSync=()=>setSyncCount(n=>Math.max(0,n-1));
-  useEffect(()=>{
-    return onValue(ref(db,"gamatic"),(snap)=>{
-      const val=snap.val();
-      if(!val){set(ref(db,"gamatic"),SEED);return;}
-      setData({
-        productos:objToArr(val.productos),proveedores:objToArr(val.proveedores),
-        maquinas:objToArr(val.maquinas),stock:objToArr(val.stock),
-        traslados:objToArr(val.traslados),ventas:objToArr(val.ventas),
-        cobranzas:objToArr(val.cobranzas),gastos:objToArr(val.gastos||{}),
-        sugerencias:objToArr(val.sugerencias||{}),devoluciones:objToArr(val.devoluciones||{}),stockMaquina:objToArr(val.stockMaquina||{}),sencillo:objToArr(val.sencillo||{}),tickets:objToArr(val.tickets||{}),
-        productosEco:objToArr(val.productosEco||{}),personal:objToArr(val.personal||{}),usuarios:objToArr(val.usuarios||{}),listasPrecios:objToArr(val.listasPrecios||{}),cafeteras:objToArr(val.cafeteras||{}),ventasCafeteras:objToArr(val.ventasCafeteras||{}),
-        horario:val.horario||SEED.horario,
+
+  const loadAll=useCallback(async()=>{
+    try{
+      const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
+        'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
+        'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
+        'ventas_cafeteras'];
+      const results=await Promise.all(tables.map(t=>supabase.from(t).select('*')));
+      // Horario es especial — clave primaria es "dia"
+      const {data:horarioData}=await supabase.from('horario').select('*');
+      const horarioObj={};
+      (horarioData||[]).forEach(r=>{
+        horarioObj[r.dia]={
+          maquinas:[],
+          asignaciones:r.asignaciones||{},
+          mensajeGeneral:r.mensaje_general||'',
+          comentarios:{},
+        };
       });
-    });
+
+      const [productos,proveedores,maquinas,stock,traslados,ventas,
+        cobranzas,gastos,sugerencias,devoluciones,stockMaquina,sencillo,
+        tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
+        ventasCafeteras]=results.map(r=>toCamel(r.data||[]));
+
+      setData({
+        productos,proveedores,maquinas,stock,traslados,ventas,
+        cobranzas,gastos,sugerencias,devoluciones,
+        stockMaquina,sencillo,tickets,productosEco,personal,
+        usuarios,listasPrecios,cafeteras,ventasCafeteras,
+        horario:horarioObj,
+      });
+    }catch(err){
+      console.error('Error cargando datos:',err);
+    }
   },[]);
-  const save=async(path,id,val)=>{incSync();try{await set(ref(db,`gamatic/${path}/${id}`),val);}finally{decSync();}};
-  const saveMulti=async(ops)=>{incSync();try{for(const[p,i,v]of ops)await set(ref(db,`gamatic/${p}/${i}`),v);}finally{decSync();}};
-  const del=async(path,id)=>{incSync();try{await remove(ref(db,`gamatic/${path}/${id}`));}finally{decSync();}};
+
+  useEffect(()=>{
+    loadAll();
+    // Polling cada 15 segundos para mantener datos frescos (multi-usuario)
+    const interval=setInterval(loadAll,15000);
+    return()=>clearInterval(interval);
+  },[loadAll]);
+
+  const save=async(collection,id,val)=>{
+    incSync();
+    try{
+      const table=TABLE_MAP[collection];
+      if(!table){console.error('Tabla no encontrada:',collection);return;}
+
+      if(collection==='horario'){
+        // Horario usa "dia" como PK
+        const dia=id;
+        const row={
+          dia,
+          asignaciones:val.asignaciones||{},
+          mensaje_general:val.mensajeGeneral||val.mensaje_general||'',
+        };
+        await supabase.from('horario').upsert(row,{onConflict:'dia'});
+      }else{
+        const row=toSnake({...val,id});
+        await supabase.from(table).upsert(row,{onConflict:'id'});
+      }
+      await loadAll();
+    }catch(err){
+      console.error('Error guardando:',err);
+    }finally{
+      decSync();
+    }
+  };
+
+  const saveMulti=async(ops)=>{
+    incSync();
+    try{
+      for(const[col,id,val]of ops){
+        const table=TABLE_MAP[col];
+        if(!table)continue;
+        const row=toSnake({...val,id});
+        await supabase.from(table).upsert(row,{onConflict:'id'});
+      }
+      await loadAll();
+    }catch(err){
+      console.error('Error en saveMulti:',err);
+    }finally{
+      decSync();
+    }
+  };
+
+  const del=async(collection,id)=>{
+    incSync();
+    try{
+      const table=TABLE_MAP[collection];
+      if(!table)return;
+      await supabase.from(table).delete().eq('id',id);
+      await loadAll();
+    }catch(err){
+      console.error('Error eliminando:',err);
+    }finally{
+      decSync();
+    }
+  };
+
   return{data,save,saveMulti,del,syncing};
 }
 
-function MesNav({mes,setMes}){
-  const go=(d)=>{const[y,m]=mes.split("-").map(Number);const nd=new Date(y,m-1+d);setMes(`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,"0")}`);};
-  const ea=mes===mesActual();
-  return(
-    <div className="mes-nav">
-      <button onClick={()=>go(-1)}><Icon name="chevL" size={15}/></button>
-      <span>{nombreMes(mes)}</span>
-      <button onClick={()=>go(1)} disabled={ea} style={{opacity:ea?.3:1}}><Icon name="chevR" size={15}/></button>
-    </div>
-  );
-}
 
-function ConfirmDelete({texto,onConfirm,onCancel}){
-  return(
-    <div className="modal-overlay">
-      <div className="modal" style={{maxWidth:360}}>
-        <div className="confirm-modal">
-          <div style={{fontSize:36,marginBottom:12}}>🗑️</div>
-          <h3 style={{marginBottom:8,color:"var(--red)"}}>Eliminar</h3>
-          <p style={{fontSize:13,color:"var(--muted)",marginBottom:20}}>{texto}</p>
-          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
-            <button className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
-            <button className="btn btn-danger" onClick={onConfirm}>Sí, eliminar</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── SEARCH BAR ──────────────────────────────────────────────────────────────────
-function SearchBar({value,onChange,placeholder="Buscar...",total=null,filtrado=null}){
-  return(
-    <div style={{display:"flex",alignItems:"center",gap:8,background:"#ffffff",border:`1px solid ${value?"var(--accent)":"rgba(245,158,11,.25)"}`,borderRadius:9,padding:"8px 13px",marginBottom:14,transition:"border-color .15s"}}>
-      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={value?"var(--accent)":"var(--muted)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input
-        value={value} onChange={e=>onChange(e.target.value)}
-        placeholder={placeholder}
-        style={{background:"none",border:"none",outline:"none",color:"var(--text)",fontSize:13,width:"100%",fontFamily:"'DM Sans',sans-serif"}}
-      />
-      {value&&filtrado!==null&&total!==null&&(
-        <span style={{fontSize:11,color:"var(--accent)",fontWeight:600,whiteSpace:"nowrap"}}>{filtrado}/{total}</span>
-      )}
-      {value&&<button onClick={()=>onChange("")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:16,padding:0,lineHeight:1,flexShrink:0}}>✕</button>}
-    </div>
-  );
-}
-
-
-
-// ─── LOGIN ──────────────────────────────────────────────────────────────────────
 function LoginScreen({onLogin,usuarios=[]}){
   const [dni,setDni]=useState("");
   const [pass,setPass]=useState("");
   const [error,setError]=useState("");
   const intentar=()=>{
     if(!dni.trim()||!pass.trim()){setError("Ingresa tu DNI y contraseña");return;}
+    // Clave maestra de emergencia para primer acceso
+    if(dni.trim()==="admin"&&pass==="gamatic2024"){
+      setError("");onLogin({tipo:"usuario",role:"admin",usuario:{id:"u_admin",nombre:"Administrador",dni:"admin",rol:"admin",activo:true}});
+      return;
+    }
     const u=usuarios.find(u=>u.dni===dni.trim()&&u.password===pass&&u.activo!==false);
     if(!u){setError("DNI o contraseña incorrectos");return;}
     setError("");onLogin({tipo:"usuario",role:u.rol,usuario:u});
