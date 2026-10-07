@@ -241,6 +241,46 @@ function ModalHeader({titulo,onClose,subtitulo=null,dirty=false}){
   );
 }
 
+// ─── COMPONENTES GLOBALES ─────────────────────────────────────────────────────
+function MesNav({mes,setMes}){
+  const prev=()=>{const[y,m]=mes.split('-').map(Number);const d=new Date(y,m-2);setMes(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);};
+  const next=()=>{const[y,m]=mes.split('-').map(Number);const d=new Date(y,m);setMes(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);};
+  return(
+    <div className="mes-nav">
+      <button onClick={prev} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",fontSize:18,padding:"0 4px"}}>‹</button>
+      <span style={{flex:1,textAlign:"center",fontWeight:700,fontSize:14,color:"var(--text)"}}>{nombreMes(mes)}</span>
+      <button onClick={next} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",fontSize:18,padding:"0 4px"}}>›</button>
+    </div>
+  );
+}
+
+function SearchBar({value,onChange,placeholder="Buscar...",total=null,filtrado=null}){
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:8,background:"#ffffff",border:`1px solid ${value?"var(--accent)":"rgba(245,158,11,.25)"}`,borderRadius:9,padding:"8px 13px",marginBottom:14,transition:"border-color .15s"}}>
+      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={value?"var(--accent)":"var(--muted)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+        style={{background:"none",border:"none",outline:"none",color:"var(--text)",fontSize:13,width:"100%",fontFamily:"'DM Sans',sans-serif"}}/>
+      {value&&filtrado!==null&&total!==null&&(
+        <span style={{fontSize:11,color:"var(--accent)",fontWeight:600,whiteSpace:"nowrap"}}>{filtrado}/{total}</span>
+      )}
+      {value&&<button onClick={()=>onChange("")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:16,padding:0,lineHeight:1,flexShrink:0}}>✕</button>}
+    </div>
+  );
+}
+
+function ConfirmDelete({texto,onConfirm,onCancel}){
+  return(
+    <div className="modal-overlay"><div className="modal" style={{maxWidth:380,textAlign:"center"}}>
+      <div style={{fontSize:40,marginBottom:12}}>⚠️</div>
+      <p style={{fontSize:14,color:"var(--text)",marginBottom:20}}>{texto}</p>
+      <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+        <button className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
+        <button className="btn btn-danger" onClick={onConfirm}>Eliminar</button>
+      </div>
+    </div></div>
+  );
+}
+
 const CloseBtn=({onClick})=>(
   <button onClick={onClick} style={{background:"none",border:"none",cursor:"pointer",color:"var(--muted)",padding:"2px 6px",borderRadius:6,fontSize:22,lineHeight:1,display:"flex",alignItems:"center",flexShrink:0}}
     onMouseEnter={e=>e.currentTarget.style.color="var(--text)"} onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}>✕</button>
