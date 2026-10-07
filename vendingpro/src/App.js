@@ -4660,6 +4660,20 @@ export default function App(){
   const cerrar=()=>setSidebarOpen(false);
   const navegar=(id)=>{setTab(id);cerrar();};
   const [sesionUsuario,setSesionUsuario]=useState(null);
+
+  // Máquinas asignadas hoy — calculado siempre (antes de cualquier return)
+  const maqsAsignadasHoy=(()=>{
+    if(!sesionUsuario||!data)return null;
+    const de=["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
+    const da=de[new Date().getDay()];
+    const h=data.horario||{};
+    const asig=h[da]?.asignaciones?.[sesionUsuario.id];
+    if(asig?.maquinas?.length>0)return asig.maquinas;
+    const old_maqs=h[da]?.maquinas||[];
+    const old_coms=h[da]?.comentarios||{};
+    return old_maqs.filter(mid=>{const uid2=old_coms[mid+"-usuario"];return !uid2||uid2===sesionUsuario.id;});
+  })();
+
   if(!data)return(<><style>{css}</style><div className="loading"><div className="spinner"><Icon name="spin" size={42}/></div><p>Conectando con la base de datos...</p></div></>);
   // Link de registro ?registro=TOKEN
   const urlParams=new URLSearchParams(window.location.search);
@@ -4681,20 +4695,6 @@ export default function App(){
   const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
   const rolUsuario=sesionUsuario?.rol||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
-  // Máquinas asignadas al usuario hoy (para filtrar módulos)
-  const maqsAsignadasHoy=(()=>{
-    if(!sesionUsuario)return null; // null = sin filtro (admin/almacenero)
-    const de=["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
-    const da=de[new Date().getDay()];
-    const h=data.horario||{};
-    const asig=h[da]?.asignaciones?.[sesionUsuario.id];
-    if(asig?.maquinas?.length>0)return asig.maquinas;
-    // fallback estructura vieja
-    const old_maqs=h[da]?.maquinas||[];
-    const old_coms=h[da]?.comentarios||{};
-    return old_maqs.filter(mid=>{const uid2=old_coms[mid+"-usuario"];return !uid2||uid2===sesionUsuario.id;});
-  })();
-
   const RC=()=>{switch(tab){
     case "dashboard":    return <Dashboard data={data}/>;
     case "cierreDia":    return <CierreDia data={data}/>;
