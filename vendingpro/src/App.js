@@ -560,7 +560,7 @@ function Dashboard({data}){
 }
 
 // ─── RENTABILIDAD ────────────────────────────────────────────────────────────────
-function Rentabilidad({data}){
+function Rentabilidad({data,maqsFiltro=null}){
   const [mes,setMes]=useState(mesActual());
   const maqActivas=data.maquinas.filter(m=>m.activa);
   const ventasMes=data.ventas.filter(v=>v.fecha?.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
@@ -4309,7 +4309,7 @@ function Cafeteras({data,save,del,esAdmin=false}){
 // ═══════════════════════════════════════════════════════════════════════════════
 // MÓDULO: VENTAS DE CAFETERAS (Abastecedor registra, Admin visualiza)
 // ═══════════════════════════════════════════════════════════════════════════════
-function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null}){
+function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null,maqsFiltro=null}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
@@ -4702,9 +4702,9 @@ export default function App(){
     case "gestionUsuarios": return <GestionUsuarios data={data} save={save} del={del}/>;
     case "adminListasPrecios": return <AdminListasPrecios data={data} save={save} del={del}/>;
     case "cafeteras":    return <Cafeteras data={data} save={save} del={del} esAdmin={esAdmin}/>;
-    case "ventasCafeteras": return <VentasCafeteras data={data} save={save} del={del} esAdmin={esAdmin} sesionUsuario={sesionUsuario}/>;
+    case "ventasCafeteras": return <VentasCafeteras data={data} save={save} del={del} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
-    case "rentabilidad": return <Rentabilidad data={data}/>;
+    case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "horario":      return <HorarioAdmin data={data} save={save}/>;
     case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor||esAdmin} sesionUsuario={sesionUsuario}/>;
     case "gastos":       return <GastosAdicionales data={data} save={save} del={del}/>;
