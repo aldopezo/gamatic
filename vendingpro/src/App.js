@@ -1713,6 +1713,7 @@ function HorarioAdmin({data,save}){
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const ESTADOS_TICKET=["Abierto","En proceso","Resuelto"];
+const MOTIVOS_DEV=["Producto vencido","Producto dañado","Error de carga","Sobrante","Otro"];
 const COLOR_ESTADO={"Abierto":"red","En proceso":"amber","Resuelto":"green"};
 const TIPOS_FALLA=["Dispensador trabado","Pantalla no funciona","No acepta monedas","No da cambio","Producto atascado","Falla eléctrica","Puerta no cierra","Otro"];
 const MONEDAS=[0.10,0.20,0.50,1.00,2.00,5.00];
