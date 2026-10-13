@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://nhtnwwhclseiaaobroro.supabase.co";
@@ -346,8 +346,8 @@ function useFirebase(){
   const incSync=()=>setSyncCount(n=>n+1);
   const decSync=()=>setSyncCount(n=>Math.max(0,n-1));
 
-  const mountedRef=React.useRef(true);
-  React.useEffect(()=>{return()=>{mountedRef.current=false;};},[]);
+  const mountedRef=useRef(true);
+  useEffect(()=>{return()=>{mountedRef.current=false;};},[]);
 
   const loadAll=useCallback(async()=>{
     try{
