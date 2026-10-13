@@ -52,6 +52,7 @@ const Icon=({name,size=18})=>{
     users:"M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
     pricelist:"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
     coffee:"M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zm4-7v3M12 1v3M8 1v3",
+    camera:"M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2zM12 17a4 4 0 100-8 4 4 0 000 8z",
     wrench:"M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z",
     trophy:"M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
     kit:"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
@@ -307,6 +308,8 @@ const TABLE_MAP={
   listasPrecios:'listas_precios',
   cafeteras:'cafeteras',
   ventasCafeteras:'ventas_cafeteras',
+  planogramas:'planogramas',
+  ventasAtento:'ventas_atento',
   horario:'horario',
 };
 
@@ -343,12 +346,15 @@ function useFirebase(){
   const incSync=()=>setSyncCount(n=>n+1);
   const decSync=()=>setSyncCount(n=>Math.max(0,n-1));
 
+  const mountedRef=React.useRef(true);
+  React.useEffect(()=>{return()=>{mountedRef.current=false;};},[]);
+
   const loadAll=useCallback(async()=>{
     try{
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
-        'ventas_cafeteras'];
+        'ventas_cafeteras','planogramas','ventas_atento'];
       const results=await Promise.all(tables.map(t=>supabase.from(t).select('*')));
       // Horario es especial — clave primaria es "dia"
       const {data:horarioData}=await supabase.from('horario').select('*');
@@ -365,13 +371,13 @@ function useFirebase(){
       const [productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,stockMaquina,sencillo,
         tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
-        ventasCafeteras]=results.map(r=>toCamel(r.data||[]));
+        ventasCafeteras,planogramas,ventasAtento]=results.map(r=>toCamel(r.data||[]));
 
-      setData({
+      if(mountedRef.current)setData({
         productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,
         stockMaquina,sencillo,tickets,productosEco,personal,
-        usuarios,listasPrecios,cafeteras,ventasCafeteras,
+        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,
         horario:horarioObj,
       });
     }catch(err){
@@ -813,11 +819,11 @@ function Proveedores({data,save,del,soloEditar=false}){
 // ─── MÁQUINAS ─────────────────────────────────────────────────────────────────
 function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
-  const EF={nombre:"",ubicacion:"",alquiler:""};const [form,setForm]=useState(EF);
+  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:""};const [form,setForm]=useState(EF);
   const doSave=()=>{
     if(!form.nombre||!form.ubicacion)return;
-    if(editando)save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler});
-    else{const id=uid();save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,activa:true});}
+    if(editando)save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||""});
+    else{const id=uid();save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",activa:true});}
     setModal(false);setForm(EF);setEditando(null);
   };
   const toggleActiva=(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
@@ -831,7 +837,7 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
           <div className="section-header"><h3>Mis máquinas</h3></div>
           <div className="table-wrap"><table>
             <thead><tr><th>Máquina</th><th>Ubicación</th><th>Estado</th></tr></thead>
-            <tbody>{data.maquinas.map(m=>(<tr key={m.id}><td><strong>{m.nombre}</strong></td><td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}</td><td><span className={`badge ${m.activa?"green":"red"}`}>{m.activa?"Activa":"Inactiva"}</span></td></tr>))}</tbody>
+            <tbody>{data.maquinas.map(m=>(<tr key={m.id}><td><strong>{m.nombre}</strong></td><td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}{m.comercioAtento&&<div style={{fontSize:10,color:"var(--accent)",marginTop:2}}>🔗 {m.comercioAtento}</div>}</td><td><span className={`badge ${m.activa?"green":"red"}`}>{m.activa?"Activa":"Inactiva"}</span></td></tr>))}</tbody>
           </table></div>
         </div>
       </div>
@@ -849,7 +855,7 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
             {puedeVerAlquiler&&<td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>}
             <td><div onClick={()=>toggleActiva(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Activa":"Inactiva"}</div></td>
             <td><div style={{display:"flex",gap:5}}>
-              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler)});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||""});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
               {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(m)}><Icon name="trash" size={12}/></button>}
             </div></td>
           </tr>))}</tbody>
@@ -861,6 +867,11 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
         <div className="form-group"><label>Nombre / Código</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Máquina D4"/></div>
         <div className="form-group"><label>Ubicación</label><input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: CC Real Plaza - Piso 2"/></div>
         <div className="form-group"><label>Alquiler mensual (S/)</label><input type="number" step="0.01" value={form.alquiler} onChange={e=>setForm({...form,alquiler:e.target.value})}/></div>
+        <div className="form-group"><label>Número de comercio Atento (opcional)</label>
+          <input value={form.comercioAtento||""} onChange={e=>setForm({...form,comercioAtento:e.target.value})}
+            placeholder="Ej: 651066277 — para importar CSV automáticamente"/>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Encuéntralo en Atento → Monitorización → columna Comercio</div>
+        </div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear"}</button></div>
       </div></div>}
       {confirmDel&&<ConfirmDelete texto={`¿Eliminar la máquina "${confirmDel.nombre}"?`} onConfirm={()=>{del("maquinas",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
@@ -1340,8 +1351,8 @@ function Cobranzas({data,save,del,usuario,esAdmin=false,maqsFiltro=null,sesionUs
   const doSave=()=>{
     if(!form.maquinaId||!form.monto)return;
     const id=uid();
-    save("cobranzas",id,{id,fecha:form.fecha,maquinaId:form.maquinaId,monto:+form.monto,responsable:sesionUsuario?.nombre||usuario,verificado:false,comentarioId:null,sencillo:form.sencillo?+form.montoSencillo||0:0});
     setModal(false);setForm({maquinaId:"",monto:"",fecha:today(),sencillo:false,montoSencillo:""});
+    save("cobranzas",id,{id,fecha:form.fecha,maquinaId:form.maquinaId,monto:+form.monto,responsable:sesionUsuario?.nombre||usuario,verificado:false,comentarioId:null,sencillo:form.sencillo?+form.montoSencillo||0:0});
   };
   const toggleVerificado=(cob)=>save("cobranzas",cob.id,{...cob,verificado:!cob.verificado});
   const abrirEditar=(cob)=>{setFormEdit({fecha:cob.fecha,maquinaId:cob.maquinaId,monto:String(cob.monto)});setEditando(cob);};
@@ -3553,19 +3564,19 @@ function GestionUsuarios({data,save,del}){
   const [form,setForm]=useState(EF);
   const generarToken=()=>Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
   const baseUrl=window.location.origin+window.location.pathname;
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.nombre||!form.dni)return;
+    setModal(false);setForm(EF);setEditando(null);
     if(editando){
       const upd={...editando,nombre:form.nombre,dni:form.dni,rol:form.rol};
       if(form.password)upd.password=form.password;
-      save("usuarios",editando.id,upd);
+      await save("usuarios",editando.id,upd);
     }else{
       const id=uid();
       const token=form.crearPass?null:generarToken();
       const password=form.crearPass&&form.password?form.password:null;
-      save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,activo:true,token,password,creadoEn:today()});
+      await save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,activo:true,token,password,creadoEn:today()});
     }
-    setModal(false);setForm(EF);setEditando(null);
   };
   const copiarLink=(u)=>{
     const link=baseUrl+"?registro="+u.token;
@@ -4610,6 +4621,909 @@ function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null,maqsFil
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: PLANOGRAMA DEL DÍA (Abastecedor)
+// El abastecedor sube foto → Claude interpreta espirales → confirma → guarda
+// ═══════════════════════════════════════════════════════════════════════════════
+function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
+  const [paso,setPaso]=useState(1); // 1=seleccionar máquina, 2=subir foto, 3=confirmar, 4=guardado
+  const [maqId,setMaqId]=useState("");
+  const [imagen,setImagen]=useState(null); // base64
+  const [imagenUrl,setImagenUrl]=useState(null); // preview
+  const [analizando,setAnalizando]=useState(false);
+  const [mapa,setMapa]=useState([]); // [{espiral, producto, confianza}]
+  const [editando,setEditando]=useState(null); // {idx, espiral, producto}
+  const [histModal,setHistModal]=useState(false);
+  const [confirmDel,setConfirmDel]=useState(null);
+
+  const maqsDisp=(data.maquinas||[]).filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
+  const maq=(data.maquinas||[]).find(m=>m.id===maqId);
+  const hoy=today();
+
+  // Historial de planogramas de esta máquina
+  const historial=(data.planogramas||[])
+    .filter(p=>p.maquinaId===maqId)
+    .sort((a,b)=>b.fecha.localeCompare(a.fecha));
+
+  const planHoy=historial.find(p=>p.fecha===hoy);
+
+  const handleFoto=(e)=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      const b64=ev.target.result.split(',')[1];
+      setImagen(b64);
+      setImagenUrl(ev.target.result);
+      setPaso(3);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const analizarFoto=async()=>{
+    if(!imagen)return;
+    setAnalizando(true);
+    try{
+        // Llamar a Supabase Edge Function (la API Key vive segura en el servidor)
+      const res=await fetch(`${SUPABASE_URL}/functions/v1/analizar-planograma`,{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "Authorization":`Bearer ${SUPABASE_KEY}`,
+        },
+        body:JSON.stringify({imagen,mediaType:"image/jpeg"})
+      });
+      const json=await res.json();
+      if(!res.ok||json.error) throw new Error(json.error||"Error en el servidor");
+      setMapa(json.espirales||[]);
+      setPaso(3);
+    }catch(err){
+      console.error("Error analizando foto:",err);
+      alert("Error al analizar la foto. Intenta de nuevo o verifica tu conexión.");
+    }finally{
+      setAnalizando(false);
+    }
+  };
+
+  const guardarPlanograma=async()=>{
+    if(!maqId||mapa.length===0)return;
+    const id=uid();
+    await save("planogramas",id,{
+      id,
+      maquinaId:maqId,
+      maquinaNombre:maq?.nombre||"",
+      fecha:hoy,
+      usuarioId:sesionUsuario?.id||null,
+      usuarioNombre:sesionUsuario?.nombre||"",
+      espirales:mapa,
+      totalEspirales:mapa.length,
+    });
+    setPaso(4);
+  };
+
+  const editarItem=(idx)=>{
+    setEditando({idx,...mapa[idx]});
+  };
+
+  const guardarEdit=()=>{
+    if(!editando)return;
+    const nuevo=[...mapa];
+    nuevo[editando.idx]={...nuevo[editando.idx],espiral:editando.espiral,producto:editando.producto,confianza:"editado"};
+    setMapa(nuevo);
+    setEditando(null);
+  };
+
+  const eliminarItem=(idx)=>{
+    setMapa(m=>m.filter((_,i)=>i!==idx));
+  };
+
+  const agregarEspiral=()=>{
+    setMapa(m=>[...m,{espiral:"",producto:"",confianza:"manual"}]);
+    setEditando({idx:mapa.length,espiral:"",producto:"",confianza:"manual"});
+  };
+
+  const resetear=()=>{
+    setPaso(1);setMaqId("");setImagen(null);setImagenUrl(null);setMapa([]);setEditando(null);
+  };
+
+  const CONF_COLOR={"alta":"var(--green)","media":"var(--accent)","baja":"var(--red)","editado":"var(--accent2)","manual":"#7c3aed"};
+  const CONF_LABEL={"alta":"✅ Clara","media":"⚠️ Dudosa","baja":"❌ Difícil","editado":"✏️ Editado","manual":"➕ Manual"};
+
+  return(
+    <div>
+      {/* HEADER con pasos */}
+      <div style={{background:"linear-gradient(135deg,#111827,#1a2235)",borderRadius:12,padding:"16px 20px",marginBottom:16,border:"1px solid rgba(245,158,11,.3)"}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#f59e0b",marginBottom:10}}>📸 Planograma del día</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {["Seleccionar máquina","Subir foto","Confirmar mapa","Guardado"].map((lbl,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
+              <div style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,
+                background:paso>i+1?"var(--green)":paso===i+1?"var(--accent)":"rgba(255,255,255,.1)",
+                color:paso>=i+1?"#000":"#64748b"}}>
+                {paso>i+1?"✓":i+1}
+              </div>
+              <span style={{fontSize:11,color:paso===i+1?"#f59e0b":paso>i+1?"#10b981":"#64748b",fontWeight:paso===i+1?700:400}}>{lbl}</span>
+              {i<3&&<span style={{color:"#374151",fontSize:10}}>→</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* PASO 1: Seleccionar máquina */}
+      {paso===1&&(
+        <div className="section">
+          <div className="section-header"><h3>Selecciona la máquina que recargaste</h3></div>
+          <div style={{padding:"14px 16px"}}>
+            {maqsDisp.length===0
+              ?<div style={{textAlign:"center",color:"var(--muted)",padding:24}}>Sin máquinas asignadas hoy.</div>
+              :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+                {maqsDisp.map(m=>{
+                  const planHoyM=(data.planogramas||[]).find(p=>p.maquinaId===m.id&&p.fecha===hoy);
+                  return(
+                    <div key={m.id} onClick={()=>{setMaqId(m.id);setPaso(2);}}
+                      style={{padding:"14px",borderRadius:10,cursor:"pointer",border:`2px solid ${maqId===m.id?"var(--accent)":"var(--border)"}`,
+                        background:maqId===m.id?"rgba(245,158,11,.08)":"var(--surface2)",transition:"all .15s"}}>
+                      <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{m.nombre}</div>
+                      {m.ubicacion&&<div style={{fontSize:11,color:"var(--muted)"}}>📍 {m.ubicacion}</div>}
+                      <div style={{marginTop:8,fontSize:10,fontWeight:700,
+                        color:planHoyM?"var(--green)":"var(--muted)"}}>
+                        {planHoyM?`✅ Planograma de hoy registrado (${planHoyM.totalEspirales} esp.)`:"⏳ Sin planograma hoy"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            }
+          </div>
+        </div>
+      )}
+
+      {/* PASO 2: Subir foto */}
+      {paso===2&&(
+        <div>
+          <div className="section" style={{marginBottom:12}}>
+            <div className="section-header">
+              <h3>📸 {maq?.nombre}</h3>
+              <button className="btn btn-secondary btn-sm" onClick={()=>setPaso(1)}>← Cambiar máquina</button>
+            </div>
+            <div style={{padding:"20px 16px"}}>
+              {/* Si ya hay planograma de hoy */}
+              {planHoy&&(
+                <div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:13}}>
+                  <strong style={{color:"var(--green)"}}>✅ Ya tienes planograma de hoy</strong>
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>
+                    Registrado a las {planHoy.fecha} por {planHoy.usuarioNombre||"—"} · {planHoy.totalEspirales} espirales
+                  </div>
+                  <div style={{display:"flex",gap:8,marginTop:10}}>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>setHistModal(true)}>Ver planograma</button>
+                    <button className="btn btn-primary btn-sm" onClick={()=>{}}>Actualizar con nueva foto</button>
+                  </div>
+                </div>
+              )}
+
+              <div style={{border:"2px dashed rgba(245,158,11,.4)",borderRadius:12,padding:"32px 20px",textAlign:"center",background:"#fffbf0"}}>
+                <div style={{fontSize:48,marginBottom:12}}>📸</div>
+                <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Toma o sube una foto del frente de la máquina</div>
+                <div style={{fontSize:12,color:"var(--muted)",marginBottom:16}}>
+                  Asegúrate que se vean claramente los números de espiral y los productos.<br/>
+                  Claude analizará la foto automáticamente.
+                </div>
+                <label style={{display:"inline-block",padding:"10px 24px",background:"var(--accent)",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:14,color:"#000"}}>
+                  📷 Seleccionar foto
+                  <input type="file" accept="image/*" capture="environment" onChange={handleFoto} style={{display:"none"}}/>
+                </label>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:10}}>
+                  Formatos: JPG, PNG, HEIC · Recomendado: foto vertical completa de la máquina
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Historial de esta máquina */}
+          {historial.length>0&&(
+            <div className="section">
+              <div className="section-header"><h3>Historial de planogramas — {maq?.nombre}</h3></div>
+              <div style={{padding:"10px 16px"}}>
+                {historial.slice(0,5).map(p=>(
+                  <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid rgba(245,158,11,.1)"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600}}>{p.fecha===hoy?"📅 Hoy":p.fecha}</div>
+                      <div style={{fontSize:11,color:"var(--muted)"}}>{p.totalEspirales} espirales · {p.usuarioNombre||"—"}</div>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>{setMapa(p.espirales||[]);setPaso(3);}}>Ver/editar</button>
+                      <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={11}/></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Imagen preview + análisis */}
+      {paso===2&&imagenUrl&&!analizando&&mapa.length===0&&(
+        <div className="section" style={{marginTop:12}}>
+          <div style={{padding:"14px 16px",textAlign:"center"}}>
+            <img src={imagenUrl} alt="Máquina" style={{maxWidth:"100%",maxHeight:400,borderRadius:10,marginBottom:12}}/>
+            <button className="btn btn-primary" onClick={analizarFoto} style={{width:"100%",justifyContent:"center",padding:12,fontSize:14}}>
+              🤖 Analizar con Claude
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Analizando */}
+      {analizando&&(
+        <div className="section" style={{marginTop:12}}>
+          <div style={{padding:32,textAlign:"center"}}>
+            <div style={{fontSize:40,marginBottom:12,animation:"spin 1s linear infinite"}}>🔍</div>
+            <div style={{fontSize:14,fontWeight:700,color:"var(--accent)",marginBottom:6}}>Claude está analizando la foto...</div>
+            <div style={{fontSize:12,color:"var(--muted)"}}>Identificando espirales y productos. Esto toma unos segundos.</div>
+          </div>
+        </div>
+      )}
+
+      {/* PASO 3: Confirmar mapa */}
+      {paso===3&&mapa.length>0&&(
+        <div>
+          {imagenUrl&&(
+            <div className="section" style={{marginBottom:12}}>
+              <div className="section-header"><h3>📸 Foto analizada — {maq?.nombre}</h3></div>
+              <div style={{padding:"10px 14px",textAlign:"center"}}>
+                <img src={imagenUrl} alt="Máquina" style={{maxWidth:"100%",maxHeight:300,borderRadius:10}}/>
+              </div>
+            </div>
+          )}
+
+          <div className="section">
+            <div className="section-header">
+              <h3>✏️ Confirma o corrige el mapa ({mapa.length} espirales)</h3>
+              <div style={{display:"flex",gap:6}}>
+                <button className="btn btn-secondary btn-sm" onClick={agregarEspiral}>+ Agregar</button>
+                <button className="btn btn-secondary btn-sm" onClick={()=>{setImagen(null);setImagenUrl(null);setMapa([]);setPaso(2);}}>↺ Nueva foto</button>
+              </div>
+            </div>
+
+            {/* Leyenda */}
+            <div style={{padding:"8px 14px",display:"flex",gap:12,flexWrap:"wrap",borderBottom:"1px solid rgba(245,158,11,.1)",fontSize:11}}>
+              {Object.entries(CONF_LABEL).map(([k,v])=>(
+                <span key={k} style={{color:CONF_COLOR[k],fontWeight:600}}>{v}</span>
+              ))}
+            </div>
+
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{background:"#fffbf0"}}>
+                    <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Espiral</th>
+                    <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Producto detectado</th>
+                    <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Confianza</th>
+                    <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mapa.map((item,idx)=>(
+                    <tr key={idx} style={{borderBottom:"1px solid rgba(245,158,11,.08)",background:item.confianza==="baja"?"rgba(239,68,68,.03)":item.confianza==="editado"?"rgba(59,130,246,.03)":"transparent"}}>
+                      {editando?.idx===idx?(
+                        <>
+                          <td style={{padding:"6px 10px"}}>
+                            <input value={editando.espiral} onChange={e=>setEditando({...editando,espiral:e.target.value})}
+                              style={{width:60,padding:"4px 6px",border:"1px solid var(--accent)",borderRadius:6,fontSize:12,outline:"none"}}/>
+                          </td>
+                          <td style={{padding:"6px 10px"}}>
+                            <input value={editando.producto} onChange={e=>setEditando({...editando,producto:e.target.value})}
+                              style={{width:"100%",padding:"4px 6px",border:"1px solid var(--accent)",borderRadius:6,fontSize:12,outline:"none"}}
+                              onKeyDown={e=>e.key==="Enter"&&guardarEdit()} autoFocus/>
+                          </td>
+                          <td style={{padding:"6px 10px"}}><span style={{fontSize:10,color:"var(--accent2)"}}>Editando</span></td>
+                          <td style={{padding:"6px 10px"}}>
+                            <div style={{display:"flex",gap:4}}>
+                              <button className="btn btn-primary btn-sm" onClick={guardarEdit}>✓</button>
+                              <button className="btn btn-secondary btn-sm" onClick={()=>setEditando(null)}>✕</button>
+                            </div>
+                          </td>
+                        </>
+                      ):(
+                        <>
+                          <td style={{padding:"8px 12px",fontWeight:700}}>{item.espiral}</td>
+                          <td style={{padding:"8px 12px"}}>{item.producto}</td>
+                          <td style={{padding:"8px 12px"}}>
+                            <span style={{fontSize:10,fontWeight:700,color:CONF_COLOR[item.confianza]||"var(--muted)"}}>
+                              {CONF_LABEL[item.confianza]||item.confianza}
+                            </span>
+                          </td>
+                          <td style={{padding:"8px 12px"}}>
+                            <div style={{display:"flex",gap:4}}>
+                              <button className="btn btn-secondary btn-sm" onClick={()=>editarItem(idx)}>✏️</button>
+                              <button className="btn btn-danger btn-sm" onClick={()=>eliminarItem(idx)}>✕</button>
+                            </div>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{padding:"14px 16px",display:"flex",gap:10,justifyContent:"space-between",alignItems:"center",borderTop:"1px solid rgba(245,158,11,.15)"}}>
+              <div style={{fontSize:12,color:"var(--muted)"}}>
+                {mapa.filter(m=>m.confianza==="baja").length>0&&
+                  <span style={{color:"var(--red)"}}>⚠️ {mapa.filter(m=>m.confianza==="baja").length} espiral(es) con baja confianza — revisa antes de guardar</span>}
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn btn-secondary" onClick={()=>setPaso(2)}>← Volver</button>
+                <button className="btn btn-primary" onClick={guardarPlanograma}>
+                  💾 Guardar planograma ({mapa.length} espirales)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PASO 4: Guardado */}
+      {paso===4&&(
+        <div className="section">
+          <div style={{padding:40,textAlign:"center"}}>
+            <div style={{fontSize:60,marginBottom:16}}>✅</div>
+            <div style={{fontSize:18,fontWeight:800,color:"var(--green)",marginBottom:8}}>¡Planograma guardado!</div>
+            <div style={{fontSize:13,color:"var(--muted)",marginBottom:24}}>
+              {maq?.nombre} · {hoy} · {mapa.length} espirales registrados
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+              <button className="btn btn-primary" onClick={resetear}>📸 Registrar otra máquina</button>
+              <button className="btn btn-secondary" onClick={()=>{setPaso(3);}}>Ver planograma guardado</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal historial detalle */}
+      {histModal&&planHoy&&(
+        <div className="modal-overlay"><div className="modal" style={{maxWidth:500}}>
+          <ModalHeader titulo={`Planograma de hoy — ${maq?.nombre}`} subtitulo={`${planHoy.fecha} · ${planHoy.usuarioNombre}`} onClose={()=>setHistModal(false)}/>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr style={{background:"#fffbf0"}}>
+                <th style={{padding:"7px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Espiral</th>
+                <th style={{padding:"7px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Producto</th>
+                <th style={{padding:"7px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Confianza</th>
+              </tr></thead>
+              <tbody>
+                {(planHoy.espirales||[]).map((item,i)=>(
+                  <tr key={i} style={{borderBottom:"1px solid rgba(245,158,11,.08)"}}>
+                    <td style={{padding:"7px 12px",fontWeight:700}}>{item.espiral}</td>
+                    <td style={{padding:"7px 12px"}}>{item.producto}</td>
+                    <td style={{padding:"7px 12px"}}><span style={{fontSize:10,color:CONF_COLOR[item.confianza]||"var(--muted)",fontWeight:700}}>{CONF_LABEL[item.confianza]||item.confianza}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="modal-actions"><button className="btn btn-primary" onClick={()=>setHistModal(false)}>Cerrar</button></div>
+        </div></div>
+      )}
+
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar el planograma del ${confirmDel.fecha}?`} onConfirm={async()=>{await del("planogramas",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: VENTAS ATENTO (Admin)
+// Admin sube CSV → cruza con planograma del abastecedor → registra ventas
+// ═══════════════════════════════════════════════════════════════════════════════
+function VentasAtento({data,save,del,sesionUsuario=null}){
+  const [paso,setPaso]=useState(1); // 1=config, 2=preview, 3=guardado
+  const [maqId,setMaqId]=useState("");
+  const [csvData,setCsvData]=useState(null); // transacciones parseadas
+  const [cruce,setCruce]=useState(null);     // resultado del cruce
+  const [mes,setMes]=useState(mesActual());
+  const [detalleMod,setDetalleMod]=useState(null); // venta a ver en detalle
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [guardando,setGuardando]=useState(false);
+
+  const maq=(data.maquinas||[]).find(m=>m.id===maqId);
+
+  // Historial de importaciones de esta máquina
+  const historial=(data.ventasAtento||[])
+    .filter(v=>(!maqId||v.maquinaId===maqId)&&v.fecha?.startsWith(mes))
+    .sort((a,b)=>b.fecha?.localeCompare(a.fecha));
+
+  // ── Parsear CSV de Atento ──────────────────────────────────────────────────
+  const parsearCSV=(texto)=>{
+    const lineas=texto.split(/\r?\n/).filter(l=>l.trim());
+    if(lineas.length<2)return[];
+    const sep=lineas[0].includes(';')?';':',';
+    const headers=lineas[0].split(sep).map(h=>h.trim().replace(/^"|"$/g,''));
+    return lineas.slice(1).map(linea=>{
+      const cols=linea.split(sep).map(c=>c.trim().replace(/^"|"$/g,''));
+      const obj={};
+      headers.forEach((h,i)=>obj[h]=cols[i]||'');
+      return obj;
+    }).filter(r=>r['Fecha']||r['fecha']);
+  };
+
+  const getMetodo=(per,tec)=>{
+    per=(per||'').trim(); tec=(tec||'').trim();
+    if(per==='Efectivo')return'Efectivo';
+    if(per==='Tarjeta'&&tec==='QR')return'Yape/QR';
+    if(per==='Tarjeta')return'Tarjeta';
+    return per;
+  };
+
+  const handleCSV=(e)=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    // Detectar comercio del nombre del archivo o parsear después
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      const texto=ev.target.result;
+      const rows=parsearCSV(texto);
+      if(rows.length===0){alert("No se pudieron leer datos del CSV. Verifica el formato.");return;}
+
+      // Detectar comercio
+      const comercio=rows[0]?.['Comercio']||rows[0]?.['comercio']||'';
+      // Auto-detectar máquina por comercio
+      if(comercio&&!maqId){
+        const maqDetectada=(data.maquinas||[]).find(m=>m.comercioAtento===comercio||m.nombre?.includes(comercio));
+        if(maqDetectada) setMaqId(maqDetectada.id);
+      }
+
+      // Procesar transacciones
+      const transacciones=rows.map(r=>({
+        fecha:formatFecha(r['Fecha']||r['fecha']),
+        hora:(r['Fecha']||r['fecha']||'').split(' ')[1]||'',
+        status:(r['Status']||r['status']||'').trim(),
+        valor:parseFloat((r['Valor']||r['valor']||'0').replace(',','.'))||0,
+        espiral:(r['Cod Sel']||r['cod_sel']||'').trim(),
+        pago:getMetodo(r['Periferico']||r['periferico']||'',r['Tecnologia']||r['tecnologia']||''),
+        tecnologia:(r['Tecnologia']||r['tecnologia']||'').trim(),
+        comercio:comercio,
+        numAtento:r['Num Atento']||r['num_atento']||'',
+      }));
+
+      setCsvData({transacciones,comercio,totalRows:rows.length});
+      setPaso(2);
+    };
+    reader.readAsText(file,'UTF-8');
+  };
+
+  const formatFecha=(str)=>{
+    if(!str)return'';
+    const parts=str.split(' ')[0];
+    const dp=parts.split('-');
+    if(dp.length===3&&dp[0].length===2) return`${dp[2]}-${dp[1]}-${dp[0]}`;
+    return parts;
+  };
+
+  // ── Cruzar CSV con planograma ─────────────────────────────────────────────
+  const cruzarConPlanograma=()=>{
+    if(!csvData||!maqId)return;
+    const ac=csvData.transacciones.filter(t=>t.status==='ACEPTADA');
+    const errs=csvData.transacciones.filter(t=>t.status.includes('ERROR'));
+    const cans=csvData.transacciones.filter(t=>t.status.includes('CANCELADA'));
+
+    // Obtener fechas únicas del CSV
+    const fechas=[...new Set(ac.map(t=>t.fecha))].sort();
+
+    // Buscar planograma del mismo día (o más reciente antes)
+    const plansMaq=(data.planogramas||[])
+      .filter(p=>p.maquinaId===maqId)
+      .sort((a,b)=>b.fecha?.localeCompare(a.fecha));
+
+    // Para cada espiral, buscar el producto en el planograma más cercano
+    const getProd=(espiral,fecha)=>{
+      const plan=plansMaq.find(p=>p.fecha<=fecha)||plansMaq[0];
+      if(!plan)return null;
+      const item=(plan.espirales||[]).find(e=>e.espiral===espiral||e.espiral===espiral.padStart(2,'0'));
+      return item?{producto:item.producto,planId:plan.id,planFecha:plan.fecha}:null;
+    };
+
+    // Agrupar ventas por espiral
+    const byEspiral={};
+    ac.forEach(t=>{
+      const sp=t.espiral;
+      if(!byEspiral[sp]) byEspiral[sp]={espiral:sp,producto:null,planId:null,qty:0,ingreso:0,ef:0,yape:0,tarj:0};
+      byEspiral[sp].qty++;
+      byEspiral[sp].ingreso+=t.valor;
+      if(t.pago==='Efectivo')byEspiral[sp].ef++;
+      else if(t.pago==='Yape/QR')byEspiral[sp].yape++;
+      else byEspiral[sp].tarj++;
+      // Buscar producto
+      if(!byEspiral[sp].producto){
+        const prod=getProd(sp,t.fecha);
+        if(prod){byEspiral[sp].producto=prod.producto;byEspiral[sp].planId=prod.planId;byEspiral[sp].planFecha=prod.planFecha;}
+      }
+    });
+
+    const ventasPorProducto=Object.values(byEspiral).sort((a,b)=>b.qty-a.qty);
+    const conProducto=ventasPorProducto.filter(v=>v.producto);
+    const sinProducto=ventasPorProducto.filter(v=>!v.producto);
+    const totalIng=ac.reduce((s,t)=>s+t.valor,0);
+    const ef=ac.filter(t=>t.pago==='Efectivo');
+    const yape=ac.filter(t=>t.pago==='Yape/QR');
+    const tarj=ac.filter(t=>t.pago==='Tarjeta');
+
+    // Plan usado
+    const planUsado=plansMaq[0];
+
+    setCruce({
+      ventasPorProducto,conProducto,sinProducto,
+      totalVentas:ac.length,totalIng,
+      totalCanceladas:cans.length,totalErrores:errs.length,
+      ef:ef.length,yape:yape.length,tarj:tarj.length,
+      ingEf:ef.reduce((s,t)=>s+t.valor,0),
+      ingYape:yape.reduce((s,t)=>s+t.valor,0),
+      ingTarj:tarj.reduce((s,t)=>s+t.valor,0),
+      fechas,comercio:csvData.comercio,
+      planUsado,errores:errs,
+    });
+  };
+
+  // Ejecutar cruce cuando hay datos y máquina
+  useState(()=>{if(csvData&&maqId)cruzarConPlanograma();},[csvData,maqId]);
+
+  // ── Guardar en Supabase ───────────────────────────────────────────────────
+  const guardarVentas=async()=>{
+    if(!cruce||!maqId)return;
+    setGuardando(true);
+    try{
+      const id=uid();
+      // 1. Guardar resumen en ventasAtento
+      await save("ventasAtento",id,{
+        id,
+        maquinaId:maqId,
+        maquinaNombre:maq?.nombre||"",
+        fecha:cruce.fechas[0]||today(),
+        comercio:cruce.comercio,
+        usuarioId:sesionUsuario?.id||null,
+        usuarioNombre:sesionUsuario?.nombre||"",
+        planogramaId:cruce.planUsado?.id||null,
+        totalVentas:cruce.totalVentas,
+        totalIngreso:+cruce.totalIng.toFixed(2),
+        totalCanceladas:cruce.totalCanceladas,
+        totalErrores:cruce.totalErrores,
+        pagoEfectivo:cruce.ef,pagoYape:cruce.yape,pagoTarjeta:cruce.tarj,
+        ingresoEfectivo:+cruce.ingEf.toFixed(2),
+        ingresoYape:+cruce.ingYape.toFixed(2),
+        ingresoTarjeta:+cruce.ingTarj.toFixed(2),
+        transacciones:csvData.transacciones,
+        ventasPorProducto:cruce.ventasPorProducto,
+      });
+
+      // 2. Registrar ventas en módulo de ventas principal
+      const ventasAceptadas=csvData.transacciones.filter(t=>t.status==='ACEPTADA');
+      const ventasPorDiaEsp={};
+      ventasAceptadas.forEach(t=>{
+        const key=`${t.fecha}_${t.espiral}`;
+        if(!ventasPorDiaEsp[key]) ventasPorDiaEsp[key]={fecha:t.fecha,espiral:t.espiral,qty:0,ingreso:0};
+        ventasPorDiaEsp[key].qty++;
+        ventasPorDiaEsp[key].ingreso+=t.valor;
+      });
+
+      // Buscar producto en catálogo GAMATIC
+      for(const[key,v] of Object.entries(ventasPorDiaEsp)){
+        const planItem=cruce.ventasPorProducto.find(p=>p.espiral===v.espiral);
+        const nombreProd=planItem?.producto||`Espiral ${v.espiral}`;
+        const prod=(data.productos||[]).find(p=>
+          p.nombre?.toLowerCase().includes(nombreProd.toLowerCase().split(' ')[0])||
+          nombreProd.toLowerCase().includes(p.nombre?.toLowerCase().split(' ')[0])
+        );
+        const vid=uid();
+        await save("ventas",vid,{
+          id:vid,
+          fecha:v.fecha,
+          maquinaId:maqId,
+          productoId:prod?.id||null,
+          productoNombre:nombreProd,
+          espiral:v.espiral,
+          cantidad:v.qty,
+          ingreso:+v.ingreso.toFixed(2),
+          origen:"atento",
+          ventasAtentoId:id,
+        });
+      }
+      setPaso(3);
+    }catch(err){
+      console.error("Error guardando:",err);
+      alert("Error al guardar. Revisa la consola.");
+    }finally{
+      setGuardando(false);
+    }
+  };
+
+  const fmtS=(n)=>`S/ ${(+n||0).toFixed(2)}`;
+  const pct=(a,b)=>b?`${Math.round(a/b*100)}%`:'0%';
+
+  return(
+    <div>
+      {/* HEADER pasos */}
+      <div style={{background:"linear-gradient(135deg,#111827,#1a2235)",borderRadius:12,padding:"16px 20px",marginBottom:16,border:"1px solid rgba(245,158,11,.3)"}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#f59e0b",marginBottom:10}}>📊 Ventas Atento — Importar CSV</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {["Configurar","Revisar cruce","Guardado"].map((lbl,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
+              <div style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,
+                background:paso>i+1?"var(--green)":paso===i+1?"var(--accent)":"rgba(255,255,255,.1)",
+                color:paso>=i+1?"#000":"#64748b"}}>
+                {paso>i+1?"✓":i+1}
+              </div>
+              <span style={{fontSize:11,color:paso===i+1?"#f59e0b":paso>i+1?"#10b981":"#64748b",fontWeight:paso===i+1?700:400}}>{lbl}</span>
+              {i<2&&<span style={{color:"#374151",fontSize:10}}>→</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* PASO 1: Subir CSV + seleccionar máquina */}
+      {paso===1&&(
+        <div>
+          <div className="section" style={{marginBottom:14}}>
+            <div className="section-header"><h3>1. Selecciona la máquina</h3></div>
+            <div style={{padding:"14px 16px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+                {(data.maquinas||[]).filter(m=>m.activa).map(m=>(
+                  <div key={m.id} onClick={()=>setMaqId(m.id)}
+                    style={{padding:"12px",borderRadius:10,cursor:"pointer",
+                      border:`2px solid ${maqId===m.id?"var(--accent)":"var(--border)"}`,
+                      background:maqId===m.id?"rgba(245,158,11,.08)":"var(--surface2)",transition:"all .15s"}}>
+                    <div style={{fontWeight:700,fontSize:13}}>{m.nombre}</div>
+                    {m.ubicacion&&<div style={{fontSize:11,color:"var(--muted)"}}>📍 {m.ubicacion}</div>}
+                    {m.comercioAtento&&<div style={{fontSize:10,color:"var(--accent)",marginTop:4}}>🔗 Atento: {m.comercioAtento}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="section">
+            <div className="section-header"><h3>2. Sube el CSV de Atento</h3></div>
+            <div style={{padding:"20px 16px"}}>
+              <div style={{background:"#fffbf0",border:"2px dashed rgba(245,158,11,.4)",borderRadius:12,padding:"28px",textAlign:"center"}}>
+                <div style={{fontSize:40,marginBottom:10}}>📄</div>
+                <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Arrastra o selecciona el CSV de Atento</div>
+                <div style={{fontSize:12,color:"var(--muted)",marginBottom:16}}>
+                  Descárgalo desde Atento → Monitorización → Exportar CSV<br/>
+                  El sistema lo procesará automáticamente
+                </div>
+                <label style={{display:"inline-block",padding:"10px 24px",background:"var(--accent)",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:14,color:"#000"}}>
+                  📂 Seleccionar CSV
+                  <input type="file" accept=".csv,.txt" onChange={handleCSV} style={{display:"none"}}/>
+                </label>
+              </div>
+              {!maqId&&<div style={{marginTop:10,padding:"8px 12px",background:"rgba(245,158,11,.08)",borderRadius:8,fontSize:12,color:"var(--accent)"}}>
+                ⚠️ Selecciona la máquina primero para cruzar con el planograma correcto.
+              </div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PASO 2: Preview del cruce */}
+      {paso===2&&csvData&&(
+        <div>
+          {/* Botón re-cruzar si cambia máquina */}
+          {!cruce&&maqId&&(
+            <button className="btn btn-primary" style={{marginBottom:12,width:"100%"}} onClick={cruzarConPlanograma}>
+              🔗 Cruzar CSV con planograma de {maq?.nombre}
+            </button>
+          )}
+
+          {cruce&&(
+            <div>
+              {/* Alerta planograma */}
+              {cruce.planUsado?(
+                <div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12}}>
+                  ✅ <strong>Planograma encontrado</strong> — {cruce.planUsado.fecha} · {cruce.planUsado.totalEspirales} espirales · por {cruce.planUsado.usuarioNombre||"—"}
+                </div>
+              ):(
+                <div style={{background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--accent)"}}>
+                  ⚠️ <strong>Sin planograma disponible</strong> para {maq?.nombre}. Las ventas se registrarán por número de espiral sin nombre de producto. Pide al abastecedor que suba la foto.
+                </div>
+              )}
+
+              {/* Cards resumen */}
+              <div className="cards" style={{marginBottom:14}}>
+                <div className="card"><div className="card-label">💰 Ingreso total</div><div className="card-value">{fmtS(cruce.totalIng)}</div><div className="card-sub">{cruce.totalVentas} ventas</div></div>
+                <div className="card"><div className="card-label">💵 Efectivo</div><div className="card-value" style={{color:"var(--green)",fontSize:18}}>{cruce.ef}</div><div className="card-sub">{fmtS(cruce.ingEf)} · {pct(cruce.ef,cruce.totalVentas)}</div></div>
+                <div className="card"><div className="card-label">📱 Yape/QR</div><div className="card-value" style={{color:"#7c3aed",fontSize:18}}>{cruce.yape}</div><div className="card-sub">{fmtS(cruce.ingYape)} · {pct(cruce.yape,cruce.totalVentas)}</div></div>
+                <div className="card"><div className="card-label">💳 Tarjeta</div><div className="card-value" style={{color:"var(--accent2)",fontSize:18}}>{cruce.tarj}</div><div className="card-sub">{fmtS(cruce.ingTarj)} · {pct(cruce.tarj,cruce.totalVentas)}</div></div>
+                <div className="card"><div className="card-label">❌ Canceladas</div><div className="card-value" style={{color:"var(--muted)",fontSize:18}}>{cruce.totalCanceladas}</div></div>
+                <div className="card"><div className="card-label">⚠️ Errores disp.</div><div className="card-value" style={{color:"var(--red)",fontSize:18}}>{cruce.totalErrores}</div></div>
+              </div>
+
+              {/* Tabla ventas por producto */}
+              <div className="section" style={{marginBottom:14}}>
+                <div className="section-header">
+                  <h3>📦 Ventas por producto</h3>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>
+                    {cruce.conProducto.length} con producto · {cruce.sinProducto.length} sin identificar
+                  </div>
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead><tr style={{background:"#fffbf0"}}>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Espiral</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Producto</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"right"}}>Ventas</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"right"}}>Ingreso</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"center"}}>💵</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"center"}}>📱</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"center"}}>💳</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Planograma</th>
+                    </tr></thead>
+                    <tbody>
+                      {cruce.ventasPorProducto.map((v,i)=>(
+                        <tr key={i} style={{borderBottom:"1px solid rgba(245,158,11,.08)",background:!v.producto?"rgba(245,158,11,.03)":"transparent"}}>
+                          <td style={{padding:"8px 12px",fontWeight:700}}>{v.espiral}</td>
+                          <td style={{padding:"8px 12px"}}>
+                            {v.producto
+                              ?<span style={{fontWeight:600}}>{v.producto}</span>
+                              :<span style={{color:"var(--muted)",fontStyle:"italic"}}>Sin identificar</span>
+                            }
+                          </td>
+                          <td style={{padding:"8px 12px",textAlign:"right",fontWeight:800,color:"var(--accent)",fontSize:14}}>{v.qty}</td>
+                          <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700}}>{fmtS(v.ingreso)}</td>
+                          <td style={{padding:"8px 12px",textAlign:"center",color:"var(--green)"}}>{v.ef||'-'}</td>
+                          <td style={{padding:"8px 12px",textAlign:"center",color:"#7c3aed"}}>{v.yape||'-'}</td>
+                          <td style={{padding:"8px 12px",textAlign:"center",color:"var(--accent2)"}}>{v.tarj||'-'}</td>
+                          <td style={{padding:"8px 12px",fontSize:10,color:"var(--muted)"}}>
+                            {v.planFecha?`📅 ${v.planFecha}`:"—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Errores de dispensado */}
+              {cruce.errores?.length>0&&(
+                <div className="section" style={{marginBottom:14}}>
+                  <div className="section-header"><h3>⚠️ Errores de dispensado ({cruce.errores.length})</h3></div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead><tr style={{background:"#fffbf0"}}>
+                        <th style={{padding:"8px 12px",color:"var(--red)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Fecha</th>
+                        <th style={{padding:"8px 12px",color:"var(--red)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Espiral</th>
+                        <th style={{padding:"8px 12px",color:"var(--red)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Producto</th>
+                        <th style={{padding:"8px 12px",color:"var(--red)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Valor</th>
+                        <th style={{padding:"8px 12px",color:"var(--red)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Pago</th>
+                      </tr></thead>
+                      <tbody>
+                        {cruce.errores.map((e,i)=>{
+                          const planItem=cruce.ventasPorProducto.find(v=>v.espiral===e.espiral);
+                          return(
+                            <tr key={i} style={{borderBottom:"1px solid rgba(245,158,11,.08)"}}>
+                              <td style={{padding:"8px 12px"}}>{e.fecha}</td>
+                              <td style={{padding:"8px 12px",fontWeight:700}}>{e.espiral}</td>
+                              <td style={{padding:"8px 12px"}}>{planItem?.producto||<span style={{color:"var(--muted)",fontStyle:"italic"}}>Sin identificar</span>}</td>
+                              <td style={{padding:"8px 12px"}}>{fmtS(e.valor)}</td>
+                              <td style={{padding:"8px 12px"}}>{e.pago}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Botones acción */}
+              <div style={{display:"flex",gap:10,justifyContent:"space-between",flexWrap:"wrap"}}>
+                <button className="btn btn-secondary" onClick={()=>{setPaso(1);setCsvData(null);setCruce(null);}}>← Subir otro CSV</button>
+                <button className="btn btn-primary" onClick={guardarVentas} disabled={guardando}
+                  style={{padding:"12px 24px",fontSize:14}}>
+                  {guardando?"⏳ Guardando...":"💾 Guardar ventas en GAMATIC"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PASO 3: Guardado exitoso */}
+      {paso===3&&(
+        <div className="section">
+          <div style={{padding:40,textAlign:"center"}}>
+            <div style={{fontSize:60,marginBottom:16}}>✅</div>
+            <div style={{fontSize:18,fontWeight:800,color:"var(--green)",marginBottom:8}}>¡Ventas registradas!</div>
+            <div style={{fontSize:13,color:"var(--muted)",marginBottom:8}}>
+              {cruce?.totalVentas} ventas de {maq?.nombre} guardadas en GAMATIC
+            </div>
+            <div style={{fontSize:12,color:"var(--muted)",marginBottom:24}}>
+              Las ventas ya aparecen en el módulo de Ventas del sistema.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+              <button className="btn btn-primary" onClick={()=>{setPaso(1);setCsvData(null);setCruce(null);setMaqId("");}}>📄 Importar otro CSV</button>
+              <button className="btn btn-secondary" onClick={()=>setPaso(1)}>Ver historial</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HISTORIAL */}
+      {paso===1&&historial.length>0&&(
+        <div className="section" style={{marginTop:16}}>
+          <div className="section-header">
+            <h3>Historial de importaciones</h3>
+            <MesNav mes={mes} setMes={setMes}/>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr style={{background:"#fffbf0"}}>
+                <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Fecha</th>
+                <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Máquina</th>
+                <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Ventas</th>
+                <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Ingreso</th>
+                <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>💵/📱/💳</th>
+                <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Acciones</th>
+              </tr></thead>
+              <tbody>
+                {historial.map(v=>(
+                  <tr key={v.id} style={{borderBottom:"1px solid rgba(245,158,11,.08)"}}>
+                    <td style={{padding:"8px 12px"}}>{v.fecha}</td>
+                    <td style={{padding:"8px 12px",fontWeight:700}}>{v.maquinaNombre||"—"}</td>
+                    <td style={{padding:"8px 12px",fontWeight:800,color:"var(--accent)"}}>{v.totalVentas}</td>
+                    <td style={{padding:"8px 12px",fontWeight:700}}>{fmtS(v.totalIngreso)}</td>
+                    <td style={{padding:"8px 12px",fontSize:11,color:"var(--muted)"}}>
+                      💵{v.pagoEfectivo||0} 📱{v.pagoYape||0} 💳{v.pagoTarjeta||0}
+                    </td>
+                    <td style={{padding:"8px 12px"}}>
+                      <div style={{display:"flex",gap:6}}>
+                        <button className="btn btn-secondary btn-sm" onClick={()=>setDetalleMod(v)}>Ver</button>
+                        <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(v)}><Icon name="trash" size={11}/></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal detalle */}
+      {detalleMod&&(
+        <div className="modal-overlay"><div className="modal" style={{maxWidth:560}}>
+          <ModalHeader titulo={`Ventas Atento — ${detalleMod.maquinaNombre}`} subtitulo={`${detalleMod.fecha} · ${detalleMod.totalVentas} ventas · ${fmtS(detalleMod.totalIngreso)}`} onClose={()=>setDetalleMod(null)}/>
+          <div style={{overflowX:"auto",maxHeight:400}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr style={{background:"#fffbf0"}}>
+                <th style={{padding:"7px 10px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Esp.</th>
+                <th style={{padding:"7px 10px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Producto</th>
+                <th style={{padding:"7px 10px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Qty</th>
+                <th style={{padding:"7px 10px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)"}}>Ingreso</th>
+              </tr></thead>
+              <tbody>
+                {(detalleMod.ventasPorProducto||[]).map((v,i)=>(
+                  <tr key={i} style={{borderBottom:"1px solid rgba(245,158,11,.08)"}}>
+                    <td style={{padding:"7px 10px",fontWeight:700}}>{v.espiral}</td>
+                    <td style={{padding:"7px 10px"}}>{v.producto||<span style={{color:"var(--muted)",fontStyle:"italic"}}>Sin identificar</span>}</td>
+                    <td style={{padding:"7px 10px",fontWeight:800,color:"var(--accent)"}}>{v.qty}</td>
+                    <td style={{padding:"7px 10px",fontWeight:700}}>{fmtS(v.ingreso)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="modal-actions"><button className="btn btn-primary" onClick={()=>setDetalleMod(null)}>Cerrar</button></div>
+        </div></div>
+      )}
+
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar esta importación del ${confirmDel.fecha}?`} onConfirm={async()=>{await del("ventasAtento",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
   {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"cierreDia",label:"Cierre del día",icon:"bolt"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
@@ -4621,8 +5535,8 @@ const ADMIN_NAV=[
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
   {section:"Cafeteras"},{id:"cafeteras",label:"Control cafeteras",icon:"coffee"},{id:"ventasCafeteras",label:"Ventas cafeteras",icon:"chart"},
-  {section:"Análisis"},{id:"reportes",label:"Reportes",icon:"trophy"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
-  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},{id:"ventasCafeteras",label:"Ventas cafeteras",icon:"coffee"},
+  {section:"Análisis"},{id:"ventasAtento",label:"Ventas Atento",icon:"chart"},{id:"reportes",label:"Reportes",icon:"trophy"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
+  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},{id:"ventasCafeteras",label:"Ventas cafeteras",icon:"coffee"},{id:"planograma",label:"Planograma",icon:"camera"},
   {section:"Administración"},{id:"personal",label:"Personal",icon:"personal"},{id:"gestionUsuarios",label:"Gestión de usuarios",icon:"users"},
 ];
 const ABASTECEDOR_NAV=[
@@ -4647,7 +5561,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Planograma del día",ventasAtento:"Ventas Atento",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -4704,6 +5618,8 @@ export default function App(){
     case "adminListasPrecios": return <AdminListasPrecios data={data} save={save} del={del}/>;
     case "cafeteras":    return <Cafeteras data={data} save={save} del={del} esAdmin={esAdmin}/>;
     case "ventasCafeteras": return <VentasCafeteras data={data} save={save} del={del} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
+    case "planograma": return <Planograma data={data} save={save} del={del} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
+    case "ventasAtento": return <VentasAtento data={data} save={save} del={del} sesionUsuario={sesionUsuario}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "horario":      return <HorarioAdmin data={data} save={save}/>;
