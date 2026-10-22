@@ -347,9 +347,14 @@ function useFirebase(){
   const decSync=()=>setSyncCount(n=>Math.max(0,n-1));
 
   const mountedRef=useRef(true);
+  const pollingPaused=useRef(false);
   useEffect(()=>{return()=>{mountedRef.current=false;};},[]);
 
+  const pausePolling=()=>{pollingPaused.current=true;};
+  const resumePolling=()=>{pollingPaused.current=false;};
+
   const loadAll=useCallback(async()=>{
+    if(pollingPaused.current)return;
     try{
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
@@ -450,7 +455,7 @@ function useFirebase(){
     }
   };
 
-  return{data,save,saveMulti,del,syncing};
+  return{data,save,saveMulti,del,syncing,pausePolling,resumePolling};
 }
 
 
@@ -688,18 +693,18 @@ function Productos({data,save,del,soloEditar=false}){
   const est=(c,m)=>c&&m?(+c*(1+ +m/100)).toFixed(2):"";
   const abrirNuevo=()=>{setForm({nombre:"",costo:"",margen:"",precioVenta:"",proveedor:"",fecha:today()});setEditando(null);setModal(true);};
   const abrirEditar=(p)=>{const s=data.stock.find(st=>st.productoId===p.id);setForm({nombre:p.nombre,costo:String(p.costo),margen:String(p.margen),precioVenta:String(p.precioVenta||""),precioEco:String(p.precioEco||""),proveedor:p.proveedor,fecha:p.fecha||today(),fechaVenc:s?.fechaVenc||""});setEditando(p);setModal(true);};
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.nombre||!form.costo)return;
     const e=parseFloat(est(form.costo,form.margen));
     const obj={nombre:form.nombre,costo:+form.costo,margen:+form.margen,precioVenta:form.precioVenta?+form.precioVenta:e,precioEco:form.precioEco?+form.precioEco:null,proveedor:form.proveedor,fecha:form.fecha};
     if(editando){
-      save("productos",editando.id,{...editando,...obj});
+      await save("productos",editando.id,{...editando,...obj});
       const s=data.stock.find(st=>st.productoId===editando.id);
-      if(s)save("stock",s.id,{...s,fechaVenc:form.fechaVenc||null});
-    } else{const id=uid();save("productos",id,{id,...obj});}
+      if(s)await save("stock",s.id,{...s,fechaVenc:form.fechaVenc||null});
+    } else{const id=uid();await save("productos",id,{id,...obj});}
     setModal(false);setEditando(null);
   };
-  const guardarPrecio=(p)=>{save("productos",p.id,{...p,precioVenta:+precioEdit});setEditandoPrecioId(null);};
+  const guardarPrecio=async(p)=>{await save("productos",p.id,{...p,precioVenta:+precioEdit});setEditandoPrecioId(null);};
   return(
     <div>
       <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por nombre o proveedor..." total={data.productos.length} filtrado={productosFiltrados.length}/>
@@ -778,10 +783,10 @@ function Proveedores({data,save,del,soloEditar=false}){
   const provFiltrados=[...data.proveedores].sort((a,b)=>a.nombre.localeCompare(b.nombre)).filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.contacto?.toLowerCase().includes(busqueda.toLowerCase()));
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
   const EF={nombre:"",contacto:"",telefono:""};const [form,setForm]=useState(EF);
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.nombre)return;
-    if(editando)save("proveedores",editando.id,{...editando,...form});
-    else{const id=uid();save("proveedores",id,{id,...form});}
+    if(editando)await save("proveedores",editando.id,{...editando,...form});
+    else{const id=uid();await save("proveedores",id,{id,...form});}
     setModal(false);setForm(EF);setEditando(null);
   };
   return(
@@ -820,13 +825,13 @@ function Proveedores({data,save,del,soloEditar=false}){
 function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
   const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:""};const [form,setForm]=useState(EF);
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.nombre||!form.ubicacion)return;
-    if(editando)save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||""});
-    else{const id=uid();save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",activa:true});}
     setModal(false);setForm(EF);setEditando(null);
+    if(editando)await save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||""});
+    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",activa:true});}
   };
-  const toggleActiva=(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
+  const toggleActiva=async(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
   const puedeVerAlquiler=esAdmin||soloEditar;
   // Abastecedor solo visualiza
   if(esAbastecedor){
@@ -973,7 +978,7 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
   const removeItem=idx=>setItems(i=>i.filter((_,j)=>j!==idx));
   const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>j===idx?{...r,[f]:v}:r));
   const abrirEditar=(t)=>{setFormEdit({fecha:t.fecha,maquinaId:t.maquinaId,productoId:t.productoId,cantidad:String(t.cantidad)});setEditando(t);};
-  const doGuardarEdicion=()=>{
+  const doGuardarEdicion=async()=>{
     if(!editando)return;
     save("traslados",editando.id,{...editando,fecha:formEdit.fecha,maquinaId:formEdit.maquinaId,productoId:formEdit.productoId,cantidad:+formEdit.cantidad});
     setEditando(null);
@@ -1152,7 +1157,7 @@ function Ventas({data,save,del,esAdmin=false,soloLectura=false}){
   };
 
   const abrirEditar=(v)=>{setFormEdit({fecha:v.fecha,maquinaId:v.maquinaId,productoId:v.productoId,cantidad:String(v.cantidad),ingreso:String(v.ingreso)});setEditandoVenta(v);};
-  const doGuardarEdicion=()=>{
+  const doGuardarEdicion=async()=>{
     if(!editandoVenta)return;
     save("ventas",editandoVenta.id,{...editandoVenta,fecha:formEdit.fecha,maquinaId:formEdit.maquinaId,productoId:formEdit.productoId,cantidad:+formEdit.cantidad,ingreso:+formEdit.ingreso});
     setEditandoVenta(null);
@@ -1348,17 +1353,17 @@ function Cobranzas({data,save,del,usuario,esAdmin=false,maqsFiltro=null,sesionUs
   const [verCom,setVerCom]=useState(null);
   const maqActivas=data.maquinas.filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
 
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.maquinaId||!form.monto)return;
     const id=uid();
     setModal(false);setForm({maquinaId:"",monto:"",fecha:today(),sencillo:false,montoSencillo:""});
-    save("cobranzas",id,{id,fecha:form.fecha,maquinaId:form.maquinaId,monto:+form.monto,responsable:sesionUsuario?.nombre||usuario,verificado:false,comentarioId:null,sencillo:form.sencillo?+form.montoSencillo||0:0});
+    await save("cobranzas",id,{id,fecha:form.fecha,maquinaId:form.maquinaId,monto:+form.monto,responsable:sesionUsuario?.nombre||usuario,verificado:false,comentarioId:null,sencillo:form.sencillo?+form.montoSencillo||0:0});
   };
-  const toggleVerificado=(cob)=>save("cobranzas",cob.id,{...cob,verificado:!cob.verificado});
+  const toggleVerificado=async(cob)=>save("cobranzas",cob.id,{...cob,verificado:!cob.verificado});
   const abrirEditar=(cob)=>{setFormEdit({fecha:cob.fecha,maquinaId:cob.maquinaId,monto:String(cob.monto)});setEditando(cob);};
-  const doGuardarEdicion=()=>{
+  const doGuardarEdicion=async()=>{
     if(!editando)return;
-    save("cobranzas",editando.id,{...editando,fecha:formEdit.fecha,maquinaId:formEdit.maquinaId,monto:+formEdit.monto});
+    await save("cobranzas",editando.id,{...editando,fecha:formEdit.fecha,maquinaId:formEdit.maquinaId,monto:+formEdit.monto});
     setEditando(null);
   };
   const abrirModalCom=(cob,maqNombre)=>{
@@ -1366,13 +1371,13 @@ function Cobranzas({data,save,del,usuario,esAdmin=false,maqsFiltro=null,sesionUs
     setComTexto(comExistente?.mensaje||"");
     setModalCom({cobId:cob.id,maqNombre,fecha:cob.fecha,existente:comExistente||null});
   };
-  const guardarCom=()=>{
+  const guardarCom=async()=>{
     if(!modalCom||!comTexto.trim())return;
     if(modalCom.existente){
-      save("sugerencias",modalCom.existente.id,{...modalCom.existente,mensaje:comTexto.trim()});
+      await save("sugerencias",modalCom.existente.id,{...modalCom.existente,mensaje:comTexto.trim()});
     } else {
       const id=uid();
-      save("sugerencias",id,{id,cobId:modalCom.cobId,maquinaId:null,mensaje:comTexto.trim(),fecha:modalCom.fecha,tipo:"cobranza"});
+      await save("sugerencias",id,{id,cobId:modalCom.cobId,maquinaId:null,mensaje:comTexto.trim(),fecha:modalCom.fecha,tipo:"cobranza"});
     }
     setModalCom(null);setComTexto("");
   };
@@ -1951,7 +1956,7 @@ function Devoluciones({data,save,del,soloLectura=false,esAdmin=false,maqsFiltro=
     setFormEdit({maquinaId:d.maquinaId,productoId:d.productoId,motivo:d.motivo,cantidad:String(d.cantidad),fecha:d.fecha,observacion:d.observacion||""});
     setEditando(d);
   };
-  const doGuardarEdicion=()=>{
+  const doGuardarEdicion=async()=>{
     if(!editando)return;
     save("devoluciones",editando.id,{...editando,...formEdit,cantidad:+formEdit.cantidad});
     setEditando(null);
@@ -2582,14 +2587,14 @@ function Tickets({data,save,del,esAdmin=false}){
   const EF={maquinaId:"",tipo:"Dispensador trabado",descripcion:"",prioridad:"Media",estado:"Abierto",fecha:today(),fechaResolucion:"",notas:""};
   const [form,setForm]=useState(EF);
 
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.maquinaId||!form.descripcion)return;
-    if(editando)save("tickets",editando.id,{...editando,...form});
-    else{const id=uid();save("tickets",id,{id,...form});}
+    if(editando)await save("tickets",editando.id,{...editando,...form});
+    else{const id=uid();await save("tickets",id,{id,...form});}
     setModal(false);setForm(EF);setEditando(null);
   };
   const abrirEditar=(t)=>{setForm({maquinaId:t.maquinaId,tipo:t.tipo,descripcion:t.descripcion,prioridad:t.prioridad,estado:t.estado,fecha:t.fecha,fechaResolucion:t.fechaResolucion||"",notas:t.notas||""});setEditando(t);setModal(true);};
-  const cambiarEstado=(t,nuevoEstado)=>save("tickets",t.id,{...t,estado:nuevoEstado,fechaResolucion:nuevoEstado==="Resuelto"?today():t.fechaResolucion});
+  const cambiarEstado=async(t,nuevoEstado)=>await save("tickets",t.id,{...t,estado:nuevoEstado,fechaResolucion:nuevoEstado==="Resuelto"?today():t.fechaResolucion});
 
   const ticketsFiltrados=(data.tickets||[]).filter(t=>{
     const maq=data.maquinas.find(m=>m.id===t.maquinaId);
@@ -3360,17 +3365,17 @@ function Personal({data,save,del}){
   const EF={nombre:"",rol:ROLES_PERSONAL[0],turno:TURNOS[0],sueldo:"",telefono:"",dni:"",fechaIngreso:today(),activo:true,notas:""};
   const [form,setForm]=useState(EF);
 
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.nombre||!form.sueldo)return;
-    if(editando)save("personal",editando.id,{...editando,...form,sueldo:+form.sueldo});
-    else{const id=uid();save("personal",id,{id,...form,sueldo:+form.sueldo});}
+    if(editando)await save("personal",editando.id,{...editando,...form,sueldo:+form.sueldo});
+    else{const id=uid();await save("personal",id,{id,...form,sueldo:+form.sueldo});}
     setModal(false);setForm(EF);setEditando(null);
   };
   const abrirEditar=(p)=>{
     setForm({nombre:p.nombre,rol:p.rol,turno:p.turno,sueldo:String(p.sueldo),telefono:p.telefono||"",dni:p.dni||"",fechaIngreso:p.fechaIngreso||today(),activo:p.activo!==false,notas:p.notas||""});
     setEditando(p);setModal(true);
   };
-  const toggleActivo=(p)=>save("personal",p.id,{...p,activo:!p.activo});
+  const toggleActivo=async(p)=>await save("personal",p.id,{...p,activo:!p.activo});
 
   const personalFiltrado=[...data.personal]
     .sort((a,b)=>a.nombre.localeCompare(b.nombre))
@@ -3709,10 +3714,10 @@ function AdminListasPrecios({data,save,del}){
   const EF={nombre:"",descripcion:"",precios:{},visible:true};
   const [form,setForm]=useState(EF);
 
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.nombre)return;
-    if(editando)save("listasPrecios",editando.id,{...editando,...form});
-    else{const id=uid();save("listasPrecios",id,{id,...form,creadoEn:today()});}
+    if(editando)await save("listasPrecios",editando.id,{...editando,...form});
+    else{const id=uid();await save("listasPrecios",id,{id,...form,creadoEn:today()});}
     setModal(false);setForm(EF);setEditando(null);
   };
   const abrirEditar=(l)=>{
@@ -3720,13 +3725,13 @@ function AdminListasPrecios({data,save,del}){
     setEditando(l);setModal(true);
   };
   const setPrecio=(prodId,val)=>setForm(f=>({...f,precios:{...f.precios,[prodId]:val}}));
-  const toggleVisible=(l)=>save("listasPrecios",l.id,{...l,visible:!l.visible});
+  const toggleVisible=async(l)=>await save("listasPrecios",l.id,{...l,visible:!l.visible});
 
   // Asignar lista a máquinas
   const getMaqsConLista=(listaId)=>data.maquinas.filter(m=>m.listaPrecios===listaId);
-  const asignarAMaquina=(maqId,listaId)=>{
+  const asignarAMaquina=async(maqId,listaId)=>{
     const m=data.maquinas.find(x=>x.id===maqId);
-    if(m)save("maquinas",maqId,{...m,listaPrecios:listaId||null});
+    if(m)await save("maquinas",maqId,{...m,listaPrecios:listaId||null});
   };
 
   const productos=[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre));
@@ -4052,11 +4057,11 @@ function Cafeteras({data,save,del,esAdmin=false}){
 
   const precioSugerido=(costo,margen)=>costo*(1+(margen||0)/100);
 
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.nombre)return;
     const obj={...form,recetas:receta};
-    if(editando)save("cafeteras",editando.id,{...editando,...obj});
-    else{const id=uid();save("cafeteras",id,{id,...obj,creadoEn:today()});}
+    if(editando)await save("cafeteras",editando.id,{...editando,...obj});
+    else{const id=uid();await save("cafeteras",id,{id,...obj,creadoEn:today()});}
     setModal(false);setForm(EF);setReceta(EF.recetas);setEditando(null);
   };
 
@@ -4370,7 +4375,7 @@ function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null,maqsFil
     return costo;
   };
 
-  const doSave=()=>{
+  const doSave=async()=>{
     if(!form.cafeteraId)return;
     const id=uid();
     const registro={
@@ -4389,8 +4394,8 @@ function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null,maqsFil
       costoEstimado:+getCostoEstimado(form).toFixed(2),
       notas:form.notas,
     };
-    if(editando) save("ventasCafeteras",editando.id,registro);
-    else save("ventasCafeteras",id,registro);
+    if(editando) await save("ventasCafeteras",editando.id,registro);
+    else await save("ventasCafeteras",id,registro);
     setModal(false);setForm({...EF,responsable:sesionUsuario?.nombre||""});setEditando(null);
   };
 
@@ -5568,7 +5573,7 @@ const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Al
 
 // ─── APP ──────────────────────────────────────────────────────────────────────────
 export default function App(){
-  const{data,save,saveMulti,del,syncing}=useFirebase();
+  const{data,save,saveMulti,del,syncing,pausePolling,resumePolling}=useFirebase();
   const [usuario,setUsuario]=useState(null);
   const [tab,setTab]=useState("dashboard");
   const [sidebarOpen,setSidebarOpen]=useState(false);
@@ -5610,37 +5615,41 @@ export default function App(){
   const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
   const rolUsuario=sesionUsuario?.rol||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
-  const RC=()=>{switch(tab){
+  const RC=()=>{
+    // Wrap save to auto-pause/resume polling
+    const saveWrapped=async(col,id,val)=>{pausePolling();try{await save(col,id,val);}finally{setTimeout(resumePolling,2000);}};
+    const delWrapped=async(col,id)=>{pausePolling();try{await del(col,id);}finally{setTimeout(resumePolling,2000);}};
+    switch(tab){
     case "dashboard":    return <Dashboard data={data}/>;
     case "cierreDia":    return <CierreDia data={data}/>;
-    case "personal":     return <Personal data={data} save={save} del={del}/>;
-    case "gestionUsuarios": return <GestionUsuarios data={data} save={save} del={del}/>;
-    case "adminListasPrecios": return <AdminListasPrecios data={data} save={save} del={del}/>;
-    case "cafeteras":    return <Cafeteras data={data} save={save} del={del} esAdmin={esAdmin}/>;
-    case "ventasCafeteras": return <VentasCafeteras data={data} save={save} del={del} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
-    case "planograma": return <Planograma data={data} save={save} del={del} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
-    case "ventasAtento": return <VentasAtento data={data} save={save} del={del} sesionUsuario={sesionUsuario}/>;
+    case "personal":     return <Personal data={data} save={saveWrapped} del={delWrapped}/>;
+    case "gestionUsuarios": return <GestionUsuarios data={data} save={saveWrapped} del={delWrapped}/>;
+    case "adminListasPrecios": return <AdminListasPrecios data={data} save={saveWrapped} del={delWrapped}/>;
+    case "cafeteras":    return <Cafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin}/>;
+    case "ventasCafeteras": return <VentasCafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
+    case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
+    case "ventasAtento": return <VentasAtento data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy}/>;
-    case "horario":      return <HorarioAdmin data={data} save={save}/>;
-    case "mihorario":    return <MiHorario data={data} save={save} puedeComentarMaq={esAbastecedor||esAdmin} sesionUsuario={sesionUsuario}/>;
-    case "gastos":       return <GastosAdicionales data={data} save={save} del={del}/>;
-    case "productos":    return <Productos data={data} save={save} del={del} soloEditar={esAlmacenero}/>;
+    case "horario":      return <HorarioAdmin data={data} save={saveWrapped}/>;
+    case "mihorario":    return <MiHorario data={data} save={saveWrapped} puedeComentarMaq={esAbastecedor||esAdmin} sesionUsuario={sesionUsuario}/>;
+    case "gastos":       return <GastosAdicionales data={data} save={saveWrapped} del={delWrapped}/>;
+    case "productos":    return <Productos data={data} save={saveWrapped} del={delWrapped} soloEditar={esAlmacenero}/>;
     case "precios":      return <ListaPrecios data={data}/>;
-    case "proveedores":  return <Proveedores data={data} save={save} del={del} soloEditar={esAlmacenero}/>;
-    case "maquinas":     return <Maquinas data={data} save={save} del={del} esAdmin={esAdmin} esAbastecedor={esAbastecedor} soloEditar={esAlmacenero}/>;
-    case "stock":        return <Stock data={data} save={save} del={del} soloLectura={esAbastecedor} esAdmin={esAdmin}/>;
-    case "traslados":    return <Traslados data={data} save={save} saveMulti={saveMulti} del={del} usuario={nombreUsuario} esAdmin={esAdmin} soloLectura={esAlmacenero}/>;
-    case "ventas":       return <Ventas data={data} save={save} del={del} esAdmin={esAdmin} soloLectura={esAbastecedor}/>;
-    case "cobranzas":    return <Cobranzas data={data} save={save} del={del} usuario={nombreUsuario} esAdmin={esAdmin} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
+    case "proveedores":  return <Proveedores data={data} save={saveWrapped} del={delWrapped} soloEditar={esAlmacenero}/>;
+    case "maquinas":     return <Maquinas data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} esAbastecedor={esAbastecedor} soloEditar={esAlmacenero}/>;
+    case "stock":        return <Stock data={data} save={saveWrapped} del={delWrapped} soloLectura={esAbastecedor} esAdmin={esAdmin}/>;
+    case "traslados":    return <Traslados data={data} save={saveWrapped} saveMulti={async(...args)=>{pausePolling();try{await saveMulti(...args);}finally{setTimeout(resumePolling,2000);}}} del={delWrapped} usuario={nombreUsuario} esAdmin={esAdmin} soloLectura={esAlmacenero}/>;
+    case "ventas":       return <Ventas data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} soloLectura={esAbastecedor}/>;
+    case "cobranzas":    return <Cobranzas data={data} save={saveWrapped} del={delWrapped} usuario={nombreUsuario} esAdmin={esAdmin} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
     case "preciosEco":   return <ListaPreciosEco data={data}/>;
-    case "devoluciones": return <Devoluciones data={data} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario} save={save} del={del} soloLectura={esAlmacenero} esAdmin={esAdmin} puedeEditar={esAdmin||esAbastecedor}/>;
-    case "stockMaquina":  return <StockMaquina data={data} save={save} del={del} soloLectura={false} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
-    case "sencillo":      return <ControlSencillo data={data} save={save} del={del} esAdmin={esAdmin} sesionUsuario={sesionUsuario}/>;
-    case "tickets":      return <Tickets data={data} save={save} del={del} esAdmin={esAdmin}/>;
+    case "devoluciones": return <Devoluciones data={data} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario} save={saveWrapped} del={delWrapped} soloLectura={esAlmacenero} esAdmin={esAdmin} puedeEditar={esAdmin||esAbastecedor}/>;
+    case "stockMaquina":  return <StockMaquina data={data} save={saveWrapped} del={delWrapped} soloLectura={false} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
+    case "sencillo":      return <ControlSencillo data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario}/>;
+    case "tickets":      return <Tickets data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin}/>;
     case "prekit":       return <PreKit data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "reportes":     return <Reportes data={data}/>;
-    case "sugerencias":  return <Sugerencias data={data} save={save} del={del} soloLectura={esAlmacenero}/>;
+    case "sugerencias":  return <Sugerencias data={data} save={saveWrapped} del={delWrapped} soloLectura={esAlmacenero}/>;
     default: return null;
   }};
   return(
