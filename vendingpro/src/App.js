@@ -380,12 +380,18 @@ function useFirebase(){
         tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
         ventasCafeteras,planogramas,ventasAtento]=results.map(r=>toCamel(r.data||[]));
 
-      if(mountedRef.current)setData({
+      if(!mountedRef.current)return;
+      const newData={
         productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,
         stockMaquina,sencillo,tickets,productosEco,personal,
         usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,
         horario:horarioObj,
+      };
+      // Solo actualiza si los datos cambiaron — evita re-renders innecesarios que cierran modales
+      setData(prev=>{
+        if(prev&&JSON.stringify(prev)===JSON.stringify(newData))return prev;
+        return newData;
       });
     }catch(err){
       console.error('Error cargando datos:',err);
@@ -395,8 +401,8 @@ function useFirebase(){
   useEffect(()=>{
     loadAll();
     // Polling cada 15 segundos para mantener datos frescos (multi-usuario)
-    const interval=setInterval(loadAll,60000);
-    return()=>clearInterval(interval);
+    // No polling automático — datos se actualizan al guardar
+    return()=>{};
   },[loadAll]);
 
   const save=async(collection,id,val)=>{
@@ -457,7 +463,7 @@ function useFirebase(){
     }
   };
 
-  return{data,save,saveMulti,del,syncing,pausePolling,resumePolling};
+  return{data,save,saveMulti,del,syncing,pausePolling,resumePolling,loadAll};
 }
 
 
@@ -5575,7 +5581,7 @@ const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Al
 
 // ─── APP ──────────────────────────────────────────────────────────────────────────
 export default function App(){
-  const{data,save,saveMulti,del,syncing,pausePolling,resumePolling}=useFirebase();
+  const{data,save,saveMulti,del,syncing,pausePolling,resumePolling,loadAll}=useFirebase();
   const [usuario,setUsuario]=useState(null);
   const [tab,setTab]=useState("dashboard");
   const [sidebarOpen,setSidebarOpen]=useState(false);
@@ -5681,7 +5687,10 @@ export default function App(){
         <div className="content"><RC/></div>
       </main>
     </div>
-    {syncing&&<div className="syncing"><Icon name="spin" size={12}/> Guardando...</div>}
+    {syncing
+      ?<div className="syncing"><Icon name="spin" size={12}/> Guardando...</div>
+      :<button onClick={loadAll} title="Actualizar datos" style={{background:"none",border:"1px solid rgba(245,158,11,.25)",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,color:"#94a3b8",display:"flex",alignItems:"center",gap:4}}>⟳ Actualizar</button>
+    }
     </>
   );
 }
