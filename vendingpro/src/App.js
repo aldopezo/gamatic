@@ -355,6 +355,8 @@ function useFirebase(){
 
   const loadAll=useCallback(async()=>{
     if(pollingPaused.current)return;
+    // Skip poll if user is actively typing in an input
+    if(document.activeElement&&['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;
     try{
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
@@ -393,7 +395,7 @@ function useFirebase(){
   useEffect(()=>{
     loadAll();
     // Polling cada 15 segundos para mantener datos frescos (multi-usuario)
-    const interval=setInterval(loadAll,15000);
+    const interval=setInterval(loadAll,60000);
     return()=>clearInterval(interval);
   },[loadAll]);
 
