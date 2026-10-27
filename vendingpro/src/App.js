@@ -11,7 +11,7 @@ const CLAVES = { admin:"123", abastecedor:"", almacenero:"" }; // legacy, no usa
 const fmt=(n)=>`S/ ${Number(n||0).toFixed(2)}`;
 const today=()=>new Date().toISOString().split("T")[0];
 const objToArr=(o)=>Array.isArray(o)?o:(o?Object.values(o):[]);
-const uid=()=>push(ref(db,"_tmp")).key;
+const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
 const mesActual=()=>new Date().toISOString().slice(0,7);
 const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const nombreMes=(ym)=>{if(!ym)return"";const[y,m]=ym.split("-");return`${MESES[parseInt(m)-1]} ${y}`;};
