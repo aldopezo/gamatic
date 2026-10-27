@@ -353,10 +353,10 @@ function useFirebase(){
   const pausePolling=()=>{pollingPaused.current=true;};
   const resumePolling=()=>{pollingPaused.current=false;};
 
-  const loadAll=useCallback(async()=>{
-    if(pollingPaused.current)return;
-    // Skip poll if user is actively typing in an input
-    if(document.activeElement&&['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;
+  const loadAll=useCallback(async(force=false)=>{
+    if(!force&&pollingPaused.current)return;
+    // Skip poll if user is actively typing in an input (only during auto-poll, not forced)
+    if(!force&&document.activeElement&&['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;
     try{
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
@@ -424,7 +424,7 @@ function useFirebase(){
         const row=toSnake({...val,id});
         await supabase.from(table).upsert(row,{onConflict:'id'});
       }
-      await loadAll();
+      await loadAll(true);
     }catch(err){
       console.error('Error guardando:',err);
     }finally{
@@ -441,7 +441,7 @@ function useFirebase(){
         const row=toSnake({...val,id});
         await supabase.from(table).upsert(row,{onConflict:'id'});
       }
-      await loadAll();
+      await loadAll(true);
     }catch(err){
       console.error('Error en saveMulti:',err);
     }finally{
@@ -455,7 +455,7 @@ function useFirebase(){
       const table=TABLE_MAP[collection];
       if(!table)return;
       await supabase.from(table).delete().eq('id',id);
-      await loadAll();
+      await loadAll(true);
     }catch(err){
       console.error('Error eliminando:',err);
     }finally{
@@ -5539,28 +5539,54 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
 
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
-  {section:"General"},{id:"dashboard",label:"Dashboard",icon:"chart"},{id:"cierreDia",label:"Cierre del día",icon:"bolt"},{id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
-  {id:"horario",label:"Horario semanal",icon:"calendar"},{id:"gastos",label:"Gastos adicionales",icon:"bolt"},
-  {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},{id:"adminListasPrecios",label:"Listas de precios",icon:"pricelist"},
-  {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"stock",label:"Stock almacén",icon:"stock"},
+  {section:"General"},
+  {id:"dashboard",label:"Dashboard",icon:"chart"},
+  {id:"cierreDia",label:"Cierre del día",icon:"bolt"},
+  {id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
+  {id:"horario",label:"Horario semanal",icon:"calendar"},
+  {section:"Catálogo"},
+  {id:"productos",label:"Productos",icon:"product"},
+  {id:"proveedores",label:"Proveedores",icon:"supplier"},
+  {id:"adminListasPrecios",label:"Listas de precios",icon:"pricelist"},
+  {section:"Operaciones"},
+  {id:"maquinas",label:"Máquinas",icon:"machine"},
+  {id:"stock",label:"Stock almacén",icon:"stock"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
-  {id:"ventas",label:"Ventas",icon:"chart"},{id:"cobranzas",label:"Cobranzas",icon:"money"},
+  {id:"ventas",label:"Ventas",icon:"chart"},
+  {id:"cobranzas",label:"Cobranzas",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
-  {section:"Cafeteras"},{id:"cafeteras",label:"Control cafeteras",icon:"coffee"},{id:"ventasCafeteras",label:"Ventas cafeteras",icon:"chart"},
-  {section:"Análisis"},{id:"ventasAtento",label:"Ventas Atento",icon:"chart"},{id:"reportes",label:"Reportes",icon:"trophy"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
-  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},{id:"ventasCafeteras",label:"Ventas cafeteras",icon:"coffee"},{id:"planograma",label:"Planograma",icon:"camera"},
-  {section:"Administración"},{id:"personal",label:"Personal",icon:"personal"},{id:"gestionUsuarios",label:"Gestión de usuarios",icon:"users"},
+  {id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
+  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
+  {id:"gastos",label:"Gastos adicionales",icon:"bolt"},
+  {section:"Cafeteras"},
+  {id:"cafeteras",label:"Control cafeteras",icon:"coffee"},
+  {id:"ventasCafeteras",label:"Ventas cafeteras",icon:"chart"},
+  {section:"Análisis"},
+  {id:"ventasAtento",label:"Ventas Atento",icon:"chart"},
+  {id:"reportes",label:"Reportes",icon:"trophy"},
+  {section:"Administración"},
+  {id:"personal",label:"Personal",icon:"personal"},
+  {id:"gestionUsuarios",label:"Gestión de usuarios",icon:"users"},
 ];
 const ABASTECEDOR_NAV=[
-  {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
-  {section:"Operaciones"},{id:"traslados",label:"Traslados",icon:"transfer"},{id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
+  {section:"Mi día"},
+  {id:"mihorario",label:"Mi horario",icon:"calendar"},
+  {id:"planograma",label:"Planograma",icon:"camera"},
+  {section:"Operaciones"},
+  {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
   {id:"cobranzas",label:"Cobranza",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
+  {id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
+  {id:"traslados",label:"Traslados",icon:"transfer"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
-  {section:"Análisis"},{id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
-  {section:"Consultas"},{id:"ventas",label:"Ventas del día",icon:"chart"},{id:"listaPreciosCampo",label:"Lista de precios",icon:"pricelist"},{id:"stock",label:"Stock almacén",icon:"stock"},
+  {section:"Cafeteras"},
+  {id:"ventasCafeteras",label:"Ventas cafeteras",icon:"coffee"},
+  {section:"Consultas"},
+  {id:"ventas",label:"Ventas del día",icon:"chart"},
+  {id:"listaPreciosCampo",label:"Lista de precios",icon:"pricelist"},
+  {id:"stock",label:"Stock almacén",icon:"stock"},
 ];
 const ALMACENERO_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
