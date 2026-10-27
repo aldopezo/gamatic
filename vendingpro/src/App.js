@@ -310,6 +310,7 @@ const TABLE_MAP={
   ventasCafeteras:'ventas_cafeteras',
   planogramas:'planogramas',
   ventasAtento:'ventas_atento',
+  roles:'roles',
   horario:'horario',
 };
 
@@ -361,7 +362,7 @@ function useFirebase(){
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
-        'ventas_cafeteras','planogramas','ventas_atento'];
+        'ventas_cafeteras','planogramas','ventas_atento','roles'];
       const results=await Promise.all(tables.map(t=>supabase.from(t).select('*')));
       // Horario es especial — clave primaria es "dia"
       const {data:horarioData}=await supabase.from('horario').select('*');
@@ -378,14 +379,14 @@ function useFirebase(){
       const [productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,stockMaquina,sencillo,
         tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
-        ventasCafeteras,planogramas,ventasAtento]=results.map(r=>toCamel(r.data||[]));
+        ventasCafeteras,planogramas,ventasAtento,roles]=results.map(r=>toCamel(r.data||[]));
 
       if(!mountedRef.current)return;
       const newData={
         productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,
         stockMaquina,sencillo,tickets,productosEco,personal,
-        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,
+        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,
         horario:horarioObj,
       };
       // Solo actualiza si los datos cambiaron — evita re-renders innecesarios que cierran modales
@@ -3573,7 +3574,7 @@ function GestionUsuarios({data,save,del}){
   const [confirmDel,setConfirmDel]=useState(null);
   const [busqueda,setBusqueda]=useState("");
   const [linkCopiado,setLinkCopiado]=useState(null);
-  const EF={nombre:"",dni:"",rol:"abastecedor",password:"",crearPass:true};
+  const EF={nombre:"",dni:"",rol:"abastecedor",rolId:"",password:"",crearPass:true};
   const [form,setForm]=useState(EF);
   const generarToken=()=>Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
   const baseUrl=window.location.origin+window.location.pathname;
@@ -3581,14 +3582,14 @@ function GestionUsuarios({data,save,del}){
     if(!form.nombre||!form.dni)return;
     setModal(false);setForm(EF);setEditando(null);
     if(editando){
-      const upd={...editando,nombre:form.nombre,dni:form.dni,rol:form.rol};
+      const upd={...editando,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null};
       if(form.password)upd.password=form.password;
       await save("usuarios",editando.id,upd);
     }else{
       const id=uid();
       const token=form.crearPass?null:generarToken();
       const password=form.crearPass&&form.password?form.password:null;
-      await save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,activo:true,token,password,creadoEn:today()});
+      await save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null,activo:true,token,password,creadoEn:today()});
     }
   };
   const copiarLink=(u)=>{
@@ -3660,13 +3661,24 @@ function GestionUsuarios({data,save,del}){
           <div className="form-group"><label>Nombre completo</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Juan Pérez García"/></div>
           <div className="form-group"><label>DNI</label><input value={form.dni} onChange={e=>setForm({...form,dni:e.target.value})} placeholder="12345678" maxLength={8}/></div>
         </div>
-        <div className="form-group"><label>Rol</label>
-          <select value={form.rol} onChange={e=>setForm({...form,rol:e.target.value})}>
+        <div className="form-group"><label>Rol base</label>
+          <select value={form.rol} onChange={e=>setForm({...form,rol:e.target.value,rolId:""})}>
             <option value="admin">🔐 Administrador</option>
             <option value="abastecedor">🔧 Abastecedor</option>
             <option value="almacenero">🏭 Almacenero</option>
           </select>
         </div>
+        {(data.roles||[]).filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)&&r.activo&&r.rolBase===form.rol).length>0&&(
+          <div className="form-group"><label>Rol personalizado (opcional)</label>
+            <select value={form.rolId||""} onChange={e=>setForm({...form,rolId:e.target.value})}>
+              <option value="">Sin rol personalizado</option>
+              {(data.roles||[]).filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)&&r.activo&&r.rolBase===form.rol).map(r=>(
+                <option key={r.id} value={r.id}>✨ {r.nombre}</option>
+              ))}
+            </select>
+            <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Si seleccionas un rol personalizado, el usuario solo verá los módulos asignados a ese rol.</div>
+          </div>
+        )}
         {!editando&&(
           <div style={{background:"var(--surface2)",borderRadius:9,padding:"12px 14px",marginBottom:14,border:"1px solid var(--border)"}}>
             <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:"var(--text)"}}>Método de acceso</div>
@@ -5537,6 +5549,235 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
   );
 }
 
+const TODOS_MODULOS_ADMIN=[
+  {section:"General"},
+  {id:"dashboard",label:"Dashboard"},{id:"cierreDia",label:"Cierre del día"},
+  {id:"rentabilidad",label:"Rentabilidad"},{id:"horario",label:"Horario semanal"},
+  {section:"Catálogo"},
+  {id:"productos",label:"Productos"},{id:"proveedores",label:"Proveedores"},
+  {id:"adminListasPrecios",label:"Listas de precios"},
+  {section:"Operaciones"},
+  {id:"maquinas",label:"Máquinas"},{id:"stock",label:"Stock almacén"},
+  {id:"stockMaquina",label:"Stock por máquina"},{id:"ventas",label:"Ventas"},
+  {id:"cobranzas",label:"Cobranzas"},{id:"devoluciones",label:"Devoluciones"},
+  {id:"sencillo",label:"Control de sencillo"},{id:"prekit",label:"Pre-Kit reposición"},
+  {id:"tickets",label:"Tickets mantenimiento"},{id:"gastos",label:"Gastos adicionales"},
+  {section:"Cafeteras"},
+  {id:"cafeteras",label:"Control cafeteras"},{id:"ventasCafeteras",label:"Ventas cafeteras"},
+  {section:"Análisis"},
+  {id:"ventasAtento",label:"Ventas Atento"},{id:"reportes",label:"Reportes"},
+  {section:"Administración"},
+  {id:"personal",label:"Personal"},{id:"gestionUsuarios",label:"Gestión de usuarios"},
+  {id:"gestionRoles",label:"Roles y permisos"},
+];
+const TODOS_MODULOS_ABAS=[
+  {section:"Mi día"},
+  {id:"mihorario",label:"Mi horario"},{id:"planograma",label:"Planograma"},
+  {section:"Operaciones"},
+  {id:"stockMaquina",label:"Stock por máquina"},{id:"cobranzas",label:"Cobranza"},
+  {id:"devoluciones",label:"Devoluciones"},{id:"sencillo",label:"Control de sencillo"},
+  {id:"prekit",label:"Pre-Kit reposición"},{id:"traslados",label:"Traslados"},
+  {id:"tickets",label:"Tickets mantenimiento"},
+  {section:"Cafeteras"},
+  {id:"ventasCafeteras",label:"Ventas cafeteras"},
+  {section:"Consultas"},
+  {id:"ventas",label:"Ventas del día"},{id:"listaPreciosCampo",label:"Lista de precios"},
+  {id:"stock",label:"Stock almacén"},
+];
+const BASE_MODULOS={
+  admin:TODOS_MODULOS_ADMIN.filter(m=>m.id).map(m=>m.id),
+  abastecedor:TODOS_MODULOS_ABAS.filter(m=>m.id).map(m=>m.id),
+  almacenero:['stock','stockMaquina','traslados','productos','prekit','tickets'],
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: GESTIÓN DE ROLES Y PERMISOS (Admin)
+// ═══════════════════════════════════════════════════════════════════════════════
+function GestionRoles({data,save,del}){
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const EF={nombre:"",descripcion:"",rolBase:"abastecedor",modulos:[]};
+  const [form,setForm]=useState(EF);
+
+  const roles=data.roles||[];
+  const rolesBase=['admin','abastecedor','almacenero'];
+  const ROL_LABEL={admin:"🔐 Administrador",abastecedor:"🔧 Abastecedor",almacenero:"🏭 Almacenero"};
+
+  const getModulosBase=(rolBase)=>BASE_MODULOS[rolBase]||[];
+  const getTodosModulos=(rolBase)=>rolBase==='admin'?TODOS_MODULOS_ADMIN:TODOS_MODULOS_ABAS;
+
+  const abrirNuevo=()=>{
+    setForm({...EF,modulos:getModulosBase('abastecedor')});
+    setEditando(null);setModal(true);
+  };
+  const abrirEditar=(r)=>{
+    setForm({nombre:r.nombre,descripcion:r.descripcion||"",rolBase:r.rolBase,modulos:r.modulos||getModulosBase(r.rolBase)});
+    setEditando(r);setModal(true);
+  };
+  const cambiarBase=(rolBase)=>{
+    setForm(f=>({...f,rolBase,modulos:getModulosBase(rolBase)}));
+  };
+  const toggleMod=(id)=>setForm(f=>({...f,modulos:f.modulos.includes(id)?f.modulos.filter(x=>x!==id):[...f.modulos,id]}));
+  const selTodos=(rolBase)=>setForm(f=>({...f,modulos:getModulosBase(rolBase)}));
+  const deselTodos=()=>setForm(f=>({...f,modulos:[]}));
+
+  const doSave=async()=>{
+    if(!form.nombre)return;
+    setModal(false);
+    const id=editando?.id||uid();
+    await save("roles",id,{id,nombre:form.nombre,descripcion:form.descripcion,rolBase:form.rolBase,modulos:form.modulos,activo:true,creadoEn:today()});
+    setForm(EF);setEditando(null);
+  };
+
+  // Cuántos usuarios tienen cada rol
+  const usuariosPorRol=(rolId)=>(data.usuarios||[]).filter(u=>u.rolId===rolId).length;
+
+  return(
+    <div>
+      <div style={{background:"#fffbf0",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"11px 14px",fontSize:12,marginBottom:16,color:"var(--muted)"}}>
+        <strong style={{color:"var(--accent)"}}>🔐 Roles y permisos</strong> — Crea roles personalizados basados en Admin, Abastecedor o Almacenero, y ajusta qué módulos puede ver cada uno. Luego asigna el rol a cada usuario en <strong>Gestión de usuarios</strong>.
+      </div>
+
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
+        <button className="btn btn-primary" onClick={abrirNuevo}><Icon name="plus" size={14}/> Nuevo rol</button>
+      </div>
+
+      {/* Roles del sistema (no editables) */}
+      <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>Roles base del sistema</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10,marginBottom:20}}>
+        {rolesBase.map(rb=>(
+          <div key={rb} style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",opacity:.8}}>
+            <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>{ROL_LABEL[rb]}</div>
+            <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>{BASE_MODULOS[rb].length} módulos · {(data.usuarios||[]).filter(u=>u.rol===rb&&!u.rolId).length} usuario(s)</div>
+            <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"rgba(100,116,139,.15)",color:"var(--muted)",fontWeight:600}}>🔒 Solo lectura</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Roles personalizados */}
+      {roles.filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)).length>0&&(
+        <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>Roles personalizados</div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {roles.filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)).map(r=>{
+          const nUsuarios=usuariosPorRol(r.id);
+          const modulos=r.modulos||[];
+          return(
+            <div key={r.id} className="section" style={{marginBottom:0}}>
+              <div style={{padding:"14px 16px"}}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                      <div style={{fontWeight:800,fontSize:15}}>{r.nombre}</div>
+                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"rgba(245,158,11,.12)",color:"var(--accent)",fontWeight:600}}>
+                        Basado en {ROL_LABEL[r.rolBase]||r.rolBase}
+                      </span>
+                    </div>
+                    {r.descripcion&&<div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>{r.descripcion}</div>}
+                    <div style={{fontSize:11,color:"var(--muted)"}}>
+                      {modulos.length} módulos · {nUsuarios} usuario(s) asignado(s)
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:7}}>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(r)}><Icon name="edit" size={12}/> Editar</button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(r)} disabled={nUsuarios>0}><Icon name="trash" size={12}/></button>
+                  </div>
+                </div>
+                {/* Preview módulos */}
+                <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:5}}>
+                  {modulos.slice(0,8).map(m=>{
+                    const mod=[...TODOS_MODULOS_ADMIN,...TODOS_MODULOS_ABAS].find(x=>x.id===m);
+                    return mod?<span key={m} style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"rgba(59,130,246,.1)",color:"var(--accent2)",fontWeight:600}}>{mod.label}</span>:null;
+                  })}
+                  {modulos.length>8&&<span style={{fontSize:10,color:"var(--muted)",padding:"2px 8px"}}>+{modulos.length-8} más</span>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Modal crear/editar rol */}
+      {modal&&<div className="modal-overlay"><div style={{background:"#fff",border:"1px solid rgba(245,158,11,.3)",borderRadius:16,padding:"24px 22px",width:"92%",maxWidth:600,maxHeight:"94vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(245,158,11,.1)"}}>
+        <ModalHeader titulo={editando?"Editar rol":"+  Nuevo rol"} subtitulo={editando?editando.nombre:null} onClose={()=>{setModal(false);setEditando(null);}}/>
+
+        <div className="form-row">
+          <div className="form-group"><label>Nombre del rol</label>
+            <input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Supervisor, Técnico, Auditor..."/>
+          </div>
+          <div className="form-group"><label>Descripción (opcional)</label>
+            <input value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} placeholder="Para qué sirve este rol"/>
+          </div>
+        </div>
+
+        {/* Base del rol */}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>Heredar permisos de</div>
+          <div style={{display:"flex",gap:8}}>
+            {rolesBase.map(rb=>(
+              <button key={rb} onClick={()=>cambiarBase(rb)}
+                style={{flex:1,padding:"9px",borderRadius:9,border:`2px solid ${form.rolBase===rb?"var(--accent)":"var(--border)"}`,
+                  background:form.rolBase===rb?"rgba(245,158,11,.08)":"var(--surface2)",cursor:"pointer",
+                  fontSize:12,fontWeight:700,color:form.rolBase===rb?"var(--accent)":"var(--muted)"}}>
+                {ROL_LABEL[rb]}
+              </button>
+            ))}
+          </div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:6}}>
+            Se cargarán los módulos del rol base. Puedes activar/desactivar los que necesites.
+          </div>
+        </div>
+
+        {/* Módulos */}
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>
+              Módulos disponibles — {form.modulos.length} seleccionados
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>selTodos(form.rolBase)} style={{fontSize:11,color:"var(--accent)",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>✅ Todos</button>
+              <button onClick={deselTodos} style={{fontSize:11,color:"var(--red)",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>✕ Ninguno</button>
+            </div>
+          </div>
+          {getTodosModulos(form.rolBase).map((item,i)=>{
+            if(item.section) return(
+              <div key={i} style={{fontSize:10,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginTop:12,marginBottom:6,paddingBottom:4,borderBottom:"1px solid rgba(245,158,11,.15)"}}>
+                {item.section}
+              </div>
+            );
+            const activo=form.modulos.includes(item.id);
+            return(
+              <div key={item.id} onClick={()=>toggleMod(item.id)}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:"pointer",
+                  background:activo?"rgba(245,158,11,.06)":"transparent",marginBottom:2,
+                  border:`1px solid ${activo?"rgba(245,158,11,.2)":"transparent"}`,transition:"all .1s"}}>
+                <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${activo?"var(--accent)":"var(--border)"}`,
+                  background:activo?"var(--accent)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {activo&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>}
+                </div>
+                <span style={{fontSize:13,fontWeight:activo?600:400,color:activo?"var(--text)":"var(--muted)"}}>{item.label}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={doSave} disabled={!form.nombre||form.modulos.length===0}>
+            {editando?"Guardar cambios":"Crear rol"}
+          </button>
+        </div>
+      </div></div>}
+
+      {confirmDel&&<ConfirmDelete
+        texto={`¿Eliminar el rol "${confirmDel.nombre}"?`}
+        onConfirm={async()=>{await del("roles",confirmDel.id);setConfirmDel(null);}}
+        onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
   {section:"General"},
@@ -5567,7 +5808,7 @@ const ADMIN_NAV=[
   {id:"reportes",label:"Reportes",icon:"trophy"},
   {section:"Administración"},
   {id:"personal",label:"Personal",icon:"personal"},
-  {id:"gestionUsuarios",label:"Gestión de usuarios",icon:"users"},
+  {id:"gestionUsuarios",label:"Gestión de usuarios",icon:"users"},{id:"gestionRoles",label:"Roles y permisos",icon:"lock"},
 ];
 const ABASTECEDOR_NAV=[
   {section:"Mi día"},
@@ -5600,7 +5841,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Planograma del día",ventasAtento:"Ventas Atento",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Planograma del día",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -5640,12 +5881,23 @@ export default function App(){
   if(!usuario)return(<><style>{css}</style><LoginScreen usuarios={data?.usuarios||[]} onLogin={(info)=>{
     const rol=info.usuario.rol;
     setUsuario(rol);setSesionUsuario(info.usuario);
+    // Si tiene rol personalizado, guardarlo también
+    if(info.usuario.rolId){setSesionUsuario({...info.usuario,_rolPersonalizado:info.usuario.rolId});}
     setTab(rol==="admin"?"dashboard":rol==="almacenero"?"stock":"mihorario");
   }}/></>);
   const esAdmin=usuario==="admin";
   const esAbastecedor=usuario==="abastecedor";
   const esAlmacenero=usuario==="almacenero";
-  const nav=esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV;
+  // Nav con soporte para roles personalizados
+  const modPermitidos=(()=>{
+    if(!sesionUsuario?.rolId)return null;
+    const rolP=(data?.roles||[]).find(r=>r.id===sesionUsuario.rolId);
+    return rolP?.modulos||null;
+  })();
+  const navBase=esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV;
+  const nav=modPermitidos
+    ?navBase.filter(item=>item.section||modPermitidos.includes(item.id))
+    :navBase;
   const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
   const rolUsuario=sesionUsuario?.rol||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
@@ -5658,6 +5910,7 @@ export default function App(){
     case "cierreDia":    return <CierreDia data={data}/>;
     case "personal":     return <Personal data={data} save={saveWrapped} del={delWrapped}/>;
     case "gestionUsuarios": return <GestionUsuarios data={data} save={saveWrapped} del={delWrapped}/>;
+    case "gestionRoles":    return <GestionRoles data={data} save={saveWrapped} del={delWrapped}/>;
     case "adminListasPrecios": return <AdminListasPrecios data={data} save={saveWrapped} del={delWrapped}/>;
     case "cafeteras":    return <Cafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin}/>;
     case "ventasCafeteras": return <VentasCafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
