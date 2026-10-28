@@ -5115,8 +5115,11 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
         numAtento:r['Num Atento']||r['num_atento']||'',
       }));
 
-      setCsvData({transacciones,comercio,totalRows:rows.length});
+      const csvPayload={transacciones,comercio,totalRows:rows.length};
+      setCsvData(csvPayload);
       setPaso(2);
+      // Si ya hay máquina seleccionada, hacer cruce inmediato
+      if(maqId) setTimeout(()=>cruzarConPlanogramaFn(csvPayload,maqId),100);
     };
     reader.readAsText(file,'UTF-8');
   };
@@ -5130,11 +5133,16 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
   };
 
   // ── Cruzar CSV con planograma ─────────────────────────────────────────────
-  const cruzarConPlanograma=()=>{
-    if(!csvData||!maqId)return;
-    const ac=csvData.transacciones.filter(t=>t.status==='ACEPTADA');
-    const errs=csvData.transacciones.filter(t=>t.status.includes('ERROR'));
-    const cans=csvData.transacciones.filter(t=>t.status.includes('CANCELADA'));
+  const cruzarConPlanograma=()=>cruzarConPlanogramaFn(null,null);
+  const cruzarConPlanogramaFn=(csvDataParam,maqIdParam)=>{
+    const csvD=csvDataParam||csvData;
+    const mqId=maqIdParam||maqId;
+    if(!csvD||!mqId)return;
+    // swap to local vars
+    const csvDataLocal=csvD; const maqIdLocal=mqId;
+    const ac=csvDataLocal.transacciones.filter(t=>t.status==='ACEPTADA');
+    const errs=csvDataLocal.transacciones.filter(t=>t.status.includes('ERROR'));
+    const cans=csvDataLocal.transacciones.filter(t=>t.status.includes('CANCELADA'));
 
     // Obtener fechas únicas del CSV
     const fechas=[...new Set(ac.map(t=>t.fecha))].sort();
@@ -5188,13 +5196,13 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       ingEf:ef.reduce((s,t)=>s+t.valor,0),
       ingYape:yape.reduce((s,t)=>s+t.valor,0),
       ingTarj:tarj.reduce((s,t)=>s+t.valor,0),
-      fechas,comercio:csvData.comercio,
+      fechas,comercio:csvDataLocal.comercio,
       planUsado,errores:errs,
     });
   };
 
   // Ejecutar cruce cuando hay datos y máquina
-  useState(()=>{if(csvData&&maqId)cruzarConPlanograma();},[csvData,maqId]);
+  useEffect(()=>{if(csvData&&maqId)cruzarConPlanograma();},[csvData,maqId]);
 
   // ── Guardar en Supabase ───────────────────────────────────────────────────
   const guardarVentas=async()=>{
