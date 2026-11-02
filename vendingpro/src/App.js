@@ -5054,6 +5054,8 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
   const [detalleMod,setDetalleMod]=useState(null); // venta a ver en detalle
   const [confirmDel,setConfirmDel]=useState(null);
   const [guardando,setGuardando]=useState(false);
+  const [errorCruce,setErrorCruce]=useState("");
+  const [avisoMaq,setAvisoMaq]=useState(false);
 
   const maq=(data.maquinas||[]).find(m=>m.id===maqId);
 
@@ -5090,16 +5092,17 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
     // Detectar comercio del nombre del archivo o parsear después
     const reader=new FileReader();
     reader.onload=(ev)=>{
-      const texto=ev.target.result;
+      const texto=(ev.target.result||'').replace(/^\uFEFF/,'');
       const rows=parsearCSV(texto);
       if(rows.length===0){alert("No se pudieron leer datos del CSV. Verifica el formato.");return;}
 
       // Detectar comercio
       const comercio=rows[0]?.['Comercio']||rows[0]?.['comercio']||'';
       // Auto-detectar máquina por comercio
-      if(comercio&&!maqId){
-        const maqDetectada=(data.maquinas||[]).find(m=>m.comercioAtento===comercio||m.nombre?.includes(comercio));
-        if(maqDetectada) setMaqId(maqDetectada.id);
+      let maqUsar=maqId;
+      if(comercio&&!maqUsar){
+        const maqDetectada=(data.maquinas||[]).find(m=>String(m.comercioAtento||'').trim()===String(comercio).trim()||m.nombre?.includes(comercio));
+        if(maqDetectada){maqUsar=maqDetectada.id;setMaqId(maqDetectada.id);}
       }
 
       // Procesar transacciones
@@ -5119,7 +5122,7 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       setCsvData(csvPayload);
       setPaso(2);
       // Si ya hay máquina seleccionada, hacer cruce inmediato
-      if(maqId) setTimeout(()=>cruzarConPlanogramaFn(csvPayload,maqId),100);
+      if(maqUsar) setTimeout(()=>cruzarConPlanogramaFn(csvPayload,maqUsar),100);
     };
     reader.readAsText(file,'UTF-8');
   };
@@ -5134,7 +5137,7 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
 
   // ── Cruzar CSV con planograma ─────────────────────────────────────────────
   const cruzarConPlanograma=()=>cruzarConPlanogramaFn(null,null);
-  const cruzarConPlanogramaFn=(csvDataParam,maqIdParam)=>{
+  const cruzarCore=(csvDataParam,maqIdParam)=>{
     const csvD=csvDataParam||csvData;
     const mqId=maqIdParam||maqId;
     if(!csvD||!mqId)return;
@@ -5149,8 +5152,8 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
 
     // Buscar planograma del mismo día (o más reciente antes)
     const plansMaq=(data.planogramas||[])
-      .filter(p=>p.maquinaId===maqId)
-      .sort((a,b)=>b.fecha?.localeCompare(a.fecha));
+      .filter(p=>p.maquinaId===maqIdLocal)
+      .sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
 
     // Para cada espiral, buscar el producto en el planograma más cercano
     const getProd=(espiral,fecha)=>{
@@ -5200,6 +5203,8 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       planUsado,errores:errs,
     });
   };
+
+  const cruzarConPlanogramaFn=(a,b)=>{try{setErrorCruce('');cruzarCore(a,b);}catch(e){console.error('Error cruce:',e);setErrorCruce(e.message||'Error procesando el CSV');}};
 
   // Ejecutar cruce cuando hay datos y máquina
   useEffect(()=>{if(csvData&&maqId)cruzarConPlanograma();},[csvData,maqId]);
@@ -5327,14 +5332,20 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
                   Descárgalo desde Atento → Monitorización → Exportar CSV<br/>
                   El sistema lo procesará automáticamente
                 </div>
-                <label style={{display:"inline-block",padding:"10px 24px",background:"var(--accent)",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:14,color:"#000"}}>
+                <label
+                  onClick={e=>{if(!maqId){e.preventDefault();setAvisoMaq(true);alert("⚠️ No seleccionaste ninguna máquina.\n\nElige primero la máquina (paso 1) y luego sube el CSV.");}}}
+                  style={{display:"inline-block",padding:"10px 24px",background:maqId?"var(--accent)":"#e5e7eb",borderRadius:10,cursor:maqId?"pointer":"not-allowed",fontWeight:700,fontSize:14,color:maqId?"#000":"#9ca3af"}}>
                   📂 Seleccionar CSV
-                  <input type="file" accept=".csv,.txt" onChange={handleCSV} style={{display:"none"}}/>
+                  <input type="file" accept=".csv,.txt" onChange={handleCSV} disabled={!maqId} style={{display:"none"}}/>
                 </label>
               </div>
-              {!maqId&&<div style={{marginTop:10,padding:"8px 12px",background:"rgba(245,158,11,.08)",borderRadius:8,fontSize:12,color:"var(--accent)"}}>
-                ⚠️ Selecciona la máquina primero para cruzar con el planograma correcto.
-              </div>}
+              {!maqId&&(avisoMaq
+                ?<div style={{marginTop:10,padding:"10px 14px",background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.35)",borderRadius:8,fontSize:13,fontWeight:700,color:"var(--red)"}}>
+                  ⛔ No seleccionaste ninguna máquina. Elige una en el paso 1 para poder subir el CSV.
+                </div>
+                :<div style={{marginTop:10,padding:"8px 12px",background:"rgba(245,158,11,.08)",borderRadius:8,fontSize:12,color:"var(--accent)"}}>
+                  ⚠️ Selecciona la máquina primero para habilitar la subida del CSV.
+                </div>)}
             </div>
           </div>
         </div>
@@ -5343,6 +5354,27 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       {/* PASO 2: Preview del cruce */}
       {paso===2&&csvData&&(
         <div>
+          {errorCruce&&<div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.25)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,color:"var(--red)"}}>⚠️ {errorCruce}</div>}
+          {!maqId&&(
+            <div className="section" style={{marginBottom:14}}>
+              <div className="section-header">
+                <h3>¿De qué máquina es este CSV?</h3>
+                <button className="btn btn-secondary btn-sm" onClick={()=>{setPaso(1);setCsvData(null);setCruce(null);}}>← Subir otro CSV</button>
+              </div>
+              <div style={{padding:"12px 16px"}}>
+                <div style={{fontSize:12,color:"var(--muted)",marginBottom:10}}>Leí {csvData.totalRows} registros{csvData.comercio?` del comercio ${csvData.comercio}`:""}. No pude identificar la máquina automáticamente, selecciónala:</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8}}>
+                  {(data.maquinas||[]).filter(m=>m.activa).map(m=>(
+                    <div key={m.id} onClick={()=>setMaqId(m.id)} style={{padding:"10px 12px",borderRadius:9,cursor:"pointer",border:"2px solid var(--border)",background:"var(--surface2)"}}>
+                      <div style={{fontWeight:700,fontSize:13}}>{m.nombre}</div>
+                      {m.ubicacion&&<div style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}</div>}
+                    </div>
+                  ))}
+                </div>
+                {csvData.comercio&&<div style={{fontSize:11,color:"var(--muted)",marginTop:10}}>💡 Edita la máquina en Máquinas y escribe el comercio {csvData.comercio} para que se detecte sola la próxima vez.</div>}
+              </div>
+            </div>
+          )}
           {/* Botón re-cruzar si cambia máquina */}
           {!cruce&&maqId&&(
             <button className="btn btn-primary" style={{marginBottom:12,width:"100%"}} onClick={cruzarConPlanograma}>
