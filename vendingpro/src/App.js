@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://nhtnwwhclseiaaobroro.supabase.co";
@@ -3050,7 +3050,7 @@ function PreKit({data,maqsFiltro=null}){
   );
 }
 
-function Reportes({data}){
+function ReportesRanking({data}){
   const [mes,setMes]=useState(mesActual());
   const [maqFiltro,setMaqFiltro]=useState("todas");
   const maqActivas=data.maquinas.filter(m=>m.activa);
@@ -6117,6 +6117,438 @@ function GestionRoles({data,save,del}){
         texto={`¿Eliminar el rol "${confirmDel.nombre}"?`}
         onConfirm={async()=>{await del("roles",confirmDel.id);setConfirmDel(null);}}
         onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REPORTES: pestañas (Atento detallado / Ranking general)
+// ═══════════════════════════════════════════════════════════════════════════════
+function Reportes({data}){
+  const [tab,setTab]=useState("atento");
+  return(
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {[["atento","📡 Atento detallado"],["ranking","📦 Ranking general"]].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{padding:"9px 18px",borderRadius:10,border:"2px solid "+(tab===id?"var(--accent)":"var(--border)"),background:tab===id?"var(--accent)":"#fff",color:tab===id?"#000":"var(--muted)",fontWeight:700,fontSize:13,cursor:"pointer"}}>{lbl}</button>
+        ))}
+      </div>
+      {tab==="atento"?<ReporteAtento data={data}/>:<ReportesRanking data={data}/>}
+    </div>
+  );
+}
+
+// ── REPORTE ATENTO: HELPERS ──────────────────────────────────────────────────
+const DIAS_ES=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+const normEspG=(x)=>{const s=String(x||"").trim();return /^[0-9]+$/.test(s)?String(parseInt(s,10)):s;};
+const iniPlan=(p)=>(p.fecha||"")+" "+(p.hora||"00:00:00");
+const esVacioTxt=(t)=>!t||/^(vac[ií]o|no visible)$/i.test(String(t).trim());
+const sumarDias=(iso,n)=>{const d=new Date(iso+"T12:00:00");d.setDate(d.getDate()+n);const p=x=>String(x).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());};
+
+// Cálculo puro del reporte: transacciones + planogramas + filtros => totales y rankings
+function calcularReporteAtento(raw,planogramas,f){
+  const planPorMaq={};
+  (planogramas||[]).forEach(p=>{(planPorMaq[p.maquinaId]=planPorMaq[p.maquinaId]||[]).push(p);});
+  Object.values(planPorMaq).forEach(arr=>arr.sort((a,b)=>iniPlan(a).localeCompare(iniPlan(b))));
+
+  // Cada venta toma el producto que había en esa selección en ese momento (según la foto vigente)
+  const conProd=raw.map(t=>{
+    const arr=planPorMaq[t.maquinaId]||[];
+    const ts=t.fecha+" "+(t.hora||"00:00:00");
+    let plan=null;
+    for(const p of arr){if(iniPlan(p)<=ts)plan=p;else break;}
+    const it=plan?(plan.espirales||[]).find(e=>normEspG(e.espiral)===t.espiral):null;
+    const producto=(it&&!esVacioTxt(it.producto))?String(it.producto).trim():null;
+    return{...t,planId:plan?plan.id:null,producto,
+      clave:producto?producto.toLowerCase():(t.maquinaId+"|"+t.espiral),
+      etiqueta:producto||(t.maquinaNombre+" · Cod. "+t.espiral)};
+  });
+
+  const q=(f.busca||"").trim().toLowerCase();
+  const filtradas=conProd.filter(t=>{
+    if(f.desde&&t.fecha<f.desde)return false;
+    if(f.hasta&&t.fecha>f.hasta)return false;
+    if(f.maqF&&t.maquinaId!==f.maqF)return false;
+    if(f.dowF!==""&&f.dowF!=null&&String(t.dow)!==String(f.dowF))return false;
+    if(f.horaF){
+      const h=t.hh;
+      if(f.horaF==="man"&&!(h>=6&&h<12))return false;
+      if(f.horaF==="tar"&&!(h>=12&&h<18))return false;
+      if(f.horaF==="noch"&&!(h>=18&&h<24))return false;
+      if(f.horaF==="mad"&&!(h>=0&&h<6))return false;
+    }
+    if(f.pagoF&&t.pago!==f.pagoF)return false;
+    if(f.statusF&&t.statusG!==f.statusF)return false;
+    if(q&&!t.etiqueta.toLowerCase().includes(q))return false;
+    return true;
+  });
+
+  const ac=filtradas.filter(t=>t.statusG==="ACEPTADA");
+  const errs=filtradas.filter(t=>t.statusG==="ERROR");
+  const cans=filtradas.filter(t=>t.statusG==="CANCELADA");
+  const suma=(arr)=>arr.reduce((s,t)=>s+t.valor,0);
+  const ef=ac.filter(t=>t.pago==="Efectivo");
+  const yape=ac.filter(t=>t.pago==="Yape/QR");
+  const tarj=ac.filter(t=>t.pago==="Tarjeta");
+  const dias=new Set(ac.map(t=>t.fecha));
+
+  const pd={};
+  ac.forEach(t=>{
+    const d=pd[t.fecha]||(pd[t.fecha]={fecha:t.fecha,qty:0,ing:0,ef:0,yape:0,tarj:0});
+    d.qty++;d.ing+=t.valor;
+    if(t.pago==="Efectivo")d.ef++;else if(t.pago==="Yape/QR")d.yape++;else d.tarj++;
+  });
+  const porDia=Object.values(pd).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+
+  const horas=Array.from({length:24},()=>({ef:0,yape:0,tarj:0}));
+  ac.forEach(t=>{
+    const h=horas[t.hh];if(!h)return;
+    if(t.pago==="Efectivo")h.ef++;else if(t.pago==="Yape/QR")h.yape++;else h.tarj++;
+  });
+
+  const pp={};
+  ac.forEach(t=>{
+    const r=pp[t.clave]||(pp[t.clave]={producto:t.etiqueta,identificado:!!t.producto,espirales:new Set(),maquinas:new Set(),qty:0,ing:0,ef:0,yape:0,tarj:0});
+    r.qty++;r.ing+=t.valor;r.espirales.add(t.espiral);r.maquinas.add(t.maquinaId);
+    if(t.pago==="Efectivo")r.ef++;else if(t.pago==="Yape/QR")r.yape++;else r.tarj++;
+  });
+  const ranking=Object.values(pp)
+    .map(r=>({...r,espirales:[...r.espirales].sort((a,b)=>(+a||0)-(+b||0)),maquinas:r.maquinas.size}))
+    .sort((a,b)=>b.qty-a.qty);
+
+  const pm={};
+  filtradas.forEach(t=>{
+    const r=pm[t.maquinaId]||(pm[t.maquinaId]={maquinaId:t.maquinaId,nombre:t.maquinaNombre,qty:0,ing:0,ef:0,yape:0,tarj:0,err:0});
+    if(t.statusG==="ERROR")r.err++;
+    if(t.statusG==="ACEPTADA"){
+      r.qty++;r.ing+=t.valor;
+      if(t.pago==="Efectivo")r.ef++;else if(t.pago==="Yape/QR")r.yape++;else r.tarj++;
+    }
+  });
+  const porMaq=Object.values(pm).sort((a,b)=>b.ing-a.ing);
+
+  // Selecciones del planograma que no vendieron (solo con una máquina elegida)
+  const sinVentas=[];
+  if(f.maqF){
+    const plans=planPorMaq[f.maqF]||[];
+    const d1=(f.desde||"0000-00-00")+" 00:00:00",d2=(f.hasta||"9999-12-31")+" 23:59:59";
+    const vendidas=new Set(ac.map(t=>t.planId+"|"+t.espiral));
+    plans.forEach((p,k)=>{
+      const ini=iniPlan(p),fin=k<plans.length-1?iniPlan(plans[k+1]):null;
+      if(ini<=d2&&(!fin||fin>d1)){
+        (p.espirales||[]).forEach(e=>{
+          if(esVacioTxt(e.producto))return;
+          const sp=normEspG(e.espiral);
+          if(!vendidas.has(p.id+"|"+sp))sinVentas.push({espiral:sp,producto:e.producto,planIni:ini});
+        });
+      }
+    });
+  }
+
+  return{filtradas,ac,errs,cans,totalIng:suma(ac),nDias:dias.size,ef,yape,tarj,
+    ingEf:suma(ef),ingYape:suma(yape),ingTarj:suma(tarj),porDia,horas,ranking,porMaq,sinVentas};
+}
+// ── FIN HELPERS REPORTE ATENTO ───────────────────────────────────────────────
+
+function ReporteAtento({data}){
+  const hoyL=ahoraLocal().fecha;
+  const [desde,setDesde]=useState(hoyL.slice(0,8)+"01");
+  const [hasta,setHasta]=useState(hoyL);
+  const [maqF,setMaqF]=useState("");
+  const [dowF,setDowF]=useState("");
+  const [horaF,setHoraF]=useState("");
+  const [pagoF,setPagoF]=useState("");
+  const [statusF,setStatusF]=useState("");
+  const [busca,setBusca]=useState("");
+  const [raw,setRaw]=useState([]);
+  const [cargando,setCargando]=useState(false);
+  const [errorCarga,setErrorCarga]=useState("");
+  const [detPage,setDetPage]=useState(50);
+  const [tab,setTab]=useState("prod");
+
+  // Carga las transacciones guardadas que tocan el rango de fechas elegido
+  useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      setCargando(true);setErrorCarga("");
+      const {data:rows,error}=await supabase.from("ventas_atento")
+        .select("id,maquina_id,maquina_nombre,desde,hasta,transacciones")
+        .lte("desde",hasta+" 23:59:59").gte("hasta",desde+" 00:00:00");
+      if(!vivo)return;
+      if(error){setErrorCarga(error.message||"No se pudieron cargar las ventas");setRaw([]);setCargando(false);return;}
+      const out=[];const visto=new Set();
+      (rows||[]).forEach(r=>{
+        (Array.isArray(r.transacciones)?r.transacciones:[]).forEach(t=>{
+          let fecha=String(t.fecha||"");
+          if(!/^[0-9]{4}-/.test(fecha)){const p=fecha.split(/[-/]/);if(p.length===3)fecha=p[2]+"-"+p[1].padStart(2,"0")+"-"+p[0].padStart(2,"0");}
+          const hora=String(t.hora||"00:00:00");
+          const st=String(t.status||"").toUpperCase();
+          const num=t.num!=null?t.num:parseInt(t.numAtento,10);
+          if(!isNaN(num)){const k=r.maquina_id+"|"+num;if(visto.has(k))return;visto.add(k);}
+          out.push({
+            maquinaId:r.maquina_id,maquinaNombre:String(r.maquina_nombre||"").trim(),
+            fecha,hora,hh:parseInt(hora.split(":")[0],10)||0,dow:new Date(fecha+"T12:00:00").getDay(),
+            statusG:st==="ACEPTADA"?"ACEPTADA":st.includes("ERROR")?"ERROR":st.includes("CANCEL")?"CANCELADA":"OTRO",
+            valor:+t.valor||0,espiral:normEspG(t.espiral),pago:t.pago||"",num:isNaN(num)?null:num,
+          });
+        });
+      });
+      setRaw(out);setCargando(false);
+    })();
+    return()=>{vivo=false;};
+  },[desde,hasta]);
+
+  const R=useMemo(()=>calcularReporteAtento(raw,data.planogramas,{desde,hasta,maqF,dowF,horaF,pagoF,statusF,busca}),
+    [raw,data.planogramas,desde,hasta,maqF,dowF,horaF,pagoF,statusF,busca]);
+
+  const fmtM=(n)=>"S/ "+(+n||0).toFixed(2);
+  const pct=(a,b)=>b?Math.round(a/b*100)+"%":"0%";
+  const MS=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const fd=(iso)=>{if(!iso)return "";const [y,m,d]=iso.split("-");return (+d)+" "+MS[(+m)-1]+" "+y;};
+  const thS={padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left",whiteSpace:"nowrap",background:"#fffbf0"};
+  const tdS={padding:"8px 12px",borderBottom:"1px solid rgba(245,158,11,.08)",fontSize:12};
+  const inputS={padding:"7px 10px",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,fontSize:12,background:"#fff",color:"var(--text)",outline:"none"};
+  const lblS={fontSize:10,fontWeight:600,color:"#888",textTransform:"uppercase"};
+
+  const mesAnt=(()=>{const [y,m]=hoyL.split("-").map(Number);const p=x=>String(x).padStart(2,"0");const f=d=>d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());return [f(new Date(y,m-2,1)),f(new Date(y,m-1,0))];})();
+  const rapidos=[["Hoy",hoyL,hoyL],["Ayer",sumarDias(hoyL,-1),sumarDias(hoyL,-1)],["Últimos 7 días",sumarDias(hoyL,-6),hoyL],["Este mes",hoyL.slice(0,8)+"01",hoyL],["Mes anterior",mesAnt[0],mesAnt[1]],["Todo","2020-01-01",hoyL]];
+  const maquinasLista=[...(data.maquinas||[])].sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||""));
+  const maxDia=Math.max(...R.porDia.map(d=>d.qty),1);
+  const maxHora=Math.max(...R.horas.map(h=>h.ef+h.yape+h.tarj),1);
+  const detalle=[...R.filtradas].sort((a,b)=>(b.fecha+" "+b.hora).localeCompare(a.fecha+" "+a.hora));
+  const nAc=R.ac.length;
+
+  const exportarCSV=()=>{
+    const cab=["Fecha","Hora","Dia","Maquina","Cod Seleccion","Producto","Valor","Pago","Estado","Num Venta"];
+    const filas=detalle.map(t=>[t.fecha,t.hora,DIAS_ES[t.dow],t.maquinaNombre,t.espiral,t.producto||"",t.valor.toFixed(2),t.pago,t.statusG,t.num==null?"":t.num]);
+    const csv="\uFEFF"+[cab,...filas].map(r=>r.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(";")).join("\r\n");
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download="reporte_atento_"+desde+"_a_"+hasta+".csv";a.click();URL.revokeObjectURL(url);
+  };
+
+  const cards=[
+    ["💰 Ingresos",fmtM(R.totalIng),nAc+" ventas aceptadas","var(--accent)"],
+    ["📦 Ventas por día",(nAc/(R.nDias||1)).toFixed(1),"en "+R.nDias+" día"+(R.nDias!==1?"s":""),"var(--green)"],
+    ["🧾 Ticket promedio",fmtM(nAc?R.totalIng/nAc:0),"por venta","var(--accent)"],
+    ["💵 Efectivo",R.ef.length,fmtM(R.ingEf)+" · "+pct(R.ef.length,nAc),"var(--green)"],
+    ["📱 Yape / QR",R.yape.length,fmtM(R.ingYape)+" · "+pct(R.yape.length,nAc),"#7c3aed"],
+    ["💳 Tarjeta",R.tarj.length,fmtM(R.ingTarj)+" · "+pct(R.tarj.length,nAc),"var(--accent2)"],
+    ["⚠️ Errores",R.errs.length,"de dispensado","var(--red)"],
+    ["❌ Canceladas",R.cans.length,"sin cobro","var(--muted)"],
+  ];
+
+  return(
+    <div>
+      {/* FILTROS */}
+      <div className="section" style={{marginBottom:14}}>
+        <div className="section-header">
+          <h3>🔍 Filtros</h3>
+          <span style={{fontSize:11,color:"var(--muted)"}}>{cargando?"⏳ Cargando...":(fd(desde)+" → "+fd(hasta)+" · "+nAc+" ventas")}</span>
+        </div>
+        <div style={{padding:"12px 16px"}}>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+            {rapidos.map(([l,d1,d2])=>(
+              <button key={l} className="btn btn-secondary btn-sm" onClick={()=>{setDesde(d1);setHasta(d2);setDetPage(50);}}>{l}</button>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}><label style={lblS}>Desde</label><input type="date" value={desde} onChange={e=>e.target.value&&setDesde(e.target.value)} style={inputS}/></div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}><label style={lblS}>Hasta</label><input type="date" value={hasta} onChange={e=>e.target.value&&setHasta(e.target.value)} style={inputS}/></div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}><label style={lblS}>Máquina</label>
+              <select value={maqF} onChange={e=>setMaqF(e.target.value)} style={inputS}>
+                <option value="">Todas</option>
+                {maquinasLista.map(m=><option key={m.id} value={m.id}>{(m.nombre||"").trim()}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}><label style={lblS}>Día de la semana</label>
+              <select value={dowF} onChange={e=>setDowF(e.target.value)} style={inputS}>
+                <option value="">Todos</option>
+                {[1,2,3,4,5,6,0].map(d=><option key={d} value={String(d)}>{DIAS_ES[d]}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}><label style={lblS}>Hora</label>
+              <select value={horaF} onChange={e=>setHoraF(e.target.value)} style={inputS}>
+                <option value="">Todas</option>
+                <option value="man">☀️ Mañana (6-12)</option>
+                <option value="tar">🌤️ Tarde (12-18)</option>
+                <option value="noch">🌙 Noche (18-24)</option>
+                <option value="mad">🌌 Madrugada (0-6)</option>
+              </select>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}><label style={lblS}>Estado</label>
+              <select value={statusF} onChange={e=>setStatusF(e.target.value)} style={inputS}>
+                <option value="">Todos</option>
+                <option value="ACEPTADA">✅ Aceptadas</option>
+                <option value="ERROR">⚠️ Errores</option>
+                <option value="CANCELADA">❌ Canceladas</option>
+              </select>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}><label style={lblS}>Producto / máquina</label>
+              <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar..." style={{...inputS,width:150}}/>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={()=>{setMaqF("");setDowF("");setHoraF("");setPagoF("");setStatusF("");setBusca("");setDetPage(50);}}>↺ Limpiar filtros</button>
+          </div>
+          <div style={{marginTop:12}}>
+            <div style={{...lblS,marginBottom:6}}>Método de pago</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[["","💳 Todos"],["Efectivo","💵 Efectivo"],["Yape/QR","📱 Yape / QR"],["Tarjeta","💳 Tarjeta"]].map(([v,l])=>(
+                <div key={v||"todos"} onClick={()=>setPagoF(v)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",border:"2px solid "+(pagoF===v?"var(--accent)":"var(--border)"),background:pagoF===v?"var(--accent)":"#fff",color:pagoF===v?"#000":"var(--muted)"}}>{l}</div>
+              ))}
+            </div>
+          </div>
+          {desde>hasta&&<div style={{marginTop:10,fontSize:12,color:"var(--red)"}}>⚠️ La fecha "Desde" es posterior a "Hasta".</div>}
+          {errorCarga&&<div style={{marginTop:10,fontSize:12,color:"var(--red)"}}>⚠️ {errorCarga}</div>}
+        </div>
+      </div>
+
+      {!cargando&&raw.length===0&&!errorCarga&&(
+        <div className="section" style={{marginBottom:14}}><div style={{padding:28,textAlign:"center",color:"var(--muted)",fontSize:13}}>
+          No hay ventas de Atento importadas entre {fd(desde)} y {fd(hasta)}. Importa los CSV en <strong>Análisis → Ventas Atento</strong> o cambia el rango de fechas.
+        </div></div>
+      )}
+
+      {/* TARJETAS */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:14}}>
+        {cards.map(([l,v,s,col])=>(
+          <div key={l} className="card"><div className="card-label">{l}</div><div style={{fontSize:22,fontWeight:800,color:col}}>{v}</div><div className="card-sub">{s}</div></div>
+        ))}
+      </div>
+
+      {/* VENTAS POR DÍA */}
+      <div className="section" style={{marginBottom:14}}>
+        <div className="section-header"><h3>📅 Ventas por día</h3><span style={{fontSize:10,color:"var(--muted)"}}>💵 efectivo · 📱 Yape/QR · 💳 tarjeta</span></div>
+        <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:7}}>
+          {R.porDia.length===0?<div style={{padding:16,textAlign:"center",color:"var(--muted)",fontSize:12}}>Sin ventas con estos filtros</div>:R.porDia.map(d=>(
+            <div key={d.fecha} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+              <div style={{width:92,textAlign:"right",color:"#888",flexShrink:0,fontSize:11}}>{DIAS_ES[new Date(d.fecha+"T12:00:00").getDay()].slice(0,3)} {fd(d.fecha).slice(0,-5)}</div>
+              <div style={{background:"var(--accent)",borderRadius:4,height:20,display:"flex",alignItems:"center",padding:"0 7px",fontSize:11,fontWeight:700,color:"#000",minWidth:24,width:Math.max(d.qty/maxDia*60,4)+"%"}}>{d.qty}</div>
+              <div style={{color:"#888",fontSize:11}}>{fmtM(d.ing)} · 💵{d.ef} 📱{d.yape} 💳{d.tarj}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* DISTRIBUCIÓN POR HORA */}
+      <div className="section" style={{marginBottom:14}}>
+        <div className="section-header"><h3>🕐 Distribución por hora</h3></div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:3,height:90,padding:"8px 14px 0"}}>
+          {R.horas.map((h,k)=>{
+            const t=h.ef+h.yape+h.tarj;const pe=t?h.ef/t*100:0;const py=t?h.yape/t*100:0;
+            return <div key={k} title={k+"h: "+t+" ventas (💵"+h.ef+" 📱"+h.yape+" 💳"+h.tarj+")"} style={{flex:1,minWidth:6,height:Math.max(t/maxHora*100,2)+"%",borderRadius:"3px 3px 0 0",background:"linear-gradient(to top,#10b981 "+pe+"%,#7c3aed "+pe+"% "+(pe+py)+"%,#3b82f6 "+(pe+py)+"% 100%)"}}/>;
+          })}
+        </div>
+        <div style={{display:"flex",gap:3,padding:"4px 14px 10px",fontSize:9,color:"#aaa"}}>
+          {R.horas.map((h,k)=><div key={k} style={{flex:1,textAlign:"center"}}>{k%3===0?k+"h":""}</div>)}
+        </div>
+      </div>
+
+      {/* DETALLE EN PESTAÑAS */}
+      <div className="section">
+        <div style={{display:"flex",gap:6,padding:"10px 14px 0",borderBottom:"1px solid rgba(245,158,11,.15)",overflowX:"auto"}}>
+          {[["prod","🏆 Productos"],["maq","🎰 Por máquina"],["sin","🐌 Sin ventas"],["err","⚠️ Errores"],["det","📋 Detalle"]].map(([id,l])=>(
+            <button key={id} onClick={()=>setTab(id)} style={{padding:"7px 14px",borderRadius:"8px 8px 0 0",fontSize:12,fontWeight:600,cursor:"pointer",border:"none",background:tab===id?"var(--accent)":"transparent",color:tab===id?"#000":"#888",whiteSpace:"nowrap"}}>{l}</button>
+          ))}
+        </div>
+
+        {tab==="prod"&&(
+          <div style={{overflowX:"auto"}}>
+            {R.ranking.length===0?<div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin ventas con estos filtros</div>:(
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr><th style={thS}>#</th><th style={thS}>Producto</th><th style={thS}>Cod. Selección</th><th style={thS}>Máq.</th><th style={thS}>Ventas</th><th style={thS}>Ingreso</th><th style={thS}>% ventas</th><th style={thS}>💵</th><th style={thS}>📱</th><th style={thS}>💳</th></tr></thead>
+                <tbody>
+                  {R.ranking.map((r,k)=>(
+                    <tr key={r.producto+"-"+k}>
+                      <td style={{...tdS,color:"var(--muted)"}}>{k+1}</td>
+                      <td style={{...tdS,fontWeight:600}}>{r.producto}{!r.identificado&&<span style={{marginLeft:6,fontSize:9,color:"var(--muted)"}}>(sin foto)</span>}</td>
+                      <td style={tdS}>{r.espirales.join(", ")}</td>
+                      <td style={tdS}>{r.maquinas}</td>
+                      <td style={{...tdS,fontWeight:800,color:"var(--accent)"}}>{r.qty}</td>
+                      <td style={tdS}>{fmtM(r.ing)}</td>
+                      <td style={{...tdS,color:"var(--muted)"}}>{pct(r.qty,nAc)}</td>
+                      <td style={tdS}>{r.ef||"-"}</td><td style={tdS}>{r.yape||"-"}</td><td style={tdS}>{r.tarj||"-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {tab==="maq"&&(
+          <div style={{overflowX:"auto"}}>
+            {R.porMaq.length===0?<div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin datos con estos filtros</div>:(
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr><th style={thS}>Máquina</th><th style={thS}>Ventas</th><th style={thS}>Ingreso</th><th style={thS}>% ingreso</th><th style={thS}>💵</th><th style={thS}>📱</th><th style={thS}>💳</th><th style={thS}>Errores</th></tr></thead>
+                <tbody>
+                  {R.porMaq.map(r=>(
+                    <tr key={r.maquinaId}>
+                      <td style={{...tdS,fontWeight:700}}>{r.nombre}</td>
+                      <td style={{...tdS,fontWeight:800,color:"var(--accent)"}}>{r.qty}</td>
+                      <td style={tdS}>{fmtM(r.ing)}</td>
+                      <td style={{...tdS,color:"var(--muted)"}}>{pct(r.ing,R.totalIng)}</td>
+                      <td style={tdS}>{r.ef||"-"}</td><td style={tdS}>{r.yape||"-"}</td><td style={tdS}>{r.tarj||"-"}</td>
+                      <td style={{...tdS,color:r.err?"var(--red)":"var(--muted)"}}>{r.err||"-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {tab==="sin"&&(
+          <div style={{padding:"14px 16px"}}>
+            {!maqF?<div style={{color:"var(--muted)",fontSize:13}}>Elige una <strong>máquina</strong> en los filtros para ver qué selecciones de su planograma no vendieron nada en el período.</div>
+              :R.sinVentas.length===0?<div style={{color:"var(--muted)",fontSize:13}}>Todas las selecciones con producto vendieron algo (o la máquina no tiene planograma en este período).</div>
+              :<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {R.sinVentas.map((x,k)=>(<span key={k} style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:"rgba(100,116,139,.12)",color:"var(--muted)",fontWeight:600}}>{x.espiral} · {x.producto}</span>))}
+              </div>}
+          </div>
+        )}
+
+        {tab==="err"&&(
+          <div style={{overflowX:"auto"}}>
+            {R.errs.length===0?<div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin errores de dispensado con estos filtros</div>:(
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr><th style={thS}>Fecha</th><th style={thS}>Hora</th><th style={thS}>Máquina</th><th style={thS}>Cod.</th><th style={thS}>Producto</th><th style={thS}>Valor</th><th style={thS}>Pago</th></tr></thead>
+                <tbody>
+                  {R.errs.map((t,k)=>(
+                    <tr key={k}><td style={tdS}>{fd(t.fecha)}</td><td style={tdS}>{t.hora}</td><td style={tdS}>{t.maquinaNombre}</td><td style={{...tdS,fontWeight:700}}>{t.espiral}</td><td style={tdS}>{t.producto||"—"}</td><td style={tdS}>{fmtM(t.valor)}</td><td style={tdS}>{t.pago}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {tab==="det"&&(
+          <div>
+            <div style={{padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:12,color:"var(--muted)"}}>{detalle.length} transacciones</span>
+              <button className="btn btn-secondary btn-sm" onClick={exportarCSV} disabled={detalle.length===0}>⬇️ Exportar CSV</button>
+            </div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead><tr><th style={thS}>Fecha</th><th style={thS}>Hora</th><th style={thS}>Día</th><th style={thS}>Máquina</th><th style={thS}>Cod.</th><th style={thS}>Producto</th><th style={thS}>Valor</th><th style={thS}>Pago</th><th style={thS}>Estado</th><th style={thS}>N° venta</th></tr></thead>
+                <tbody>
+                  {detalle.slice(0,detPage).map((t,k)=>(
+                    <tr key={k}>
+                      <td style={tdS}>{fd(t.fecha)}</td><td style={tdS}>{t.hora}</td><td style={tdS}>{DIAS_ES[t.dow]}</td>
+                      <td style={tdS}>{t.maquinaNombre}</td><td style={{...tdS,fontWeight:700}}>{t.espiral}</td>
+                      <td style={tdS}>{t.producto||"—"}</td><td style={tdS}>{fmtM(t.valor)}</td><td style={tdS}>{t.pago}</td>
+                      <td style={{...tdS,color:t.statusG==="ACEPTADA"?"var(--green)":t.statusG==="ERROR"?"var(--red)":"var(--muted)",fontWeight:600}}>{t.statusG}</td>
+                      <td style={{...tdS,color:"var(--muted)"}}>{t.num==null?"":"#"+t.num}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {detalle.length>detPage&&<div onClick={()=>setDetPage(p=>p+50)} style={{padding:12,textAlign:"center",fontSize:12,color:"var(--accent)",cursor:"pointer",fontWeight:600,borderTop:"1px solid rgba(245,158,11,.1)"}}>Ver 50 más…</div>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
