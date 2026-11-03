@@ -696,69 +696,157 @@ function GastosAdicionales({data,save,del}){
 // ─── PRODUCTOS ────────────────────────────────────────────────────────────────
 function Productos({data,save,del,soloEditar=false}){
   const [busqueda,setBusqueda]=useState("");
-  const productosFiltrados=[...data.productos].sort((a,b)=>a.nombre.localeCompare(b.nombre)).filter(p=>!busqueda||p.nombre.toLowerCase().includes(busqueda.toLowerCase())||p.proveedor?.toLowerCase().includes(busqueda.toLowerCase()));
+  const [filtro,setFiltro]=useState("todos"); // todos | bajo | vence | sinstock
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [precioEdit,setPrecioEdit]=useState("");
   const [editandoPrecioId,setEditandoPrecioId]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
-  const [form,setForm]=useState({nombre:"",costo:"",margen:"",precioVenta:"",precioEco:"",proveedor:"",fecha:today(),fechaVenc:""});
+  const [entrada,setEntrada]=useState(null); // {producto, cantidad, fechaVenc}
+  const FORM0={nombre:"",costo:"",margen:"",precioVenta:"",precioEco:"",proveedor:"",fecha:"",cantidad:"",minimo:"",fechaReg:"",fechaVenc:""};
+  const [form,setForm]=useState(FORM0);
+
   const est=(c,m)=>c&&m?(+c*(1+ +m/100)).toFixed(2):"";
-  const abrirNuevo=()=>{setForm({nombre:"",costo:"",margen:"",precioVenta:"",proveedor:"",fecha:today()});setEditando(null);setModal(true);};
-  const abrirEditar=(p)=>{const s=data.stock.find(st=>st.productoId===p.id);setForm({nombre:p.nombre,costo:String(p.costo),margen:String(p.margen),precioVenta:String(p.precioVenta||""),precioEco:String(p.precioEco||""),proveedor:p.proveedor,fecha:p.fecha||today(),fechaVenc:s?.fechaVenc||""});setEditando(p);setModal(true);};
+  const stockDe=(id)=>(data.stock||[]).find(s=>s.productoId===id)||null;
+  const diasPara=(f)=>Math.ceil((new Date(f)-new Date())/(1000*60*60*24));
+
+  const abrirNuevo=()=>{setForm({...FORM0,fecha:ahoraLocal().fecha});setEditando(null);setModal(true);};
+  const abrirEditar=(p)=>{
+    const s=stockDe(p.id);
+    setForm({
+      nombre:p.nombre||"",costo:String(p.costo??""),margen:String(p.margen??""),
+      precioVenta:String(p.precioVenta||""),precioEco:String(p.precioEco||""),
+      proveedor:p.proveedor||"",fecha:p.fecha||ahoraLocal().fecha,
+      cantidad:s?String(s.cantidad):"",minimo:s?String(s.minimo):"",
+      fechaReg:s?.fechaReg||"",fechaVenc:s?.fechaVenc||"",
+    });
+    setEditando(p);setModal(true);
+  };
+
+  // @@doSave
   const doSave=async()=>{
     if(!form.nombre||!form.costo)return;
     const e=parseFloat(est(form.costo,form.margen));
-    const obj={nombre:form.nombre,costo:+form.costo,margen:+form.margen,precioVenta:form.precioVenta?+form.precioVenta:e,precioEco:form.precioEco?+form.precioEco:null,proveedor:form.proveedor,fecha:form.fecha};
-    if(editando){
-      await save("productos",editando.id,{...editando,...obj});
-      const s=data.stock.find(st=>st.productoId===editando.id);
-      if(s)await save("stock",s.id,{...s,fechaVenc:form.fechaVenc||null});
-    } else{const id=uid();await save("productos",id,{id,...obj});}
-    setModal(false);setEditando(null);
+    const obj={
+      nombre:form.nombre.trim(),costo:+form.costo,margen:+form.margen||0,
+      precioVenta:form.precioVenta?+form.precioVenta:(isNaN(e)?+form.costo:e),
+      precioEco:form.precioEco?+form.precioEco:null,
+      proveedor:form.proveedor,fecha:form.fecha,
+    };
+    setModal(false);
+    const pid=editando?editando.id:uid();
+    await save("productos",pid,editando?{...editando,...obj}:{id:pid,...obj});
+    // Stock: se registra aquí mismo o luego al editar. Si no se llena nada, el producto queda sin stock.
+    const s=editando?stockDe(editando.id):null;
+    const hayStock=form.cantidad!==""||form.minimo!==""||form.fechaVenc!=="";
+    if(s||hayStock){
+      const sid=s?s.id:uid();
+      await save("stock",sid,{
+        ...(s||{}),id:sid,productoId:pid,
+        cantidad:form.cantidad===""?(s?s.cantidad:0):+form.cantidad,
+        minimo:form.minimo===""?(s?s.minimo:10):+form.minimo,
+        fechaVenc:form.fechaVenc||null,
+        fechaReg:form.fechaReg||(s?s.fechaReg:null)||ahoraLocal().fecha,
+      });
+    }
+    setEditando(null);
   };
+  // @@fin-doSave
+
+  // @@entrada
+  const guardarEntrada=async()=>{
+    const n=+(entrada&&entrada.cantidad);
+    if(!n||n<=0)return;
+    const p=entrada.producto;
+    const s=stockDe(p.id);
+    const fv=entrada.fechaVenc;
+    setEntrada(null);
+    if(s)await save("stock",s.id,{...s,cantidad:(+s.cantidad||0)+n,fechaVenc:fv||s.fechaVenc||null,fechaReg:ahoraLocal().fecha});
+    else{const sid=uid();await save("stock",sid,{id:sid,productoId:p.id,cantidad:n,minimo:10,fechaVenc:fv||null,fechaReg:ahoraLocal().fecha});}
+  };
+  // @@fin-entrada
+
   const guardarPrecio=async(p)=>{await save("productos",p.id,{...p,precioVenta:+precioEdit});setEditandoPrecioId(null);};
+
+  const filas=[...data.productos].sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(p=>({p,s:stockDe(p.id)}));
+  const q=busqueda.toLowerCase();
+  const filtradas=filas.filter(({p,s})=>{
+    if(q&&!(p.nombre||"").toLowerCase().includes(q)&&!(p.proveedor||"").toLowerCase().includes(q))return false;
+    if(filtro==="bajo")return !!s&&s.cantidad<=s.minimo;
+    if(filtro==="vence")return !!s&&!!s.fechaVenc&&diasPara(s.fechaVenc)<=30;
+    if(filtro==="sinstock")return !s;
+    return true;
+  });
+  const nBajo=filas.filter(({s})=>s&&s.cantidad<=s.minimo).length;
+  const nVence=filas.filter(({s})=>s&&s.fechaVenc&&diasPara(s.fechaVenc)<=30).length;
+  const nSin=filas.filter(({s})=>!s).length;
+  const valorStock=filas.reduce((t,{p,s})=>t+(s?(+s.cantidad||0)*(+p.costo||0):0),0);
+
   return(
     <div>
-      <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por nombre o proveedor..." total={data.productos.length} filtrado={productosFiltrados.length}/>
+      <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por nombre o proveedor..." total={data.productos.length} filtrado={filtradas.length}/>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        {[["todos","Todos ("+filas.length+")"],["bajo","⚠️ Stock bajo ("+nBajo+")"],["vence","⏳ Por vencer ("+nVence+")"],["sinstock","📭 Sin stock registrado ("+nSin+")"]].map(([id,l])=>(
+          <button key={id} onClick={()=>setFiltro(id)} style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",border:"2px solid "+(filtro===id?"var(--accent)":"var(--border)"),background:filtro===id?"var(--accent)":"#fff",color:filtro===id?"#000":"var(--muted)"}}>{l}</button>
+        ))}
+      </div>
       <div className="section">
-        <div className="section-header"><h3>Catálogo de productos</h3><button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button></div>
+        <div className="section-header">
+          <h3>Productos y stock del almacén</h3>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:11,color:"var(--muted)"}}>Inventario al costo: <strong style={{color:"var(--text)"}}>{fmt(valorStock)}</strong></span>
+            <button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button>
+          </div>
+        </div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Producto</th><th>F.Registro</th><th>F.Vencimiento</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Estimado</th><th>Precio venta</th><th>Precio económico</th><th>Acciones</th></tr></thead>
-          <tbody>{productosFiltrados.map(p=>{
-            const e=(p.costo*(1+p.margen/100)).toFixed(2);
-            const epId=editandoPrecioId===p.id;
-            return(<tr key={p.id}>
-              <td><strong>{p.nombre}</strong></td>
-              <td style={{color:"var(--muted)",fontSize:11}}>{p.fecha||"—"}</td>
-              <td>{(()=>{const s=data.stock.find(st=>st.productoId===p.id);if(!s?.fechaVenc)return<span style={{color:"var(--muted)",fontSize:11}}>—</span>;const dias=Math.ceil((new Date(s.fechaVenc)-new Date())/(1000*60*60*24));return<span style={{fontSize:11,fontWeight:600,color:dias<=7?"var(--red)":dias<=30?"var(--accent)":"var(--muted)"}}>{s.fechaVenc}{dias<=30&&<span style={{marginLeft:3,fontSize:9}}>{dias<=0?"⚠️ Vencido":dias<=7?`⚠️ ${dias}d`:`⚡ ${dias}d`}</span>}</span>;})()}</td>
-              <td style={{color:"var(--muted)"}}>{p.proveedor}</td>
-              <td>{fmt(p.costo)}</td>
-              <td><span className="badge amber">{p.margen}%</span></td>
-              <td><span className="precio-estimado">S/ {e}</span></td>
-              <td>{epId
-                ?<div style={{display:"flex",gap:5,alignItems:"center"}}>
-                    <input type="number" step="0.10" value={precioEdit} onChange={ev=>setPrecioEdit(ev.target.value)} style={{width:75,padding:"4px 7px",background:"var(--surface2)",border:"1px solid var(--accent)",borderRadius:7,color:"var(--text)",fontSize:12}}/>
-                    <button className="btn btn-primary btn-sm" onClick={()=>guardarPrecio(p)}>OK</button>
-                    <button className="btn btn-secondary btn-sm" onClick={()=>setEditandoPrecioId(null)}>✕</button>
-                  </div>
-                :<div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <span className="precio-real">{fmt(p.precioVenta||e)}</span>
-                    <button className="btn btn-secondary btn-sm" onClick={()=>{setEditandoPrecioId(p.id);setPrecioEdit(p.precioVenta||e);}}><Icon name="edit" size={11}/></button>
-                  </div>
-              }</td>
-              <td>{p.precioEco?<span className="precio-eco">{fmt(p.precioEco)}</span>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
-              <td><div style={{display:"flex",gap:5}}>
-                <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/></button>
-                {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={12}/></button>}
-              </div></td>
-            </tr>);
-          })}</tbody>
+          <thead><tr><th>Producto</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Precio venta</th><th>Precio económico</th><th>Stock</th><th>Mínimo</th><th>Estado</th><th>F.Vencimiento</th><th>Acciones</th></tr></thead>
+          <tbody>
+            {filtradas.length===0&&<tr><td colSpan={11} style={{padding:24,textAlign:"center",color:"var(--muted)"}}>Sin productos con este filtro</td></tr>}
+            {filtradas.map(({p,s})=>{
+              const e=((+p.costo||0)*(1+(+p.margen||0)/100)).toFixed(2);
+              const epId=editandoPrecioId===p.id;
+              const bajo=!!s&&s.cantidad<=s.minimo;
+              const dias=s&&s.fechaVenc?diasPara(s.fechaVenc):null;
+              return(<tr key={p.id}>
+                <td><strong>{p.nombre}</strong></td>
+                <td style={{color:"var(--muted)"}}>{p.proveedor||"—"}</td>
+                <td>{fmt(p.costo)}</td>
+                <td><span className="badge amber">{p.margen}%</span></td>
+                <td>{epId
+                  ?<div style={{display:"flex",gap:5,alignItems:"center"}}>
+                      <input type="number" step="0.10" value={precioEdit} onChange={ev=>setPrecioEdit(ev.target.value)} style={{width:75,padding:"4px 7px",background:"var(--surface2)",border:"1px solid var(--accent)",borderRadius:7,color:"var(--text)",fontSize:12}}/>
+                      <button className="btn btn-primary btn-sm" onClick={()=>guardarPrecio(p)}>OK</button>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>setEditandoPrecioId(null)}>✕</button>
+                    </div>
+                  :<div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span className="precio-real">{fmt(p.precioVenta||e)}</span>
+                      <button className="btn btn-secondary btn-sm" onClick={()=>{setEditandoPrecioId(p.id);setPrecioEdit(p.precioVenta||e);}}><Icon name="edit" size={11}/></button>
+                    </div>
+                }</td>
+                <td>{p.precioEco?<span className="precio-eco">{fmt(p.precioEco)}</span>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
+                <td>{s?<span style={{fontSize:15,fontWeight:800,color:bajo?"var(--red)":"var(--text)"}}>{s.cantidad}</span>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
+                <td style={{color:"var(--muted)"}}>{s?s.minimo:"—"}</td>
+                <td>{!s
+                  ?<span className="badge" style={{background:"rgba(100,116,139,.15)",color:"var(--muted)"}}>Sin stock</span>
+                  :<span className={"badge "+(bajo?"red":s.cantidad>s.minimo*2?"green":"amber")}>{bajo?"Stock bajo":s.cantidad>s.minimo*2?"OK":"Moderado"}</span>}</td>
+                <td>{dias===null
+                  ?<span style={{color:"var(--muted)",fontSize:11}}>—</span>
+                  :<span style={{fontSize:11,fontWeight:600,color:dias<=7?"var(--red)":dias<=30?"var(--accent)":"var(--muted)"}}>{s.fechaVenc}{dias<=30&&<span style={{marginLeft:3,fontSize:9}}>{dias<=0?"⚠️ Vencido":dias<=7?"⚠️ "+dias+"d":"⚡ "+dias+"d"}</span>}</span>}</td>
+                <td><div style={{display:"flex",gap:5}}>
+                  <button className="btn btn-secondary btn-sm" title="Ingreso de stock" onClick={()=>setEntrada({producto:p,cantidad:"",fechaVenc:""})}>➕</button>
+                  <button className="btn btn-secondary btn-sm" title="Editar" onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/></button>
+                  {!soloEditar&&<button className="btn btn-danger btn-sm" title="Eliminar" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={12}/></button>}
+                </div></td>
+              </tr>);
+            })}
+          </tbody>
         </table></div>
       </div>
+
       {modal&&<div className="modal-overlay"><div className="modal">
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>{editando?"Editar producto":"Nuevo producto"}</h3><CloseBtn onClick={()=>{setModal(false);setEditando(null);}}/></div>
         {editando&&<div className="edit-banner">✏️ Editando: <strong>{editando.nombre}</strong></div>}
+        <div style={{fontSize:11,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",margin:"10px 0 6px"}}>Datos del producto</div>
         <div className="form-row">
           <div className="form-group"><label>Nombre</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Coca Cola 500ml"/></div>
           <div className="form-group"><label>Fecha de registro</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
@@ -768,18 +856,45 @@ function Productos({data,save,del,soloEditar=false}){
           <div className="form-group"><label>Margen (%)</label><input type="number" value={form.margen} onChange={e=>setForm({...form,margen:e.target.value})}/></div>
         </div>
         {form.costo&&form.margen&&<div className="info-box">Precio estimado: <strong>S/ {est(form.costo,form.margen)}</strong></div>}
-        <div className="form-group"><label>Precio real de venta (puedes redondearlo)</label><input type="number" step="0.10" value={form.precioVenta} onChange={e=>setForm({...form,precioVenta:e.target.value})} placeholder={`Ej: ${est(form.costo,form.margen)||"2.50"}`}/></div>
+        <div className="form-group"><label>Precio real de venta (puedes redondearlo)</label><input type="number" step="0.10" value={form.precioVenta} onChange={e=>setForm({...form,precioVenta:e.target.value})} placeholder={"Ej: "+(est(form.costo,form.margen)||"2.50")}/></div>
         <div className="form-group"><label>Precio económico (S/) — opcional</label><input type="number" step="0.10" value={form.precioEco||""} onChange={e=>setForm({...form,precioEco:e.target.value})} placeholder="Ej: 2.80 (para máquinas con precios reducidos)"/></div>
-        <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div>
         <div className="form-group"><label>Proveedor</label>
           <select value={form.proveedor} onChange={e=>setForm({...form,proveedor:e.target.value})}>
             <option value="">Seleccionar...</option>
             {data.proveedores.map(p=><option key={p.id} value={p.nombre}>{p.nombre}</option>)}
           </select>
         </div>
-        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button></div>
+
+        <div style={{fontSize:11,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",margin:"14px 0 6px",paddingTop:10,borderTop:"1px solid rgba(245,158,11,.2)"}}>📦 Stock en almacén</div>
+        <div style={{fontSize:11,color:"var(--muted)",marginBottom:8}}>{editando?"Corrige aquí la cantidad actual. Para sumar unidades usa el botón ➕ de la lista.":"Opcional: puedes dejarlo vacío y registrarlo después, editando el producto."}</div>
+        <div className="form-row">
+          <div className="form-group"><label>{editando?"Cantidad en stock":"Cantidad inicial"}</label><input type="number" min="0" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})} placeholder="0"/></div>
+          <div className="form-group"><label>Stock mínimo</label><input type="number" min="0" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})} placeholder="10"/></div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Fecha de ingreso</label><input type="date" value={form.fechaReg||""} onChange={e=>setForm({...form,fechaReg:e.target.value})}/></div>
+          <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={form.fechaVenc||""} onChange={e=>setForm({...form,fechaVenc:e.target.value})}/></div>
+        </div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave} disabled={!form.nombre||!form.costo}>{editando?"Guardar cambios":"Guardar"}</button></div>
       </div></div>}
-      {confirmDel&&<ConfirmDelete texto={`¿Eliminar el producto "${confirmDel.nombre}"?`} onConfirm={()=>{del("productos",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+
+      {entrada&&(()=>{
+        const s=stockDe(entrada.producto.id);
+        const actual=s?(+s.cantidad||0):0;
+        const n=+entrada.cantidad||0;
+        return(
+          <div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>➕ Ingreso de stock</h3><CloseBtn onClick={()=>setEntrada(null)}/></div>
+            <div className="edit-banner"><strong>{entrada.producto.nombre}</strong> · stock actual: <strong>{s?actual:"sin registrar"}</strong></div>
+            <div className="form-group"><label>Unidades que ingresan</label><input type="number" min="1" autoFocus value={entrada.cantidad} onChange={e=>setEntrada({...entrada,cantidad:e.target.value})} placeholder="Ej: 24"/></div>
+            <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={entrada.fechaVenc} onChange={e=>setEntrada({...entrada,fechaVenc:e.target.value})}/></div>
+            {n>0&&<div className="info-box">Nuevo stock: <strong>{actual+n}</strong> unidades</div>}
+            <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEntrada(null)}>Cancelar</button><button className="btn btn-primary" onClick={guardarEntrada} disabled={n<=0}>Registrar ingreso</button></div>
+          </div></div>
+        );
+      })()}
+
+      {confirmDel&&<ConfirmDelete texto={'¿Eliminar el producto "'+confirmDel.nombre+'" y su stock?'} onConfirm={()=>{del("productos",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
 }
@@ -3061,13 +3176,17 @@ function ReportesRanking({data}){
     return matchMes&&matchMaq;
   });
 
+  // Mensajes flotantes: dónde se vendió cada producto
+  const lineasMaq=(porMaq)=>Object.entries(porMaq||{}).sort((a,b)=>b[1]-a[1]).map(([id,q])=>{const m=data.maquinas.find(x=>x.id===id);return "📍 "+((m&&m.nombre)||"Máquina")+" — "+((m&&String(m.ubicacion||"").trim())||"Sin ubicación registrada")+" · "+q+(q===1?" unidad":" unidades");});
+
   // Ranking por producto
   const porProducto={};
   ventasMes.forEach(v=>{
-    if(!porProducto[v.productoId])porProducto[v.productoId]={productoId:v.productoId,unidades:0,ingresos:0,maquinas:new Set()};
+    if(!porProducto[v.productoId])porProducto[v.productoId]={productoId:v.productoId,unidades:0,ingresos:0,maquinas:new Set(),porMaq:{}};
     porProducto[v.productoId].unidades+=v.cantidad||0;
     porProducto[v.productoId].ingresos+=v.ingreso||0;
     porProducto[v.productoId].maquinas.add(v.maquinaId);
+    porProducto[v.productoId].porMaq[v.maquinaId]=(porProducto[v.productoId].porMaq[v.maquinaId]||0)+(v.cantidad||0);
   });
   const rankingProductos=Object.values(porProducto).sort((a,b)=>b.unidades-a.unidades).map((r,i)=>({...r,rank:i+1,maquinas:r.maquinas.size}));
 
@@ -3124,7 +3243,7 @@ function ReportesRanking({data}){
                     </span>
                     <div style={{flex:1}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
-                        <span style={{fontSize:13,fontWeight:600}}>{prod?.nombre||"—"}</span>
+                        <Tip titulo={prod?.nombre||"Sin vincular al catálogo"} lineas={lineasMaq(r.porMaq)}><span style={{fontSize:13,fontWeight:600}}>{prod?.nombre||"—"}</span></Tip>
                         <div style={{display:"flex",gap:12,fontSize:12}}>
                           <span style={{color:"var(--accent2)",fontWeight:700}}>{r.unidades} uds</span>
                           <span style={{color:"var(--green)",fontWeight:700}}>{fmt(r.ingresos)}</span>
@@ -3158,7 +3277,7 @@ function ReportesRanking({data}){
                   return(
                     <tr key={r.maquinaId}>
                       <td style={{fontWeight:900,color:medallaColor(r.rank),fontSize:15}}>{r.rank<=3?["🥇","🥈","🥉"][r.rank-1]:r.rank}</td>
-                      <td><strong>{maq?.nombre||"—"}</strong></td>
+                      <td><Tip titulo={maq?.nombre||"—"} lineas={["📍 "+(String((maq&&maq.ubicacion)||"").trim()||"Sin ubicación registrada")]}><strong>{maq?.nombre||"—"}</strong></Tip></td>
                       <td style={{color:"var(--muted)",fontSize:11}}>{maq?.ubicacion}</td>
                       <td style={{color:"var(--accent2)",fontWeight:700}}>{r.unidades} uds</td>
                       <td style={{color:"var(--green)",fontWeight:700}}>{fmt(r.ingresos)}</td>
@@ -5897,10 +6016,10 @@ const TODOS_MODULOS_ADMIN=[
   {id:"dashboard",label:"Dashboard"},{id:"cierreDia",label:"Cierre del día"},
   {id:"rentabilidad",label:"Rentabilidad"},{id:"horario",label:"Horario semanal"},
   {section:"Catálogo"},
-  {id:"productos",label:"Productos"},{id:"proveedores",label:"Proveedores"},
+  {id:"productos",label:"Productos y stock"},{id:"proveedores",label:"Proveedores"},
   {id:"adminListasPrecios",label:"Listas de precios"},
   {section:"Operaciones"},
-  {id:"maquinas",label:"Máquinas"},{id:"stock",label:"Stock almacén"},
+  {id:"maquinas",label:"Máquinas"},
   {id:"stockMaquina",label:"Stock por máquina"},{id:"ventas",label:"Ventas"},
   {id:"cobranzas",label:"Cobranzas"},{id:"devoluciones",label:"Devoluciones"},
   {id:"sencillo",label:"Control de sencillo"},{id:"prekit",label:"Pre-Kit reposición"},
@@ -6122,6 +6241,37 @@ function GestionRoles({data,save,del}){
 }
 
 
+// ── Mensaje flotante al pasar el mouse (o tocar en el celular) sobre un nombre ──
+function Tip({titulo,lineas,children}){
+  const [pos,setPos]=useState(null);
+  const mover=(e)=>setPos({x:e.clientX,y:e.clientY});
+  const tocar=(e)=>{const t=e.touches&&e.touches[0];if(!t)return;setPos({x:t.clientX,y:t.clientY});setTimeout(()=>setPos(null),3500);};
+  const todas=lineas||[];
+  const lines=todas.slice(0,12);
+  const extra=todas.length-lines.length;
+  const W=300,H=40+lines.length*17;
+  const vw=typeof window!=="undefined"?window.innerWidth:1200;
+  const vh=typeof window!=="undefined"?window.innerHeight:800;
+  return(
+    <span onMouseEnter={mover} onMouseMove={mover} onMouseLeave={()=>setPos(null)} onTouchStart={tocar}
+      style={{cursor:"help",textDecoration:"underline dotted",textDecorationColor:"#c9a24a",textUnderlineOffset:3}}>
+      {children}
+      {pos&&lines.length>0&&(
+        <span style={{position:"fixed",zIndex:3000,pointerEvents:"none",display:"block",
+          left:Math.max(8,Math.min(pos.x+14,vw-W-8)),
+          top:(pos.y+20+H>vh)?Math.max(8,pos.y-H-12):pos.y+20,
+          maxWidth:W,background:"#111827",color:"#f1f5f9",border:"1px solid #f59e0b",borderRadius:8,
+          padding:"8px 12px",fontSize:12,fontWeight:500,lineHeight:1.45,textAlign:"left",whiteSpace:"normal",
+          boxShadow:"0 6px 20px rgba(0,0,0,.35)"}}>
+          {titulo&&<span style={{display:"block",fontWeight:800,color:"#f59e0b",marginBottom:3}}>{titulo}</span>}
+          {lines.map((l,k)=><span key={k} style={{display:"block"}}>{l}</span>)}
+          {extra>0&&<span style={{display:"block",color:"#94a3b8"}}>… y {extra} más</span>}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // REPORTES: pestañas (Atento detallado / Ranking general)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -6209,8 +6359,9 @@ function calcularReporteAtento(raw,planogramas,f){
 
   const pp={};
   ac.forEach(t=>{
-    const r=pp[t.clave]||(pp[t.clave]={producto:t.etiqueta,identificado:!!t.producto,espirales:new Set(),maquinas:new Set(),qty:0,ing:0,ef:0,yape:0,tarj:0});
+    const r=pp[t.clave]||(pp[t.clave]={producto:t.etiqueta,identificado:!!t.producto,espirales:new Set(),maquinas:new Set(),porMaq:{},qty:0,ing:0,ef:0,yape:0,tarj:0});
     r.qty++;r.ing+=t.valor;r.espirales.add(t.espiral);r.maquinas.add(t.maquinaId);
+    r.porMaq[t.maquinaId]=(r.porMaq[t.maquinaId]||0)+1;
     if(t.pago==="Efectivo")r.ef++;else if(t.pago==="Yape/QR")r.yape++;else r.tarj++;
   });
   const ranking=Object.values(pp)
@@ -6310,6 +6461,13 @@ function ReporteAtento({data}){
   const tdS={padding:"8px 12px",borderBottom:"1px solid rgba(245,158,11,.08)",fontSize:12};
   const inputS={padding:"7px 10px",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,fontSize:12,background:"#fff",color:"var(--text)",outline:"none"};
   const lblS={fontSize:10,fontWeight:600,color:"#888",textTransform:"uppercase"};
+  // Mensajes flotantes: ubicación de la máquina
+  const maqPorId={};(data.maquinas||[]).forEach(m=>{maqPorId[m.id]=m;});
+  const nombreMaq=(id,fb)=>String((maqPorId[id]&&maqPorId[id].nombre)||fb||"Máquina").trim();
+  const ubicMaq=(id)=>{const m=maqPorId[id];return m?(String(m.ubicacion||"").trim()||"Sin ubicación registrada"):"Ubicación no disponible";};
+  const tipMaq=(id,fb)=>({titulo:nombreMaq(id,fb),lineas:["📍 "+ubicMaq(id)]});
+  const tipProdTx=(t)=>({titulo:t.producto,lineas:["📍 "+nombreMaq(t.maquinaId,t.maquinaNombre)+" — "+ubicMaq(t.maquinaId)]});
+  const tipProd=(r)=>({titulo:r.producto,lineas:Object.entries(r.porMaq||{}).sort((a,b)=>b[1]-a[1]).map(([id,q])=>"📍 "+nombreMaq(id)+" — "+ubicMaq(id)+" · "+q+(q===1?" venta":" ventas"))});
 
   const mesAnt=(()=>{const [y,m]=hoyL.split("-").map(Number);const p=x=>String(x).padStart(2,"0");const f=d=>d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());return [f(new Date(y,m-2,1)),f(new Date(y,m-1,0))];})();
   const rapidos=[["Hoy",hoyL,hoyL],["Ayer",sumarDias(hoyL,-1),sumarDias(hoyL,-1)],["Últimos 7 días",sumarDias(hoyL,-6),hoyL],["Este mes",hoyL.slice(0,8)+"01",hoyL],["Mes anterior",mesAnt[0],mesAnt[1]],["Todo","2020-01-01",hoyL]];
@@ -6461,7 +6619,7 @@ function ReporteAtento({data}){
                   {R.ranking.map((r,k)=>(
                     <tr key={r.producto+"-"+k}>
                       <td style={{...tdS,color:"var(--muted)"}}>{k+1}</td>
-                      <td style={{...tdS,fontWeight:600}}>{r.producto}{!r.identificado&&<span style={{marginLeft:6,fontSize:9,color:"var(--muted)"}}>(sin foto)</span>}</td>
+                      <td style={{...tdS,fontWeight:600}}><Tip {...tipProd(r)}>{r.producto}</Tip>{!r.identificado&&<span style={{marginLeft:6,fontSize:9,color:"var(--muted)"}}>(sin foto)</span>}</td>
                       <td style={tdS}>{r.espirales.join(", ")}</td>
                       <td style={tdS}>{r.maquinas}</td>
                       <td style={{...tdS,fontWeight:800,color:"var(--accent)"}}>{r.qty}</td>
@@ -6484,7 +6642,7 @@ function ReporteAtento({data}){
                 <tbody>
                   {R.porMaq.map(r=>(
                     <tr key={r.maquinaId}>
-                      <td style={{...tdS,fontWeight:700}}>{r.nombre}</td>
+                      <td style={{...tdS,fontWeight:700}}><Tip {...tipMaq(r.maquinaId,r.nombre)}>{r.nombre}</Tip></td>
                       <td style={{...tdS,fontWeight:800,color:"var(--accent)"}}>{r.qty}</td>
                       <td style={tdS}>{fmtM(r.ing)}</td>
                       <td style={{...tdS,color:"var(--muted)"}}>{pct(r.ing,R.totalIng)}</td>
@@ -6515,7 +6673,7 @@ function ReporteAtento({data}){
                 <thead><tr><th style={thS}>Fecha</th><th style={thS}>Hora</th><th style={thS}>Máquina</th><th style={thS}>Cod.</th><th style={thS}>Producto</th><th style={thS}>Valor</th><th style={thS}>Pago</th></tr></thead>
                 <tbody>
                   {R.errs.map((t,k)=>(
-                    <tr key={k}><td style={tdS}>{fd(t.fecha)}</td><td style={tdS}>{t.hora}</td><td style={tdS}>{t.maquinaNombre}</td><td style={{...tdS,fontWeight:700}}>{t.espiral}</td><td style={tdS}>{t.producto||"—"}</td><td style={tdS}>{fmtM(t.valor)}</td><td style={tdS}>{t.pago}</td></tr>
+                    <tr key={k}><td style={tdS}>{fd(t.fecha)}</td><td style={tdS}>{t.hora}</td><td style={tdS}><Tip {...tipMaq(t.maquinaId,t.maquinaNombre)}>{t.maquinaNombre}</Tip></td><td style={{...tdS,fontWeight:700}}>{t.espiral}</td><td style={tdS}>{t.producto?<Tip {...tipProdTx(t)}>{t.producto}</Tip>:"—"}</td><td style={tdS}>{fmtM(t.valor)}</td><td style={tdS}>{t.pago}</td></tr>
                   ))}
                 </tbody>
               </table>
@@ -6536,8 +6694,8 @@ function ReporteAtento({data}){
                   {detalle.slice(0,detPage).map((t,k)=>(
                     <tr key={k}>
                       <td style={tdS}>{fd(t.fecha)}</td><td style={tdS}>{t.hora}</td><td style={tdS}>{DIAS_ES[t.dow]}</td>
-                      <td style={tdS}>{t.maquinaNombre}</td><td style={{...tdS,fontWeight:700}}>{t.espiral}</td>
-                      <td style={tdS}>{t.producto||"—"}</td><td style={tdS}>{fmtM(t.valor)}</td><td style={tdS}>{t.pago}</td>
+                      <td style={tdS}><Tip {...tipMaq(t.maquinaId,t.maquinaNombre)}>{t.maquinaNombre}</Tip></td><td style={{...tdS,fontWeight:700}}>{t.espiral}</td>
+                      <td style={tdS}>{t.producto?<Tip {...tipProdTx(t)}>{t.producto}</Tip>:"—"}</td><td style={tdS}>{fmtM(t.valor)}</td><td style={tdS}>{t.pago}</td>
                       <td style={{...tdS,color:t.statusG==="ACEPTADA"?"var(--green)":t.statusG==="ERROR"?"var(--red)":"var(--muted)",fontWeight:600}}>{t.statusG}</td>
                       <td style={{...tdS,color:"var(--muted)"}}>{t.num==null?"":"#"+t.num}</td>
                     </tr>
@@ -6561,12 +6719,11 @@ const ADMIN_NAV=[
   {id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
   {id:"horario",label:"Horario semanal",icon:"calendar"},
   {section:"Catálogo"},
-  {id:"productos",label:"Productos",icon:"product"},
+  {id:"productos",label:"Productos y stock",icon:"product"},
   {id:"proveedores",label:"Proveedores",icon:"supplier"},
   {id:"adminListasPrecios",label:"Listas de precios",icon:"pricelist"},
   {section:"Operaciones"},
   {id:"maquinas",label:"Máquinas",icon:"machine"},
-  {id:"stock",label:"Stock almacén",icon:"stock"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
   {id:"ventas",label:"Ventas",icon:"chart"},
   {id:"cobranzas",label:"Cobranzas",icon:"money"},
@@ -6606,14 +6763,13 @@ const ABASTECEDOR_NAV=[
 ];
 const ALMACENERO_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
-  {section:"Almacén"},{id:"stock",label:"Stock almacén",icon:"stock"},
-  {section:"Catálogo"},{id:"productos",label:"Productos",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
+  {section:"Almacén"},{section:"Catálogo"},{id:"productos",label:"Productos y stock",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"traslados",label:"Traslados",icon:"transfer"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
 ];
 const TITLES={
   dashboard:"Dashboard",rentabilidad:"Rentabilidad",horario:"Horario semanal",mihorario:"Mi horario",
-  gastos:"Gastos adicionales",productos:"Productos",proveedores:"Proveedores",maquinas:"Máquinas",
+  gastos:"Gastos adicionales",productos:"Productos y stock",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
   devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Planograma del día",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
@@ -6658,7 +6814,7 @@ export default function App(){
     setUsuario(rol);setSesionUsuario(info.usuario);
     // Si tiene rol personalizado, guardarlo también
     if(info.usuario.rolId){setSesionUsuario({...info.usuario,_rolPersonalizado:info.usuario.rolId});}
-    setTab(rol==="admin"?"dashboard":rol==="almacenero"?"stock":"mihorario");
+    setTab(rol==="admin"?"dashboard":rol==="almacenero"?"productos":"mihorario");
   }}/></>);
   const esAdmin=usuario==="admin";
   const esAbastecedor=usuario==="abastecedor";
@@ -6671,7 +6827,7 @@ export default function App(){
   })();
   const navBase=esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV;
   const nav=modPermitidos
-    ?navBase.filter(item=>item.section||modPermitidos.includes(item.id))
+    ?navBase.filter(item=>item.section||modPermitidos.includes(item.id)||(item.id==="productos"&&modPermitidos.includes("stock")))
     :navBase;
   const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
   const rolUsuario=sesionUsuario?.rol||usuario;
