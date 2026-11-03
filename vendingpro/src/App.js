@@ -10,6 +10,10 @@ const CLAVES = { admin:"123", abastecedor:"", almacenero:"" }; // legacy, no usa
 
 const fmt=(n)=>`S/ ${Number(n||0).toFixed(2)}`;
 const today=()=>new Date().toISOString().split("T")[0];
+// Fecha y hora LOCAL (today() usa UTC y en Perú cambia de día a las 7pm)
+const ahoraLocal=()=>{const d=new Date();const p=n=>String(n).padStart(2,"0");return{fecha:`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`,hora:`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`};};
+// ventas_atento sin el detalle de transacciones (pesado) para no cargarlo en cada recarga
+const COLS_ATENTO='id,maquina_id,maquina_nombre,fecha,comercio,usuario_id,usuario_nombre,planograma_id,total_ventas,total_ingreso,total_canceladas,total_errores,pago_efectivo,pago_yape,pago_tarjeta,ingreso_efectivo,ingreso_yape,ingreso_tarjeta,ventas_por_producto,num_desde,num_hasta,desde,hasta,created_at';
 const objToArr=(o)=>Array.isArray(o)?o:(o?Object.values(o):[]);
 const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
 const mesActual=()=>new Date().toISOString().slice(0,7);
@@ -363,7 +367,7 @@ function useFirebase(){
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
         'ventas_cafeteras','planogramas','ventas_atento','roles'];
-      const results=await Promise.all(tables.map(t=>supabase.from(t).select('*')));
+      const results=await Promise.all(tables.map(t=>supabase.from(t).select(t==='ventas_atento'?COLS_ATENTO:'*')));
       // Horario es especial — clave primaria es "dia"
       const {data:horarioData}=await supabase.from('horario').select('*');
       const horarioObj={};
@@ -1178,7 +1182,7 @@ function Ventas({data,save,del,esAdmin=false,soloLectura=false}){
     const key=`${v.fecha}__${v.maquinaId}`;
     if(!grupos[key])grupos[key]={fecha:v.fecha,maquinaId:v.maquinaId,ventas:[],total:0};
     const prod=data.productos.find(p=>p.id===v.productoId);
-    grupos[key].ventas.push({...v,prodNombre:prod?.nombre||"—"});
+    grupos[key].ventas.push({...v,prodNombre:prod?.nombre||v.productoNombre||"—"});
     grupos[key].total+=(v.ingreso||0);
   });
   const totalMes=ventasMes.reduce((s,v)=>s+(v.ingreso||0),0);
@@ -4658,13 +4662,15 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
   const [imagenUrl,setImagenUrl]=useState(null); // preview
   const [analizando,setAnalizando]=useState(false);
   const [mapa,setMapa]=useState([]); // [{espiral, producto, confianza}]
-  const [editando,setEditando]=useState(null); // {idx, espiral, producto}
   const [histModal,setHistModal]=useState(false);
+  const [zoom,setZoom]=useState(false);
+  const [errorAnalisis,setErrorAnalisis]=useState("");
+  const [nEsp,setNEsp]=useState(60);
   const [confirmDel,setConfirmDel]=useState(null);
 
   const maqsDisp=(data.maquinas||[]).filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
   const maq=(data.maquinas||[]).find(m=>m.id===maqId);
-  const hoy=today();
+  const hoy=ahoraLocal().fecha;
 
   // Historial de planogramas de esta máquina
   const historial=(data.planogramas||[])
@@ -4678,17 +4684,31 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
     if(!file)return;
     const reader=new FileReader();
     reader.onload=(ev)=>{
-      const b64=ev.target.result.split(',')[1];
-      setImagen(b64);
-      setImagenUrl(ev.target.result);
-      setPaso(3);
+      const img=new Image();
+      img.onload=()=>{
+        // Reducir la foto (máx 1800px) para que suba rápido desde el celular
+        const max=1800;let w=img.width,h=img.height;
+        if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}
+        const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+        cv.getContext('2d').drawImage(img,0,0,w,h);
+        const url=cv.toDataURL('image/jpeg',0.85);
+        setImagen(url.split(',')[1]);
+        setImagenUrl(url);
+        setMapa([]);
+        setErrorAnalisis("");
+        setPaso(2); // se queda en la vista previa, NO salta al siguiente paso
+      };
+      img.onerror=()=>alert("No se pudo leer la foto. Intenta con otra.");
+      img.src=ev.target.result;
     };
     reader.readAsDataURL(file);
+    e.target.value='';
   };
 
   const analizarFoto=async()=>{
     if(!imagen)return;
     setAnalizando(true);
+    setErrorAnalisis("");
     try{
         // Llamar a Supabase Edge Function (la API Key vive segura en el servidor)
       const res=await fetch(`${SUPABASE_URL}/functions/v1/analizar-planograma`,{
@@ -4701,55 +4721,73 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
       });
       const json=await res.json();
       if(!res.ok||json.error) throw new Error(json.error||"Error en el servidor");
-      setMapa(json.espirales||[]);
+      if(!json.espirales||json.espirales.length===0){setErrorAnalisis("No se detectaron números de selección en la foto (muy lejos, borrosa o con reflejos).");return;}
+      setMapa(json.espirales);
       setPaso(3);
     }catch(err){
       console.error("Error analizando foto:",err);
-      alert("Error al analizar la foto. Intenta de nuevo o verifica tu conexión.");
+      setErrorAnalisis(err.message||"error desconocido");
     }finally{
       setAnalizando(false);
     }
   };
 
+  const buscarCatalogo=(nombre)=>(data.productos||[]).find(p=>(p.nombre||"").trim().toLowerCase()===String(nombre||"").trim().toLowerCase());
+
   const guardarPlanograma=async()=>{
-    if(!maqId||mapa.length===0)return;
+    if(!maqId)return;
+    const validas=mapa
+      .filter(m=>String(m.espiral).trim()&&String(m.producto).trim())
+      .map(m=>{const p=buscarCatalogo(m.producto);return{...m,espiral:String(m.espiral).trim(),producto:String(m.producto).trim(),productoId:p?.id||null};});
+    if(validas.length===0){alert("Agrega al menos un número de selección con su producto antes de guardar.");return;}
+    const omitidas=mapa.length-validas.length;
+    if(omitidas>0&&!window.confirm(omitidas+" espiral(es) sin producto no se guardarán. ¿Continuar?"))return;
+    const ahora=ahoraLocal();
     const id=uid();
     await save("planogramas",id,{
       id,
       maquinaId:maqId,
       maquinaNombre:maq?.nombre||"",
-      fecha:hoy,
+      fecha:ahora.fecha,
+      hora:ahora.hora,
       usuarioId:sesionUsuario?.id||null,
       usuarioNombre:sesionUsuario?.nombre||"",
-      espirales:mapa,
-      totalEspirales:mapa.length,
+      espirales:validas,
+      totalEspirales:validas.length,
     });
+    setMapa(validas);
     setPaso(4);
   };
 
-  const editarItem=(idx)=>{
-    setEditando({idx,...mapa[idx]});
-  };
-
-  const guardarEdit=()=>{
-    if(!editando)return;
-    const nuevo=[...mapa];
-    nuevo[editando.idx]={...nuevo[editando.idx],espiral:editando.espiral,producto:editando.producto,confianza:"editado"};
-    setMapa(nuevo);
-    setEditando(null);
+  // Edición directa de cada fila (sirve para corregir la IA o para registrar a mano)
+  const setItem=(idx,campo,valor)=>{
+    setMapa(m=>m.map((it,k)=>k===idx?{...it,[campo]:valor,confianza:it.confianza==="manual"?"manual":"editado"}:it));
   };
 
   const eliminarItem=(idx)=>{
-    setMapa(m=>m.filter((_,i)=>i!==idx));
+    setMapa(m=>m.filter((_,k)=>k!==idx));
   };
 
   const agregarEspiral=()=>{
     setMapa(m=>[...m,{espiral:"",producto:"",confianza:"manual"}]);
-    setEditando({idx:mapa.length,espiral:"",producto:"",confianza:"manual"});
   };
 
+  const generarFilas=()=>{
+    const n=Math.max(1,Math.min(200,+nEsp||60));
+    setMapa(m=>{
+      const existentes=new Set(m.map(x=>String(parseInt(x.espiral,10))));
+      const nuevas=[];
+      for(let k=1;k<=n;k++){
+        if(!existentes.has(String(k)))nuevas.push({espiral:String(k).padStart(2,"0"),producto:"",confianza:"manual"});
+      }
+      return [...m,...nuevas].sort((a,b)=>(parseInt(a.espiral,10)||0)-(parseInt(b.espiral,10)||0));
+    });
+  };
+
+  const iniciarManual=()=>{setErrorAnalisis("");setPaso(3);};
+
   const resetear=()=>{
-    setPaso(1);setMaqId("");setImagen(null);setImagenUrl(null);setMapa([]);setEditando(null);
+    setPaso(1);setMaqId("");setImagen(null);setImagenUrl(null);setMapa([]);setErrorAnalisis("");
   };
 
   const CONF_COLOR={"alta":"var(--green)","media":"var(--accent)","baja":"var(--red)","editado":"var(--accent2)","manual":"#7c3aed"};
@@ -4827,7 +4865,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
                 </div>
               )}
 
-              <div style={{border:"2px dashed rgba(245,158,11,.4)",borderRadius:12,padding:"32px 20px",textAlign:"center",background:"#fffbf0"}}>
+              <div style={{border:"2px dashed rgba(245,158,11,.4)",borderRadius:12,padding:"32px 20px",textAlign:"center",background:"#fffbf0",display:imagenUrl?"none":"block"}}>
                 <div style={{fontSize:48,marginBottom:12}}>📸</div>
                 <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Toma o sube una foto del frente de la máquina</div>
                 <div style={{fontSize:12,color:"var(--muted)",marginBottom:16}}>
@@ -4842,6 +4880,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
                   Formatos: JPG, PNG, HEIC · Recomendado: foto vertical completa de la máquina
                 </div>
               </div>
+              {!imagenUrl&&<div style={{textAlign:"center",marginTop:12}}><button className="btn btn-secondary btn-sm" onClick={iniciarManual}>✍️ Prefiero registrarlo manualmente (sin foto)</button></div>}
             </div>
           </div>
 
@@ -4853,7 +4892,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
                 {historial.slice(0,5).map(p=>(
                   <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid rgba(245,158,11,.1)"}}>
                     <div>
-                      <div style={{fontSize:13,fontWeight:600}}>{p.fecha===hoy?"📅 Hoy":p.fecha}</div>
+                      <div style={{fontSize:13,fontWeight:600}}>{p.fecha===hoy?"📅 Hoy":p.fecha}{p.hora?" · "+p.hora.slice(0,5):""}</div>
                       <div style={{fontSize:11,color:"var(--muted)"}}>{p.totalEspirales} espirales · {p.usuarioNombre||"—"}</div>
                     </div>
                     <div style={{display:"flex",gap:6}}>
@@ -4868,15 +4907,42 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
         </div>
       )}
 
-      {/* Imagen preview + análisis */}
-      {paso===2&&imagenUrl&&!analizando&&mapa.length===0&&(
-        <div className="section" style={{marginTop:12}}>
-          <div style={{padding:"14px 16px",textAlign:"center"}}>
-            <img src={imagenUrl} alt="Máquina" style={{maxWidth:"100%",maxHeight:400,borderRadius:10,marginBottom:12}}/>
-            <button className="btn btn-primary" onClick={analizarFoto} style={{width:"100%",justifyContent:"center",padding:12,fontSize:14}}>
-              🤖 Analizar con Claude
-            </button>
+      {paso===2&&errorAnalisis&&!analizando&&(
+        <div style={{background:"rgba(239,68,68,.07)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"14px 16px",marginTop:12}}>
+          <div style={{fontWeight:800,color:"var(--red)",marginBottom:4}}>⚠️ No se pudo leer la foto automáticamente</div>
+          <div style={{fontSize:12,color:"var(--muted)",marginBottom:12,wordBreak:"break-word"}}>{errorAnalisis}</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {imagen&&<button className="btn btn-secondary" onClick={analizarFoto}>🔄 Reintentar</button>}
+            <button className="btn btn-primary" onClick={iniciarManual}>✍️ Registrar manualmente</button>
           </div>
+        </div>
+      )}
+
+      {/* Vista previa de la foto antes de analizar */}
+      {paso===2&&imagenUrl&&!analizando&&(
+        <div className="section" style={{marginTop:12}}>
+          <div className="section-header"><h3>👀 Vista previa — {maq?.nombre}</h3></div>
+          <div style={{padding:"14px 16px",textAlign:"center"}}>
+            <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,textAlign:"left"}}>
+              Revisa que se vean <strong>claramente los números de selección</strong> y los productos. Si hay reflejos, está borrosa o cortada, toma otra foto antes de analizar.
+            </div>
+            <img src={imagenUrl} alt="Máquina" onClick={()=>setZoom(true)} style={{maxWidth:"100%",maxHeight:480,borderRadius:10,marginBottom:8,cursor:"zoom-in",border:"1px solid rgba(245,158,11,.3)"}}/>
+            <div style={{fontSize:11,color:"var(--muted)",marginBottom:12}}>Toca la foto para verla en grande</div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <label className="btn btn-secondary" style={{flex:1,justifyContent:"center",cursor:"pointer",minWidth:140}}>
+                🔄 Tomar otra foto
+                <input type="file" accept="image/*" capture="environment" onChange={handleFoto} style={{display:"none"}}/>
+              </label>
+              <button className="btn btn-primary" onClick={analizarFoto} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>✅ Se ve bien — Analizar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {zoom&&imagenUrl&&(
+        <div onClick={()=>setZoom(false)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.92)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:10,cursor:"zoom-out"}}>
+          <img src={imagenUrl} alt="Máquina" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+          <div style={{position:"absolute",top:14,right:18,color:"#fff",fontSize:13}}>✕ Cerrar</div>
         </div>
       )}
 
@@ -4892,13 +4958,14 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
       )}
 
       {/* PASO 3: Confirmar mapa */}
-      {paso===3&&mapa.length>0&&(
+      {paso===3&&(
         <div>
+          <datalist id="prod-catalogo">{(data.productos||[]).map(p=><option key={p.id} value={p.nombre}/>)}</datalist>
           {imagenUrl&&(
             <div className="section" style={{marginBottom:12}}>
-              <div className="section-header"><h3>📸 Foto analizada — {maq?.nombre}</h3></div>
+              <div className="section-header"><h3>📸 Foto de referencia — {maq?.nombre}</h3></div>
               <div style={{padding:"10px 14px",textAlign:"center"}}>
-                <img src={imagenUrl} alt="Máquina" style={{maxWidth:"100%",maxHeight:300,borderRadius:10}}/>
+                <img src={imagenUrl} alt="Máquina" onClick={()=>setZoom(true)} style={{maxWidth:"100%",maxHeight:300,borderRadius:10,cursor:"zoom-in"}}/>
               </div>
             </div>
           )}
@@ -4910,6 +4977,13 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
                 <button className="btn btn-secondary btn-sm" onClick={agregarEspiral}>+ Agregar</button>
                 <button className="btn btn-secondary btn-sm" onClick={()=>{setImagen(null);setImagenUrl(null);setMapa([]);setPaso(2);}}>↺ Nueva foto</button>
               </div>
+            </div>
+
+            <div style={{padding:"8px 14px",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",borderBottom:"1px solid rgba(245,158,11,.1)",background:"#fffbf0",fontSize:12}}>
+              <span>Generar filas del 1 al</span>
+              <input type="number" min="1" max="200" value={nEsp} onChange={e=>setNEsp(e.target.value)} style={{width:64,padding:"4px 6px",border:"1px solid rgba(245,158,11,.3)",borderRadius:6,fontSize:12,outline:"none"}}/>
+              <button className="btn btn-secondary btn-sm" onClick={generarFilas}>⚡ Generar</button>
+              <span style={{color:"var(--muted)"}}>y elige el producto de tu catálogo en cada número</span>
             </div>
 
             {/* Leyenda */}
@@ -4930,46 +5004,23 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
                   </tr>
                 </thead>
                 <tbody>
-                  {mapa.map((item,idx)=>(
-                    <tr key={idx} style={{borderBottom:"1px solid rgba(245,158,11,.08)",background:item.confianza==="baja"?"rgba(239,68,68,.03)":item.confianza==="editado"?"rgba(59,130,246,.03)":"transparent"}}>
-                      {editando?.idx===idx?(
-                        <>
-                          <td style={{padding:"6px 10px"}}>
-                            <input value={editando.espiral} onChange={e=>setEditando({...editando,espiral:e.target.value})}
-                              style={{width:60,padding:"4px 6px",border:"1px solid var(--accent)",borderRadius:6,fontSize:12,outline:"none"}}/>
-                          </td>
-                          <td style={{padding:"6px 10px"}}>
-                            <input value={editando.producto} onChange={e=>setEditando({...editando,producto:e.target.value})}
-                              style={{width:"100%",padding:"4px 6px",border:"1px solid var(--accent)",borderRadius:6,fontSize:12,outline:"none"}}
-                              onKeyDown={e=>e.key==="Enter"&&guardarEdit()} autoFocus/>
-                          </td>
-                          <td style={{padding:"6px 10px"}}><span style={{fontSize:10,color:"var(--accent2)"}}>Editando</span></td>
-                          <td style={{padding:"6px 10px"}}>
-                            <div style={{display:"flex",gap:4}}>
-                              <button className="btn btn-primary btn-sm" onClick={guardarEdit}>✓</button>
-                              <button className="btn btn-secondary btn-sm" onClick={()=>setEditando(null)}>✕</button>
-                            </div>
-                          </td>
-                        </>
-                      ):(
-                        <>
-                          <td style={{padding:"8px 12px",fontWeight:700}}>{item.espiral}</td>
-                          <td style={{padding:"8px 12px"}}>{item.producto}</td>
-                          <td style={{padding:"8px 12px"}}>
-                            <span style={{fontSize:10,fontWeight:700,color:CONF_COLOR[item.confianza]||"var(--muted)"}}>
-                              {CONF_LABEL[item.confianza]||item.confianza}
-                            </span>
-                          </td>
-                          <td style={{padding:"8px 12px"}}>
-                            <div style={{display:"flex",gap:4}}>
-                              <button className="btn btn-secondary btn-sm" onClick={()=>editarItem(idx)}>✏️</button>
-                              <button className="btn btn-danger btn-sm" onClick={()=>eliminarItem(idx)}>✕</button>
-                            </div>
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
+                  {mapa.length===0&&<tr><td colSpan={4} style={{padding:20,textAlign:"center",color:"var(--muted)"}}>Sin espirales todavía. Usa "Generar" o "+ Agregar" para empezar.</td></tr>}
+                  {mapa.map((item,idx)=>{
+                    const enCat=item.producto?buscarCatalogo(item.producto):null;
+                    return(
+                      <tr key={idx} style={{borderBottom:"1px solid rgba(245,158,11,.08)",background:item.confianza==="baja"?"rgba(239,68,68,.03)":"transparent"}}>
+                        <td style={{padding:"6px 10px",width:80}}>
+                          <input value={item.espiral} onChange={e=>setItem(idx,"espiral",e.target.value)} style={{width:64,padding:"5px 7px",border:"1px solid rgba(245,158,11,.3)",borderRadius:6,fontSize:13,fontWeight:700,outline:"none"}}/>
+                        </td>
+                        <td style={{padding:"6px 10px"}}>
+                          <input list="prod-catalogo" value={item.producto} onChange={e=>setItem(idx,"producto",e.target.value)} placeholder="Escribe o elige un producto..." style={{width:"100%",minWidth:180,padding:"5px 8px",border:"1px solid "+(enCat?"rgba(16,185,129,.5)":"rgba(245,158,11,.3)"),borderRadius:6,fontSize:12,outline:"none"}}/>
+                          {item.producto&&<div style={{fontSize:10,marginTop:2,color:enCat?"var(--green)":"var(--muted)"}}>{enCat?"✓ En tu catálogo":"No está en el catálogo (se guardará solo con el nombre)"}</div>}
+                        </td>
+                        <td style={{padding:"6px 10px"}}><span style={{fontSize:10,fontWeight:700,color:CONF_COLOR[item.confianza]||"var(--muted)"}}>{CONF_LABEL[item.confianza]||item.confianza}</span></td>
+                        <td style={{padding:"6px 10px"}}><button className="btn btn-danger btn-sm" onClick={()=>eliminarItem(idx)}>✕</button></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -4978,11 +5029,12 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
               <div style={{fontSize:12,color:"var(--muted)"}}>
                 {mapa.filter(m=>m.confianza==="baja").length>0&&
                   <span style={{color:"var(--red)"}}>⚠️ {mapa.filter(m=>m.confianza==="baja").length} espiral(es) con baja confianza — revisa antes de guardar</span>}
+                {mapa.some(m=>!String(m.producto).trim())&&<span style={{color:"var(--accent)",marginLeft:8}}>ℹ️ {mapa.filter(m=>!String(m.producto).trim()).length} espiral(es) sin producto no se guardarán</span>}
               </div>
               <div style={{display:"flex",gap:8}}>
                 <button className="btn btn-secondary" onClick={()=>setPaso(2)}>← Volver</button>
                 <button className="btn btn-primary" onClick={guardarPlanograma}>
-                  💾 Guardar planograma ({mapa.length} espirales)
+                  💾 Guardar planograma ({mapa.filter(m=>String(m.espiral).trim()&&String(m.producto).trim()).length} con producto)
                 </button>
               </div>
             </div>
@@ -5045,7 +5097,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
 // MÓDULO: VENTAS ATENTO (Admin)
 // Admin sube CSV → cruza con planograma del abastecedor → registra ventas
 // ═══════════════════════════════════════════════════════════════════════════════
-function VentasAtento({data,save,del,sesionUsuario=null}){
+function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
   const [paso,setPaso]=useState(1); // 1=config, 2=preview, 3=guardado
   const [maqId,setMaqId]=useState("");
   const [csvData,setCsvData]=useState(null); // transacciones parseadas
@@ -5064,6 +5116,11 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
     .filter(v=>(!maqId||v.maquinaId===maqId)&&v.fecha?.startsWith(mes))
     .sort((a,b)=>b.fecha?.localeCompare(a.fecha));
 
+  // Normalizadores: "Cod. Selección" / "Cod Sel" / "cod_sel" => misma columna
+  const norm=(s)=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const normEsp=(x)=>{const s=String(x||'').trim();return /^\d+$/.test(s)?String(parseInt(s,10)):s;};
+  const ALIAS={fecha:'Fecha',status:'Status',estado:'Status',valor:'Valor',importe:'Valor',codsel:'Cod Sel',codseleccion:'Cod Sel',codigoseleccion:'Cod Sel',seleccion:'Cod Sel',periferico:'Periferico',tecnologia:'Tecnologia',comercio:'Comercio',numatento:'Num Atento'};
+
   // ── Parsear CSV de Atento ──────────────────────────────────────────────────
   const parsearCSV=(texto)=>{
     const lineas=texto.split(/\r?\n/).filter(l=>l.trim());
@@ -5073,9 +5130,9 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
     return lineas.slice(1).map(linea=>{
       const cols=linea.split(sep).map(c=>c.trim().replace(/^"|"$/g,''));
       const obj={};
-      headers.forEach((h,i)=>obj[h]=cols[i]||'');
+      headers.forEach((h,i)=>{obj[h]=cols[i]||'';const a=ALIAS[norm(h)];if(a&&obj[a]===undefined)obj[a]=cols[i]||'';});
       return obj;
-    }).filter(r=>r['Fecha']||r['fecha']);
+    }).filter(r=>r['Fecha']);
   };
 
   const getMetodo=(per,tec)=>{
@@ -5095,6 +5152,7 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       const texto=(ev.target.result||'').replace(/^\uFEFF/,'');
       const rows=parsearCSV(texto);
       if(rows.length===0){alert("No se pudieron leer datos del CSV. Verifica el formato.");return;}
+      if(rows[0]&&rows[0]['Cod Sel']===undefined){alert("No encontré la columna Cod. Selección en el CSV.\n\nColumnas detectadas: "+Object.keys(rows[0]).join(", "));return;}
 
       // Detectar comercio
       const comercio=rows[0]?.['Comercio']||rows[0]?.['comercio']||'';
@@ -5106,19 +5164,22 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       }
 
       // Procesar transacciones
+      const formato=detectarFormatoFecha(rows);
       const transacciones=rows.map(r=>({
-        fecha:formatFecha(r['Fecha']||r['fecha']),
+        fechaRaw:r['Fecha']||r['fecha']||'',
+        fecha:parseFechaCSV(r['Fecha']||r['fecha'],formato),
         hora:(r['Fecha']||r['fecha']||'').split(' ')[1]||'',
         status:(r['Status']||r['status']||'').trim(),
         valor:parseFloat((r['Valor']||r['valor']||'0').replace(',','.'))||0,
-        espiral:(r['Cod Sel']||r['cod_sel']||'').trim(),
+        espiral:normEsp(r['Cod Sel']||r['cod_sel']||''),
         pago:getMetodo(r['Periferico']||r['periferico']||'',r['Tecnologia']||r['tecnologia']||''),
         tecnologia:(r['Tecnologia']||r['tecnologia']||'').trim(),
         comercio:comercio,
         numAtento:r['Num Atento']||r['num_atento']||'',
+        num:(/^\d+$/.test(String(r['Num Atento']||'').trim())?parseInt(String(r['Num Atento']).trim(),10):null),
       }));
 
-      const csvPayload={transacciones,comercio,totalRows:rows.length};
+      const csvPayload={transacciones,comercio,totalRows:rows.length,formato};
       setCsvData(csvPayload);
       setPaso(2);
       // Si ya hay máquina seleccionada, hacer cruce inmediato
@@ -5127,12 +5188,36 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
     reader.readAsText(file,'UTF-8');
   };
 
-  const formatFecha=(str)=>{
-    if(!str)return'';
-    const parts=str.split(' ')[0];
-    const dp=parts.split('-');
-    if(dp.length===3&&dp[0].length===2) return`${dp[2]}-${dp[1]}-${dp[0]}`;
-    return parts;
+  // Fechas del CSV: "13-10-2026", "1/11/2026", con o sin ceros. Devuelve AAAA-MM-DD
+  const parseFechaCSV=(raw,formato)=>{
+    const txt=String(raw||'').trim().split(' ')[0];
+    const dp=txt.split(/[-/]/);
+    if(dp.length!==3)return txt;
+    let y,m,d;
+    if(dp[0].length===4){y=dp[0];m=dp[1];d=dp[2];}
+    else if(formato==='mdy'){m=dp[0];d=dp[1];y=dp[2];}
+    else{d=dp[0];m=dp[1];y=dp[2];}
+    return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+  };
+  // Detecta si el archivo viene Día/Mes/Año o Mes/Día/Año
+  const detectarFormatoFecha=(filas)=>{
+    const partes=filas.map(r=>String(r['Fecha']||'').trim().split(' ')[0].split(/[-/]/)).filter(p=>p.length===3&&p[0].length<=2);
+    if(!partes.length)return 'dmy';
+    if(partes.some(p=>+p[0]>12))return 'dmy';
+    if(partes.some(p=>+p[1]>12))return 'mdy';
+    // Ambiguo: se elige la lectura cuya fecha más reciente no sea futura y esté más cerca de hoy
+    const hoyL=ahoraLocal().fecha;
+    const maxDe=(f)=>partes.map(p=>f==='mdy'?p[2]+'-'+p[0].padStart(2,'0')+'-'+p[1].padStart(2,'0'):p[2]+'-'+p[1].padStart(2,'0')+'-'+p[0].padStart(2,'0')).sort().pop();
+    const a=maxDe('dmy'),b=maxDe('mdy');
+    const okA=a<=hoyL,okB=b<=hoyL;
+    if(okA&&!okB)return 'dmy';
+    if(okB&&!okA)return 'mdy';
+    return a>=b?'dmy':'mdy';
+  };
+  const cambiarFormatoFecha=(fmt)=>{
+    if(!csvData)return;
+    const trans=csvData.transacciones.map(t=>({...t,fecha:parseFechaCSV(t.fechaRaw,fmt)}));
+    setCsvData({...csvData,transacciones:trans,formato:fmt});
   };
 
   // ── Cruzar CSV con planograma ─────────────────────────────────────────────
@@ -5141,66 +5226,111 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
     const csvD=csvDataParam||csvData;
     const mqId=maqIdParam||maqId;
     if(!csvD||!mqId)return;
-    // swap to local vars
-    const csvDataLocal=csvD; const maqIdLocal=mqId;
-    const ac=csvDataLocal.transacciones.filter(t=>t.status==='ACEPTADA');
-    const errs=csvDataLocal.transacciones.filter(t=>t.status.includes('ERROR'));
-    const cans=csvDataLocal.transacciones.filter(t=>t.status.includes('CANCELADA'));
+    const todas=csvD.transacciones;
+    const tsOf=(t)=>t.fecha+' '+(t.hora||'00:00:00');
+    const esVacio=(txt)=>!txt||/^(vac[ií]o|no visible)$/i.test(String(txt).trim());
 
-    // Obtener fechas únicas del CSV
+    // 1) Ventas ya importadas antes (por número de venta de Atento): se omiten para no duplicar
+    const previas=(data.ventasAtento||[]).filter(v=>v.maquinaId===mqId&&v.numDesde!=null&&v.numHasta!=null);
+    const yaImportada=(t)=>t.num!=null&&previas.some(v=>t.num>=v.numDesde&&t.num<=v.numHasta);
+    const nuevas=todas.filter(t=>!yaImportada(t));
+    const nums=nuevas.map(t=>t.num).filter(n=>n!=null);
+    const numDesde=nums.length?Math.min(...nums):null;
+    const numHasta=nums.length?Math.max(...nums):null;
+    const ultimoPrevio=previas.length?Math.max(...previas.map(v=>v.numHasta)):null;
+    const salto=(numDesde!=null&&ultimoPrevio!=null&&numDesde>ultimoPrevio+1)?{desde:ultimoPrevio+1,hasta:numDesde-1}:null;
+
+    const ac=nuevas.filter(t=>t.status==='ACEPTADA');
+    const errs=nuevas.filter(t=>t.status.includes('ERROR'));
+    const cans=nuevas.filter(t=>t.status.includes('CANCELADA'));
     const fechas=[...new Set(ac.map(t=>t.fecha))].sort();
+    const tsTodos=nuevas.map(tsOf).sort();
+    const desde=tsTodos.length?tsTodos[0]:null;
+    const hasta=tsTodos.length?tsTodos[tsTodos.length-1]:null;
 
-    // Buscar planograma del mismo día (o más reciente antes)
-    const plansMaq=(data.planogramas||[])
-      .filter(p=>p.maquinaId===maqIdLocal)
-      .sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+    // 2) Cada foto de abastecimiento es un planograma con fecha y hora: abre un ciclo que dura hasta la siguiente foto
+    const planStart=(p)=>(p.fecha||'')+' '+(p.hora||'00:00:00');
+    const plans=(data.planogramas||[]).filter(p=>p.maquinaId===mqId).sort((a,b)=>planStart(a).localeCompare(planStart(b)));
+    const planDe=(ts)=>{let r=null;for(const p of plans){if(planStart(p)<=ts)r=p;else break;}return r;};
+    const planFin=(p)=>{const k=plans.indexOf(p);return k>=0&&k<plans.length-1?planStart(plans[k+1]):null;};
 
-    // Para cada espiral, buscar el producto en el planograma más cercano
-    const getProd=(espiral,fecha)=>{
-      const plan=plansMaq.find(p=>p.fecha<=fecha)||plansMaq[0];
-      if(!plan)return null;
-      const item=(plan.espirales||[]).find(e=>e.espiral===espiral||e.espiral===espiral.padStart(2,'0'));
-      return item?{producto:item.producto,planId:plan.id,planFecha:plan.fecha}:null;
-    };
-
-    // Agrupar ventas por espiral
-    const byEspiral={};
+    // 3) Cada venta se asigna al producto que había en esa selección EN ESE MOMENTO
+    const filas={};
+    const items=[];
     ac.forEach(t=>{
-      const sp=t.espiral;
-      if(!byEspiral[sp]) byEspiral[sp]={espiral:sp,producto:null,planId:null,qty:0,ingreso:0,ef:0,yape:0,tarj:0};
-      byEspiral[sp].qty++;
-      byEspiral[sp].ingreso+=t.valor;
-      if(t.pago==='Efectivo')byEspiral[sp].ef++;
-      else if(t.pago==='Yape/QR')byEspiral[sp].yape++;
-      else byEspiral[sp].tarj++;
-      // Buscar producto
-      if(!byEspiral[sp].producto){
-        const prod=getProd(sp,t.fecha);
-        if(prod){byEspiral[sp].producto=prod.producto;byEspiral[sp].planId=prod.planId;byEspiral[sp].planFecha=prod.planFecha;}
-      }
+      const p=planDe(tsOf(t));
+      const it=p?(p.espirales||[]).find(e=>normEsp(e.espiral)===t.espiral):null;
+      const producto=(it&&!esVacio(it.producto))?it.producto:null;
+      const productoId=producto?(it.productoId||null):null;
+      const key=(p?p.id:'sin')+'|'+t.espiral;
+      if(!filas[key])filas[key]={key,espiral:t.espiral,producto,productoId,planId:p?p.id:null,planFecha:p?planStart(p).slice(0,16):null,qty:0,ingreso:0,ef:0,yape:0,tarj:0};
+      const f=filas[key];
+      f.qty++;f.ingreso+=t.valor;
+      if(t.pago==='Efectivo')f.ef++;
+      else if(t.pago==='Yape/QR')f.yape++;
+      else f.tarj++;
+      items.push({fecha:t.fecha,espiral:t.espiral,producto,productoId,planId:p?p.id:null,valor:t.valor});
     });
-
-    const ventasPorProducto=Object.values(byEspiral).sort((a,b)=>b.qty-a.qty);
+    const ventasPorProducto=Object.values(filas).sort((a,b)=>b.qty-a.qty);
     const conProducto=ventasPorProducto.filter(v=>v.producto);
     const sinProducto=ventasPorProducto.filter(v=>!v.producto);
+
+    // 4) Ranking por producto (junta todos los ciclos y espirales del producto)
+    const porProd={};
+    ventasPorProducto.forEach(f=>{
+      const k=f.producto?(f.productoId||String(f.producto).trim().toLowerCase()):'esp:'+f.espiral;
+      if(!porProd[k])porProd[k]={producto:f.producto||('Sin identificar (Cod. '+f.espiral+')'),productoId:f.productoId,espirales:[],qty:0,ingreso:0};
+      const r=porProd[k];
+      r.qty+=f.qty;r.ingreso+=f.ingreso;
+      if(!r.espirales.includes(f.espiral))r.espirales.push(f.espiral);
+    });
+    const ranking=Object.values(porProd).sort((a,b)=>b.qty-a.qty);
+
+    // 5) Ciclos que toca este CSV
+    const ciclosMap={};
+    ac.forEach(t=>{
+      const p=planDe(tsOf(t));const k=p?p.id:'sin';
+      if(!ciclosMap[k])ciclosMap[k]={plan:p,ventas:0,ingreso:0,sinProducto:0};
+      ciclosMap[k].ventas++;ciclosMap[k].ingreso+=t.valor;
+    });
+    items.forEach(it=>{if(!it.producto){const k=it.planId||'sin';if(ciclosMap[k])ciclosMap[k].sinProducto++;}});
+    plans.forEach(p=>{
+      const ini=planStart(p),fin=planFin(p);
+      if(desde&&hasta&&ini<=hasta&&(!fin||fin>desde)&&!ciclosMap[p.id])ciclosMap[p.id]={plan:p,ventas:0,ingreso:0,sinProducto:0};
+    });
+    const ciclos=Object.values(ciclosMap)
+      .map(cy=>({...cy,inicio:cy.plan?planStart(cy.plan):null,fin:cy.plan?planFin(cy.plan):null}))
+      .sort((a,b)=>String(a.inicio||'').localeCompare(String(b.inicio||'')));
+
+    // 6) Selecciones del planograma que no vendieron nada en lo importado
+    const sinVentas=[];
+    ciclos.forEach(cy=>{
+      if(!cy.plan)return;
+      (cy.plan.espirales||[]).forEach(e=>{
+        if(esVacio(e.producto))return;
+        const sp=normEsp(e.espiral);
+        if(!filas[cy.plan.id+'|'+sp])sinVentas.push({espiral:sp,producto:e.producto,planInicio:cy.inicio});
+      });
+    });
+
     const totalIng=ac.reduce((s,t)=>s+t.valor,0);
     const ef=ac.filter(t=>t.pago==='Efectivo');
     const yape=ac.filter(t=>t.pago==='Yape/QR');
     const tarj=ac.filter(t=>t.pago==='Tarjeta');
-
-    // Plan usado
-    const planUsado=plansMaq[0];
+    const planUsado=plans.length?(hasta?planDe(hasta):plans[plans.length-1]):null;
 
     setCruce({
-      ventasPorProducto,conProducto,sinProducto,
+      ventasPorProducto,conProducto,sinProducto,ranking,ciclos,sinVentas,items,nuevas,
+      omitidas:todas.length-nuevas.length,nuevasTotal:nuevas.length,totalCsv:todas.length,
+      salto,numDesde,numHasta,desde,hasta,
       totalVentas:ac.length,totalIng,
       totalCanceladas:cans.length,totalErrores:errs.length,
       ef:ef.length,yape:yape.length,tarj:tarj.length,
       ingEf:ef.reduce((s,t)=>s+t.valor,0),
       ingYape:yape.reduce((s,t)=>s+t.valor,0),
       ingTarj:tarj.reduce((s,t)=>s+t.valor,0),
-      fechas,comercio:csvDataLocal.comercio,
-      planUsado,errores:errs,
+      fechas,comercio:csvD.comercio,
+      planUsado,sinPlan:plans.length===0,errores:errs,
     });
   };
 
@@ -5212,11 +5342,13 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
   // ── Guardar en Supabase ───────────────────────────────────────────────────
   const guardarVentas=async()=>{
     if(!cruce||!maqId)return;
+    if(cruce.nuevasTotal===0){alert("Todas las ventas de este CSV ya fueron importadas antes. No hay nada nuevo que guardar.");return;}
+    if(cruce.salto&&!window.confirm("Faltan las ventas #"+cruce.salto.desde+" a #"+cruce.salto.hasta+" de esta máquina (entre lo último importado y este CSV).\n\nLo ideal es subir primero el CSV que las incluya. ¿Guardar de todos modos?"))return;
+    if(cruce.fechas.some(f=>f>ahoraLocal().fecha)&&!window.confirm("Hay ventas con fecha futura. Revisa el formato de fecha del CSV (Día/Mes o Mes/Día).\n\n¿Guardar de todos modos?"))return;
     setGuardando(true);
     try{
       const id=uid();
-      // 1. Guardar resumen en ventasAtento
-      await save("ventasAtento",id,{
+      const registro={
         id,
         maquinaId:maqId,
         maquinaNombre:maq?.nombre||"",
@@ -5233,53 +5365,82 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
         ingresoEfectivo:+cruce.ingEf.toFixed(2),
         ingresoYape:+cruce.ingYape.toFixed(2),
         ingresoTarjeta:+cruce.ingTarj.toFixed(2),
-        transacciones:csvData.transacciones,
+        transacciones:cruce.nuevas,
         ventasPorProducto:cruce.ventasPorProducto,
+        numDesde:cruce.numDesde,numHasta:cruce.numHasta,
+        desde:cruce.desde,hasta:cruce.hasta,
+      };
+
+      // Ventas del módulo Ventas: una fila por día + selección + producto del ciclo
+      const agg={};
+      cruce.items.forEach(it=>{
+        const k=[it.fecha,it.espiral,it.planId||'',it.producto||''].join('|');
+        if(!agg[k])agg[k]={...it,qty:0,ingreso:0};
+        agg[k].qty++;agg[k].ingreso+=it.valor;
+      });
+      const filas=Object.values(agg).map(v=>{
+        const porId=v.productoId&&(data.productos||[]).find(p=>p.id===v.productoId);
+        const porNombre=v.producto&&(data.productos||[]).find(p=>(p.nombre||'').trim().toLowerCase()===String(v.producto).trim().toLowerCase());
+        return{
+          id:uid(),fecha:v.fecha,maquinaId:maqId,
+          productoId:(porId||porNombre)?(porId||porNombre).id:null,
+          productoNombre:v.producto||('Espiral '+v.espiral),
+          espiral:v.espiral,cantidad:v.qty,ingreso:+v.ingreso.toFixed(2),
+          origen:"atento",ventasAtentoId:id,
+        };
       });
 
-      // 2. Registrar ventas en módulo de ventas principal
-      const ventasAceptadas=csvData.transacciones.filter(t=>t.status==='ACEPTADA');
-      const ventasPorDiaEsp={};
-      ventasAceptadas.forEach(t=>{
-        const key=`${t.fecha}_${t.espiral}`;
-        if(!ventasPorDiaEsp[key]) ventasPorDiaEsp[key]={fecha:t.fecha,espiral:t.espiral,qty:0,ingreso:0};
-        ventasPorDiaEsp[key].qty++;
-        ventasPorDiaEsp[key].ingreso+=t.valor;
-      });
-
-      // Buscar producto en catálogo GAMATIC
-      for(const[key,v] of Object.entries(ventasPorDiaEsp)){
-        const planItem=cruce.ventasPorProducto.find(p=>p.espiral===v.espiral);
-        const nombreProd=planItem?.producto||`Espiral ${v.espiral}`;
-        const prod=(data.productos||[]).find(p=>
-          p.nombre?.toLowerCase().includes(nombreProd.toLowerCase().split(' ')[0])||
-          nombreProd.toLowerCase().includes(p.nombre?.toLowerCase().split(' ')[0])
-        );
-        const vid=uid();
-        await save("ventas",vid,{
-          id:vid,
-          fecha:v.fecha,
-          maquinaId:maqId,
-          productoId:prod?.id||null,
-          productoNombre:nombreProd,
-          espiral:v.espiral,
-          cantidad:v.qty,
-          ingreso:+v.ingreso.toFixed(2),
-          origen:"atento",
-          ventasAtentoId:id,
-        });
+      const {error:e1}=await supabase.from('ventas_atento').insert(toSnake(registro));
+      if(e1)throw e1;
+      if(filas.length){
+        const {error:e2}=await supabase.from('ventas').insert(filas.map(f=>toSnake(f)));
+        if(e2){await supabase.from('ventas_atento').delete().eq('id',id);throw e2;}
       }
+      if(recargar)await recargar();
       setPaso(3);
     }catch(err){
       console.error("Error guardando:",err);
-      alert("Error al guardar. Revisa la consola.");
+      alert("No se pudo guardar: "+(err.message||JSON.stringify(err)));
     }finally{
       setGuardando(false);
     }
   };
 
+  const fmtTs=(s)=>s?String(s).slice(0,16).replace(" "," · "):"—";
   const fmtS=(n)=>`S/ ${(+n||0).toFixed(2)}`;
   const pct=(a,b)=>b?`${Math.round(a/b*100)}%`:'0%';
+
+  // Estado de cada máquina con Atento: ¿tiene foto de su último abastecimiento y ventas al día?
+  const estadoMaquinas=(data.maquinas||[]).filter(m=>m.activa&&m.comercioAtento).map(m=>{
+    const iniP=(p)=>(p.fecha||'')+' '+(p.hora||'00:00:00');
+    const plans=(data.planogramas||[]).filter(p=>p.maquinaId===m.id).sort((a,b)=>iniP(a).localeCompare(iniP(b)));
+    const ultPlan=plans.length?plans[plans.length-1]:null;
+    const ultImp=(data.ventasAtento||[]).filter(v=>v.maquinaId===m.id&&v.hasta).sort((a,b)=>String(b.hasta).localeCompare(String(a.hasta)))[0]||null;
+    const ultStock=(data.stockMaquina||[]).filter(s=>s.maquinaId===m.id&&s.fecha).map(s=>s.fecha).sort().pop()||null;
+    let estado="",color="var(--green)";
+    if(!ultPlan){estado="📸 Sin planograma";color="var(--red)";}
+    else if(ultStock&&ultStock>ultPlan.fecha){estado="⚠️ Abastecimiento del "+ultStock+" sin foto";color="var(--red)";}
+    else if(!ultImp){estado="⏳ Sin ventas importadas";color="var(--accent)";}
+    else if(String(ultImp.hasta)<iniP(ultPlan)){estado="⏳ Importa ventas: faltan las del ciclo anterior";color="var(--accent)";}
+    else{estado="✅ Al día hasta "+fmtTs(ultImp.hasta);color="var(--green)";}
+    return{m,ultPlan,ultImp,estado,color,iniP:ultPlan?iniP(ultPlan):null};
+  });
+
+  // Resumen del mes: totales, medios de pago y ranking de productos (según las importaciones del mes)
+  const resumenMes=(()=>{
+    const porProd={};
+    let ventas=0,ingreso=0,ef=0,yape=0,tarj=0;
+    historial.forEach(h=>{
+      ventas+=h.totalVentas||0;ingreso+=+h.totalIngreso||0;
+      ef+=h.pagoEfectivo||0;yape+=h.pagoYape||0;tarj+=h.pagoTarjeta||0;
+      (h.ventasPorProducto||[]).forEach(f=>{
+        const k=f.producto?String(f.producto).trim().toLowerCase():(h.maquinaId+'|'+f.espiral);
+        if(!porProd[k])porProd[k]={producto:f.producto||((h.maquinaNombre||'').trim()+' · Cod. '+f.espiral),qty:0,ingreso:0};
+        porProd[k].qty+=f.qty||0;porProd[k].ingreso+=f.ingreso||0;
+      });
+    });
+    return{ventas,ingreso,ef,yape,tarj,ranking:Object.values(porProd).sort((a,b)=>b.qty-a.qty)};
+  })();
 
   return(
     <div>
@@ -5304,6 +5465,31 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       {/* PASO 1: Subir CSV + seleccionar máquina */}
       {paso===1&&(
         <div>
+          {estadoMaquinas.length>0&&(
+            <div className="section" style={{marginBottom:14}}>
+              <div className="section-header"><h3>📋 Estado por máquina</h3><span style={{fontSize:11,color:"var(--muted)"}}>Toca una fila para elegir la máquina</span></div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr style={{background:"#fffbf0"}}>
+                    <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Máquina</th>
+                    <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Último abastecimiento (foto)</th>
+                    <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Ventas importadas hasta</th>
+                    <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Estado</th>
+                  </tr></thead>
+                  <tbody>
+                    {estadoMaquinas.map(x=>(
+                      <tr key={x.m.id} onClick={()=>setMaqId(x.m.id)} style={{cursor:"pointer",borderBottom:"1px solid rgba(245,158,11,.08)",background:maqId===x.m.id?"rgba(245,158,11,.08)":"transparent"}}>
+                        <td style={{padding:"8px 12px",fontWeight:700}}>{x.m.nombre}</td>
+                        <td style={{padding:"8px 12px"}}>{x.iniP?fmtTs(x.iniP):"—"}</td>
+                        <td style={{padding:"8px 12px"}}>{x.ultImp?fmtTs(x.ultImp.hasta)+" (venta #"+x.ultImp.numHasta+")":"—"}</td>
+                        <td style={{padding:"8px 12px",fontWeight:700,color:x.color}}>{x.estado}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <div className="section" style={{marginBottom:14}}>
             <div className="section-header"><h3>1. Selecciona la máquina</h3></div>
             <div style={{padding:"14px 16px"}}>
@@ -5384,14 +5570,61 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
 
           {cruce&&(
             <div>
-              {/* Alerta planograma */}
-              {cruce.planUsado?(
-                <div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12}}>
-                  ✅ <strong>Planograma encontrado</strong> — {cruce.planUsado.fecha} · {cruce.planUsado.totalEspirales} espirales · por {cruce.planUsado.usuarioNombre||"—"}
+              {/* Control de duplicados, huecos y ciclos */}
+              <div style={{background:"#fffbf0",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+                <span>📅 <strong>Período del CSV:</strong> {fmtTs(cruce.desde)} → {fmtTs(cruce.hasta)}</span>
+                <span style={{color:"var(--muted)"}}>Formato de fecha:</span>
+                <select value={csvData.formato||"dmy"} onChange={e=>cambiarFormatoFecha(e.target.value)} style={{padding:"4px 8px",border:"1px solid rgba(245,158,11,.3)",borderRadius:6,fontSize:12}}>
+                  <option value="dmy">Día/Mes/Año (1/11/2026 = 1 de noviembre)</option>
+                  <option value="mdy">Mes/Día/Año (1/11/2026 = 11 de enero)</option>
+                </select>
+                <span style={{color:"var(--muted)"}}>Si el período no coincide con lo que descargaste, cámbialo aquí.</span>
+              </div>
+              {cruce.nuevasTotal===0&&(
+                <div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,color:"var(--red)"}}>
+                  ⛔ <strong>Todas las ventas de este CSV ya fueron importadas</strong> ({cruce.totalCsv} transacciones). No hay nada nuevo que guardar.
                 </div>
-              ):(
+              )}
+              {cruce.omitidas>0&&cruce.nuevasTotal>0&&(
+                <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.25)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12}}>
+                  ℹ️ {cruce.omitidas} de {cruce.totalCsv} transacciones ya estaban importadas y se omitieron. Se guardarán solo las {cruce.nuevasTotal} nuevas (ventas #{cruce.numDesde} a #{cruce.numHasta}).
+                </div>
+              )}
+              {cruce.salto&&(
+                <div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--red)"}}>
+                  ⚠️ <strong>Faltan ventas.</strong> Lo último importado de esta máquina llega a la venta #{cruce.salto.desde-1} y este CSV empieza en la #{cruce.numDesde}. Faltan las ventas #{cruce.salto.desde} a #{cruce.salto.hasta}: sube primero el CSV que las incluya para no perder ventas.
+                </div>
+              )}
+              {cruce.sinPlan&&(
                 <div style={{background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--accent)"}}>
-                  ⚠️ <strong>Sin planograma disponible</strong> para {maq?.nombre}. Las ventas se registrarán por número de espiral sin nombre de producto. Pide al abastecedor que suba la foto.
+                  ⚠️ <strong>{maq?.nombre} no tiene ningún planograma.</strong> Pide al abastecedor que suba la foto del abastecimiento; mientras tanto las ventas quedan solo por Cod. Selección.
+                </div>
+              )}
+              {cruce.ciclos.length>0&&(
+                <div className="section" style={{marginBottom:14}}>
+                  <div className="section-header"><h3>🔄 Ciclos de abastecimiento en este CSV</h3><span style={{fontSize:11,color:"var(--muted)"}}>Cada venta se asigna al producto que había en esa selección en ese momento</span></div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead><tr style={{background:"#fffbf0"}}>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Abastecimiento (foto)</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Hasta</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Ventas</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Ingreso</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Sin identificar</th>
+                      </tr></thead>
+                      <tbody>
+                        {cruce.ciclos.map((cy,k)=>(
+                          <tr key={k} style={{borderBottom:"1px solid rgba(245,158,11,.08)"}}>
+                            <td style={{padding:"8px 12px",fontWeight:600}}>{cy.plan?("📸 "+fmtTs(cy.inicio)+" · "+(cy.plan.usuarioNombre||"—")):"Sin planograma (ventas anteriores a la primera foto)"}</td>
+                            <td style={{padding:"8px 12px"}}>{cy.plan?(cy.fin?fmtTs(cy.fin):"En curso"):"—"}</td>
+                            <td style={{padding:"8px 12px",fontWeight:800,color:"var(--accent)"}}>{cy.ventas}</td>
+                            <td style={{padding:"8px 12px"}}>{fmtS(cy.ingreso)}</td>
+                            <td style={{padding:"8px 12px",color:cy.sinProducto?"var(--red)":"var(--muted)"}}>{cy.sinProducto||"-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
@@ -5408,7 +5641,7 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
               {/* Tabla ventas por producto */}
               <div className="section" style={{marginBottom:14}}>
                 <div className="section-header">
-                  <h3>📦 Ventas por producto</h3>
+                  <h3>📦 Ventas por Cod. Selección (por abastecimiento)</h3>
                   <div style={{fontSize:11,color:"var(--muted)"}}>
                     {cruce.conProducto.length} con producto · {cruce.sinProducto.length} sin identificar
                   </div>
@@ -5416,14 +5649,14 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead><tr style={{background:"#fffbf0"}}>
-                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Espiral</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Cod. Selección</th>
                       <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Producto</th>
                       <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"right"}}>Ventas</th>
                       <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"right"}}>Ingreso</th>
                       <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"center"}}>💵</th>
                       <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"center"}}>📱</th>
                       <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"center"}}>💳</th>
-                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Planograma</th>
+                      <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Abastecimiento</th>
                     </tr></thead>
                     <tbody>
                       {cruce.ventasPorProducto.map((v,i)=>(
@@ -5449,6 +5682,47 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
                   </table>
                 </div>
               </div>
+
+              {cruce.ranking.length>0&&(
+                <div className="section" style={{marginBottom:14}}>
+                  <div className="section-header"><h3>🏆 Ranking de productos (más → menos vendidos)</h3></div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead><tr style={{background:"#fffbf0"}}>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>#</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Producto</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Cod. Selección</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Ventas</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>Ingreso</th>
+                        <th style={{padding:"8px 12px",color:"var(--accent)",fontSize:10,textTransform:"uppercase",borderBottom:"1px solid rgba(245,158,11,.2)",textAlign:"left"}}>% de ventas</th>
+                      </tr></thead>
+                      <tbody>
+                        {cruce.ranking.map((r,k)=>(
+                          <tr key={k} style={{borderBottom:"1px solid rgba(245,158,11,.08)"}}>
+                            <td style={{padding:"8px 12px",color:"var(--muted)"}}>{k+1}</td>
+                            <td style={{padding:"8px 12px",fontWeight:600}}>{r.producto}</td>
+                            <td style={{padding:"8px 12px"}}>{r.espirales.join(", ")}</td>
+                            <td style={{padding:"8px 12px",fontWeight:800,color:"var(--accent)"}}>{r.qty}</td>
+                            <td style={{padding:"8px 12px"}}>{fmtS(r.ingreso)}</td>
+                            <td style={{padding:"8px 12px",color:"var(--muted)"}}>{pct(r.qty,cruce.totalVentas)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {cruce.sinVentas.length>0&&(
+                <div className="section" style={{marginBottom:14}}>
+                  <div className="section-header"><h3>🐌 Sin ventas en lo importado ({cruce.sinVentas.length})</h3></div>
+                  <div style={{padding:"10px 16px",display:"flex",flexWrap:"wrap",gap:6}}>
+                    {cruce.sinVentas.map((x,k)=>(
+                      <span key={k} style={{fontSize:11,padding:"3px 9px",borderRadius:20,background:"rgba(100,116,139,.12)",color:"var(--muted)",fontWeight:600}}>{x.espiral} · {x.producto}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Errores de dispensado */}
               {cruce.errores?.length>0&&(
@@ -5485,7 +5759,7 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
               {/* Botones acción */}
               <div style={{display:"flex",gap:10,justifyContent:"space-between",flexWrap:"wrap"}}>
                 <button className="btn btn-secondary" onClick={()=>{setPaso(1);setCsvData(null);setCruce(null);}}>← Subir otro CSV</button>
-                <button className="btn btn-primary" onClick={guardarVentas} disabled={guardando}
+                <button className="btn btn-primary" onClick={guardarVentas} disabled={guardando||cruce.nuevasTotal===0}
                   style={{padding:"12px 24px",fontSize:14}}>
                   {guardando?"⏳ Guardando...":"💾 Guardar ventas en GAMATIC"}
                 </button>
@@ -5516,12 +5790,41 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       )}
 
       {/* HISTORIAL */}
-      {paso===1&&historial.length>0&&(
+      {paso===1&&(data.ventasAtento||[]).length>0&&(
         <div className="section" style={{marginTop:16}}>
           <div className="section-header">
             <h3>Historial de importaciones</h3>
             <MesNav mes={mes} setMes={setMes}/>
           </div>
+          {historial.length>0?(
+            <div style={{padding:"12px 16px",borderBottom:"1px solid rgba(245,158,11,.15)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:8,marginBottom:12}}>
+                {[["Ventas",resumenMes.ventas,"var(--accent)"],["Ingreso",fmtS(resumenMes.ingreso),"var(--green)"],["💵 Efectivo",resumenMes.ef,"var(--green)"],["📱 Yape/QR",resumenMes.yape,"#7c3aed"],["💳 Tarjeta",resumenMes.tarj,"var(--accent2)"]].map(([l,v,col])=>(
+                  <div key={l} style={{background:"var(--surface2)",borderRadius:8,padding:"8px 10px",textAlign:"center"}}>
+                    <div style={{fontSize:9,color:"var(--muted)",textTransform:"uppercase"}}>{l}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:col}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginBottom:6}}>🏆 Más vendidos</div>
+                  {resumenMes.ranking.slice(0,8).map((r,k)=>(
+                    <div key={k} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"3px 0",borderBottom:"1px solid rgba(245,158,11,.08)"}}><span>{k+1}. {r.producto}</span><strong>{r.qty}</strong></div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>🐌 Menos vendidos</div>
+                  {[...resumenMes.ranking].reverse().slice(0,8).map((r,k)=>(
+                    <div key={k} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"3px 0",borderBottom:"1px solid rgba(245,158,11,.08)"}}><span>{r.producto}</span><strong>{r.qty}</strong></div>
+                  ))}
+                </div>
+              </div>
+              <div style={{fontSize:10,color:"var(--muted)",marginTop:8}}>Si elegiste una máquina arriba, el resumen es solo de esa máquina. El nombre del producto aparece cuando el abastecedor subió el planograma; si no, se muestra la máquina y el Cod. Selección.</div>
+            </div>
+          ):(
+            <div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin importaciones en {nombreMes(mes)}. Usa las flechas del mes para ver otros meses.</div>
+          )}
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr style={{background:"#fffbf0"}}>
@@ -5559,7 +5862,7 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
       {/* Modal detalle */}
       {detalleMod&&(
         <div className="modal-overlay"><div className="modal" style={{maxWidth:560}}>
-          <ModalHeader titulo={`Ventas Atento — ${detalleMod.maquinaNombre}`} subtitulo={`${detalleMod.fecha} · ${detalleMod.totalVentas} ventas · ${fmtS(detalleMod.totalIngreso)}`} onClose={()=>setDetalleMod(null)}/>
+          <ModalHeader titulo={`Ventas Atento — ${detalleMod.maquinaNombre}`} subtitulo={`${detalleMod.desde?fmtTs(detalleMod.desde)+" → "+fmtTs(detalleMod.hasta):detalleMod.fecha} · ${detalleMod.totalVentas} ventas · ${fmtS(detalleMod.totalIngreso)} · 💵${detalleMod.pagoEfectivo||0} 📱${detalleMod.pagoYape||0} 💳${detalleMod.pagoTarjeta||0}`} onClose={()=>setDetalleMod(null)}/>
           <div style={{overflowX:"auto",maxHeight:400}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr style={{background:"#fffbf0"}}>
@@ -5584,7 +5887,7 @@ function VentasAtento({data,save,del,sesionUsuario=null}){
         </div></div>
       )}
 
-      {confirmDel&&<ConfirmDelete texto={`¿Eliminar esta importación del ${confirmDel.fecha}?`} onConfirm={async()=>{await del("ventasAtento",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar esta importación del ${confirmDel.fecha}? También se quitarán las ventas que generó en el módulo Ventas y podrás volver a importar ese CSV.`} onConfirm={async()=>{await supabase.from("ventas").delete().eq("ventas_atento_id",confirmDel.id);await del("ventasAtento",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
 }
@@ -5955,7 +6258,7 @@ export default function App(){
     case "cafeteras":    return <Cafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin}/>;
     case "ventasCafeteras": return <VentasCafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
     case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
-    case "ventasAtento": return <VentasAtento data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario}/>;
+    case "ventasAtento": return <VentasAtento data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "horario":      return <HorarioAdmin data={data} save={saveWrapped}/>;
