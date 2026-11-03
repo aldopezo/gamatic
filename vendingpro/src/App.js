@@ -703,7 +703,7 @@ function Productos({data,save,del,soloEditar=false}){
   const [editandoPrecioId,setEditandoPrecioId]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
   const [entrada,setEntrada]=useState(null); // {producto, cantidad, fechaVenc}
-  const FORM0={nombre:"",costo:"",margen:"",precioVenta:"",precioEco:"",proveedor:"",fecha:"",cantidad:"",minimo:"",fechaReg:"",fechaVenc:""};
+  const FORM0={nombre:"",costo:"",margen:"",precioVenta:"",proveedor:"",fecha:"",cantidad:"",minimo:"",fechaReg:"",fechaVenc:""};
   const [form,setForm]=useState(FORM0);
 
   const est=(c,m)=>c&&m?(+c*(1+ +m/100)).toFixed(2):"";
@@ -715,7 +715,7 @@ function Productos({data,save,del,soloEditar=false}){
     const s=stockDe(p.id);
     setForm({
       nombre:p.nombre||"",costo:String(p.costo??""),margen:String(p.margen??""),
-      precioVenta:String(p.precioVenta||""),precioEco:String(p.precioEco||""),
+      precioVenta:String(p.precioVenta||""),
       proveedor:p.proveedor||"",fecha:p.fecha||ahoraLocal().fecha,
       cantidad:s?String(s.cantidad):"",minimo:s?String(s.minimo):"",
       fechaReg:s?.fechaReg||"",fechaVenc:s?.fechaVenc||"",
@@ -730,7 +730,6 @@ function Productos({data,save,del,soloEditar=false}){
     const obj={
       nombre:form.nombre.trim(),costo:+form.costo,margen:+form.margen||0,
       precioVenta:form.precioVenta?+form.precioVenta:(isNaN(e)?+form.costo:e),
-      precioEco:form.precioEco?+form.precioEco:null,
       proveedor:form.proveedor,fecha:form.fecha,
     };
     setModal(false);
@@ -799,9 +798,9 @@ function Productos({data,save,del,soloEditar=false}){
           </div>
         </div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Producto</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Precio venta</th><th>Precio económico</th><th>Stock</th><th>Mínimo</th><th>Estado</th><th>F.Vencimiento</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Producto</th><th>Proveedor</th><th>Costo</th><th>Margen</th><th>Precio venta</th><th>Stock</th><th>Mínimo</th><th>Estado</th><th>F.Vencimiento</th><th>Acciones</th></tr></thead>
           <tbody>
-            {filtradas.length===0&&<tr><td colSpan={11} style={{padding:24,textAlign:"center",color:"var(--muted)"}}>Sin productos con este filtro</td></tr>}
+            {filtradas.length===0&&<tr><td colSpan={10} style={{padding:24,textAlign:"center",color:"var(--muted)"}}>Sin productos con este filtro</td></tr>}
             {filtradas.map(({p,s})=>{
               const e=((+p.costo||0)*(1+(+p.margen||0)/100)).toFixed(2);
               const epId=editandoPrecioId===p.id;
@@ -823,7 +822,6 @@ function Productos({data,save,del,soloEditar=false}){
                       <button className="btn btn-secondary btn-sm" onClick={()=>{setEditandoPrecioId(p.id);setPrecioEdit(p.precioVenta||e);}}><Icon name="edit" size={11}/></button>
                     </div>
                 }</td>
-                <td>{p.precioEco?<span className="precio-eco">{fmt(p.precioEco)}</span>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
                 <td>{s?<span style={{fontSize:15,fontWeight:800,color:bajo?"var(--red)":"var(--text)"}}>{s.cantidad}</span>:<span style={{color:"var(--muted)",fontSize:11}}>—</span>}</td>
                 <td style={{color:"var(--muted)"}}>{s?s.minimo:"—"}</td>
                 <td>{!s
@@ -857,7 +855,6 @@ function Productos({data,save,del,soloEditar=false}){
         </div>
         {form.costo&&form.margen&&<div className="info-box">Precio estimado: <strong>S/ {est(form.costo,form.margen)}</strong></div>}
         <div className="form-group"><label>Precio real de venta (puedes redondearlo)</label><input type="number" step="0.10" value={form.precioVenta} onChange={e=>setForm({...form,precioVenta:e.target.value})} placeholder={"Ej: "+(est(form.costo,form.margen)||"2.50")}/></div>
-        <div className="form-group"><label>Precio económico (S/) — opcional</label><input type="number" step="0.10" value={form.precioEco||""} onChange={e=>setForm({...form,precioEco:e.target.value})} placeholder="Ej: 2.80 (para máquinas con precios reducidos)"/></div>
         <div className="form-group"><label>Proveedor</label>
           <select value={form.proveedor} onChange={e=>setForm({...form,proveedor:e.target.value})}>
             <option value="">Seleccionar...</option>
