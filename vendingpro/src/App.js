@@ -2327,7 +2327,7 @@ function ListaPreciosEco({data}){
 }
 
 
-function StockMaquina({data,save,del,soloLectura=false,maqsFiltro=null,sesionUsuario=null}){
+function StockMaquina({data,save,del,soloLectura=false,maqsFiltro=null,sesionUsuario=null,onRecargaGuardada=null}){
   const [modal,setModal]=useState(false);
   const [maqId,setMaqId]=useState("");
   const [fecha,setFecha]=useState(today());
@@ -2403,6 +2403,7 @@ function StockMaquina({data,save,del,soloLectura=false,maqsFiltro=null,sesionUsu
     const filasValidas=filas.filter(f=>f.residuo!==""||f.traslado!=="");
     if(!filasValidas.length)return;
     const id=uid();
+    const maqGuardada=maqId,fechaGuardada=fecha;
     const registros=filasValidas.map(f=>({
       productoId:f.productoId,
       stockAnterior:f.stockAnterior,
@@ -2430,6 +2431,7 @@ function StockMaquina({data,save,del,soloLectura=false,maqsFiltro=null,sesionUsu
       }
     }
     setModal(false);setMaqId("");setFilas([]);
+    if(onRecargaGuardada)onRecargaGuardada(maqGuardada,fechaGuardada);
   };
 
   const registrosMes=(data.stockMaquina||[]).filter(r=>r.fecha?.startsWith(mes));
@@ -3712,6 +3714,9 @@ function GestionUsuarios({data,save,del}){
       await save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null,activo:true,token,password,creadoEn:today()});
     }
   };
+  // Al editar se carga TODO, incluido el rol personalizado (antes se perdía al guardar)
+  const abrirEditar=(u)=>{setForm({nombre:u.nombre||"",dni:u.dni||"",rol:u.rol,rolId:u.rolId||"",password:"",crearPass:true});setEditando(u);setModal(true);};
+  const rolesPers=(data.roles||[]).filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)&&r.activo!==false);
   const copiarLink=(u)=>{
     const link=baseUrl+"?registro="+u.token;
     navigator.clipboard.writeText(link).then(()=>{setLinkCopiado(u.id);setTimeout(()=>setLinkCopiado(null),2500);});
@@ -3746,6 +3751,9 @@ function GestionUsuarios({data,save,del}){
                     <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
                       <span style={{fontSize:11,color:"var(--muted)"}}>DNI: <strong>{u.dni}</strong></span>
                       <span className="badge blue">{u.rol}</span>
+                      {u.rolId&&(()=>{const r=(data.roles||[]).find(x=>x.id===u.rolId);return r
+                        ?<span title={(r.modulos||[]).length+" módulos"} style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(124,58,237,.12)",color:"#7c3aed"}}>✨ {r.nombre}</span>
+                        :<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(239,68,68,.15)",color:"var(--red)"}}>⚠️ Rol eliminado</span>;})()}
                       <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:u.password?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:u.password?"var(--green)":"var(--accent)"}}>
                         {u.password?"✅ Con acceso":"⏳ Pendiente registro"}
                       </span>
@@ -3766,7 +3774,7 @@ function GestionUsuarios({data,save,del}){
                       🔄 Reiniciar contraseña
                     </button>
                   )}
-                  <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:u.nombre,dni:u.dni,rol:u.rol});setEditando(u);setModal(true);}}><Icon name="edit" size={12}/></button>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(u)}><Icon name="edit" size={12}/></button>
                   <button className="btn btn-secondary btn-sm" style={{color:u.activo!==false?"var(--red)":"var(--green)"}} onClick={()=>toggleActivo(u)}>{u.activo!==false?"Desactivar":"Activar"}</button>
                   <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(u)}><Icon name="trash" size={12}/></button>
                 </div>
@@ -3782,23 +3790,23 @@ function GestionUsuarios({data,save,del}){
           <div className="form-group"><label>DNI</label><input value={form.dni} onChange={e=>setForm({...form,dni:e.target.value})} placeholder="12345678" maxLength={8}/></div>
         </div>
         <div className="form-group"><label>Rol base</label>
-          <select value={form.rol} onChange={e=>setForm({...form,rol:e.target.value,rolId:""})}>
+          <select value={form.rol} onChange={e=>{const nb=e.target.value;const r=(data.roles||[]).find(x=>x.id===form.rolId);setForm({...form,rol:nb,rolId:r&&r.rolBase===nb?form.rolId:""});}}>
             <option value="admin">🔐 Administrador</option>
             <option value="abastecedor">🔧 Abastecedor</option>
             <option value="almacenero">🏭 Almacenero</option>
           </select>
         </div>
-        {(data.roles||[]).filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)&&r.activo&&r.rolBase===form.rol).length>0&&(
-          <div className="form-group"><label>Rol personalizado (opcional)</label>
-            <select value={form.rolId||""} onChange={e=>setForm({...form,rolId:e.target.value})}>
-              <option value="">Sin rol personalizado</option>
-              {(data.roles||[]).filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)&&r.activo&&r.rolBase===form.rol).map(r=>(
-                <option key={r.id} value={r.id}>✨ {r.nombre}</option>
-              ))}
-            </select>
-            <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Si seleccionas un rol personalizado, el usuario solo verá los módulos asignados a ese rol.</div>
+        <div className="form-group"><label>Rol personalizado (opcional)</label>
+          <select value={form.rolId||""} onChange={e=>{const r=(data.roles||[]).find(x=>x.id===e.target.value);setForm({...form,rolId:e.target.value,rol:r?r.rolBase:form.rol});}}>
+            <option value="">Sin rol personalizado</option>
+            {rolesPers.map(r=><option key={r.id} value={r.id}>✨ {r.nombre} (base: {r.rolBase})</option>)}
+          </select>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>
+            {rolesPers.length===0
+              ?"Aún no hay roles personalizados. Créalos en Administración → Roles y permisos."
+              :"Con un rol personalizado el usuario solo ve los módulos de ese rol. El rol base se ajusta solo."}
           </div>
-        )}
+        </div>
         {!editando&&(
           <div style={{background:"var(--surface2)",borderRadius:9,padding:"12px 14px",marginBottom:14,border:"1px solid var(--border)"}}>
             <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:"var(--text)"}}>Método de acceso</div>
@@ -4771,7 +4779,7 @@ function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null,maqsFil
 // MÓDULO: PLANOGRAMA DEL DÍA (Abastecedor)
 // El abastecedor sube foto → Claude interpreta espirales → confirma → guarda
 // ═══════════════════════════════════════════════════════════════════════════════
-function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
+function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial=null,onMaqInicialUsada=null}){
   const [paso,setPaso]=useState(1); // 1=seleccionar máquina, 2=subir foto, 3=confirmar, 4=guardado
   const [maqId,setMaqId]=useState("");
   const [imagen,setImagen]=useState(null); // base64
@@ -4782,6 +4790,11 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
   const [zoom,setZoom]=useState(false);
   const [errorAnalisis,setErrorAnalisis]=useState("");
   const [nEsp,setNEsp]=useState(60);
+
+  // Si llega desde "Stock por máquina" ya sabemos qué máquina fue: va directo a subir la foto
+  useEffect(()=>{
+    if(maqInicial){setMaqId(maqInicial);setPaso(2);setImagen(null);setImagenUrl(null);setMapa([]);if(onMaqInicialUsada)onMaqInicialUsada();}
+  },[maqInicial]);
   const [confirmDel,setConfirmDel]=useState(null);
 
   const maqsDisp=(data.maquinas||[]).filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
@@ -4794,6 +4807,13 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
     .sort((a,b)=>b.fecha.localeCompare(a.fecha));
 
   const planHoy=historial.find(p=>p.fecha===hoy);
+
+  // Máquinas que ya recargó hoy (según Stock por máquina) y todavía no tienen foto
+  const hoyUtc=today();
+  const recargada=(mid)=>(data.stockMaquina||[]).some(r=>r.maquinaId===mid&&(r.fecha===hoy||r.fecha===hoyUtc));
+  const sinFotoHoy=(mid)=>!(data.planogramas||[]).some(p=>p.maquinaId===mid&&p.fecha===hoy);
+  const pendientes=maqsDisp.filter(m=>recargada(m.id)&&sinFotoHoy(m.id));
+  const maqsOrdenadas=[...maqsDisp].sort((a,b)=>(pendientes.includes(b)?1:0)-(pendientes.includes(a)?1:0)||(a.nombre||"").localeCompare(b.nombre||""));
 
   const handleFoto=(e)=>{
     const file=e.target.files[0];
@@ -4913,7 +4933,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
     <div>
       {/* HEADER con pasos */}
       <div style={{background:"linear-gradient(135deg,#111827,#1a2235)",borderRadius:12,padding:"16px 20px",marginBottom:16,border:"1px solid rgba(245,158,11,.3)"}}>
-        <div style={{fontSize:13,fontWeight:800,color:"#f59e0b",marginBottom:10}}>📸 Planograma del día</div>
+        <div style={{fontSize:13,fontWeight:800,color:"#f59e0b",marginBottom:10}}>📸 Foto de la máquina recargada</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {["Seleccionar máquina","Subir foto","Confirmar mapa","Guardado"].map((lbl,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
@@ -4932,22 +4952,28 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null}){
       {/* PASO 1: Seleccionar máquina */}
       {paso===1&&(
         <div className="section">
-          <div className="section-header"><h3>Selecciona la máquina que recargaste</h3></div>
+          <div className="section-header"><h3>1. ¿Qué máquina recargaste?</h3></div>
           <div style={{padding:"14px 16px"}}>
+            {pendientes.length>0&&(
+              <div style={{background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.4)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13}}>
+                📸 <strong>Recargaste hoy {pendientes.length} máquina{pendientes.length!==1?"s":""} y falta la foto:</strong> {pendientes.map(m=>m.nombre).join(", ")}
+              </div>
+            )}
             {maqsDisp.length===0
-              ?<div style={{textAlign:"center",color:"var(--muted)",padding:24}}>Sin máquinas asignadas hoy.</div>
+              ?<div style={{textAlign:"center",color:"var(--muted)",padding:24}}>Sin máquinas asignadas hoy. Pide al administrador que te asigne máquinas en <strong>Horario semanal</strong>.</div>
               :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
-                {maqsDisp.map(m=>{
+                {maqsOrdenadas.map(m=>{
                   const planHoyM=(data.planogramas||[]).find(p=>p.maquinaId===m.id&&p.fecha===hoy);
+                  const recargadaM=recargada(m.id);
                   return(
                     <div key={m.id} onClick={()=>{setMaqId(m.id);setPaso(2);}}
-                      style={{padding:"14px",borderRadius:10,cursor:"pointer",border:`2px solid ${maqId===m.id?"var(--accent)":"var(--border)"}`,
+                      style={{padding:"14px",borderRadius:10,cursor:"pointer",border:`2px solid ${(maqId===m.id||(recargadaM&&!planHoyM))?"var(--accent)":"var(--border)"}`,
                         background:maqId===m.id?"rgba(245,158,11,.08)":"var(--surface2)",transition:"all .15s"}}>
                       <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{m.nombre}</div>
                       {m.ubicacion&&<div style={{fontSize:11,color:"var(--muted)"}}>📍 {m.ubicacion}</div>}
                       <div style={{marginTop:8,fontSize:10,fontWeight:700,
-                        color:planHoyM?"var(--green)":"var(--muted)"}}>
-                        {planHoyM?`✅ Planograma de hoy registrado (${planHoyM.totalEspirales} esp.)`:"⏳ Sin planograma hoy"}
+                        color:planHoyM?"var(--green)":recargadaM?"var(--accent)":"var(--muted)"}}>
+                        {planHoyM?`✅ Foto de hoy registrada (${planHoyM.totalEspirales} selecciones)`:recargadaM?"🔄 Recargada hoy · falta la foto":"⏳ Sin recarga registrada hoy"}
                       </div>
                     </div>
                   );
@@ -6008,46 +6034,9 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
   );
 }
 
-const TODOS_MODULOS_ADMIN=[
-  {section:"General"},
-  {id:"dashboard",label:"Dashboard"},{id:"cierreDia",label:"Cierre del día"},
-  {id:"rentabilidad",label:"Rentabilidad"},{id:"horario",label:"Horario semanal"},
-  {section:"Catálogo"},
-  {id:"productos",label:"Productos y stock"},{id:"proveedores",label:"Proveedores"},
-  {id:"adminListasPrecios",label:"Listas de precios"},
-  {section:"Operaciones"},
-  {id:"maquinas",label:"Máquinas"},
-  {id:"stockMaquina",label:"Stock por máquina"},{id:"ventas",label:"Ventas"},
-  {id:"cobranzas",label:"Cobranzas"},{id:"devoluciones",label:"Devoluciones"},
-  {id:"sencillo",label:"Control de sencillo"},{id:"prekit",label:"Pre-Kit reposición"},
-  {id:"tickets",label:"Tickets mantenimiento"},{id:"gastos",label:"Gastos adicionales"},
-  {section:"Cafeteras"},
-  {id:"cafeteras",label:"Control cafeteras"},{id:"ventasCafeteras",label:"Ventas cafeteras"},
-  {section:"Análisis"},
-  {id:"ventasAtento",label:"Ventas Atento"},{id:"reportes",label:"Reportes"},
-  {section:"Administración"},
-  {id:"personal",label:"Personal"},{id:"gestionUsuarios",label:"Gestión de usuarios"},
-  {id:"gestionRoles",label:"Roles y permisos"},
-];
-const TODOS_MODULOS_ABAS=[
-  {section:"Mi día"},
-  {id:"mihorario",label:"Mi horario"},{id:"planograma",label:"Planograma"},
-  {section:"Operaciones"},
-  {id:"stockMaquina",label:"Stock por máquina"},{id:"cobranzas",label:"Cobranza"},
-  {id:"devoluciones",label:"Devoluciones"},{id:"sencillo",label:"Control de sencillo"},
-  {id:"prekit",label:"Pre-Kit reposición"},{id:"traslados",label:"Traslados"},
-  {id:"tickets",label:"Tickets mantenimiento"},
-  {section:"Cafeteras"},
-  {id:"ventasCafeteras",label:"Ventas cafeteras"},
-  {section:"Consultas"},
-  {id:"ventas",label:"Ventas del día"},{id:"listaPreciosCampo",label:"Lista de precios"},
-  {id:"stock",label:"Stock almacén"},
-];
-const BASE_MODULOS={
-  admin:TODOS_MODULOS_ADMIN.filter(m=>m.id).map(m=>m.id),
-  abastecedor:TODOS_MODULOS_ABAS.filter(m=>m.id).map(m=>m.id),
-  almacenero:['stock','stockMaquina','traslados','productos','prekit','tickets'],
-};
+// Módulos de cada rol base = su menú real (así la pantalla de Roles nunca se desajusta del menú)
+function navDeBase(rb){return rb==="admin"?ADMIN_NAV:rb==="almacenero"?ALMACENERO_NAV:ABASTECEDOR_NAV;}
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MÓDULO: GESTIÓN DE ROLES Y PERMISOS (Admin)
@@ -6063,8 +6052,8 @@ function GestionRoles({data,save,del}){
   const rolesBase=['admin','abastecedor','almacenero'];
   const ROL_LABEL={admin:"🔐 Administrador",abastecedor:"🔧 Abastecedor",almacenero:"🏭 Almacenero"};
 
-  const getModulosBase=(rolBase)=>BASE_MODULOS[rolBase]||[];
-  const getTodosModulos=(rolBase)=>rolBase==='admin'?TODOS_MODULOS_ADMIN:TODOS_MODULOS_ABAS;
+  const getModulosBase=(rolBase)=>navDeBase(rolBase).filter(i=>i.id).map(i=>i.id);
+  const getTodosModulos=(rolBase)=>navDeBase(rolBase).map(i=>i.section?{section:i.section}:{id:i.id,label:i.label});
 
   const abrirNuevo=()=>{
     setForm({...EF,modulos:getModulosBase('abastecedor')});
@@ -6108,7 +6097,7 @@ function GestionRoles({data,save,del}){
         {rolesBase.map(rb=>(
           <div key={rb} style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",opacity:.8}}>
             <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>{ROL_LABEL[rb]}</div>
-            <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>{BASE_MODULOS[rb].length} módulos · {(data.usuarios||[]).filter(u=>u.rol===rb&&!u.rolId).length} usuario(s)</div>
+            <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>{getModulosBase(rb).length} módulos · {(data.usuarios||[]).filter(u=>u.rol===rb&&!u.rolId).length} usuario(s)</div>
             <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"rgba(100,116,139,.15)",color:"var(--muted)",fontWeight:600}}>🔒 Solo lectura</span>
           </div>
         ))}
@@ -6136,6 +6125,7 @@ function GestionRoles({data,save,del}){
                     {r.descripcion&&<div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>{r.descripcion}</div>}
                     <div style={{fontSize:11,color:"var(--muted)"}}>
                       {modulos.length} módulos · {nUsuarios} usuario(s) asignado(s)
+                      {nUsuarios>0&&<span style={{display:"block",color:"var(--accent2)",marginTop:3}}>👤 {(data.usuarios||[]).filter(u=>u.rolId===r.id).map(u=>String(u.nombre||"").trim()).join(", ")}</span>}
                     </div>
                   </div>
                   <div style={{display:"flex",gap:7}}>
@@ -6146,7 +6136,7 @@ function GestionRoles({data,save,del}){
                 {/* Preview módulos */}
                 <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:5}}>
                   {modulos.slice(0,8).map(m=>{
-                    const mod=[...TODOS_MODULOS_ADMIN,...TODOS_MODULOS_ABAS].find(x=>x.id===m);
+                    const mod=[...ADMIN_NAV,...ABASTECEDOR_NAV,...ALMACENERO_NAV].find(x=>x.id===m);
                     return mod?<span key={m} style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"rgba(59,130,246,.1)",color:"var(--accent2)",fontWeight:600}}>{mod.label}</span>:null;
                   })}
                   {modulos.length>8&&<span style={{fontSize:10,color:"var(--muted)",padding:"2px 8px"}}>+{modulos.length-8} más</span>}
@@ -6722,6 +6712,7 @@ const ADMIN_NAV=[
   {section:"Operaciones"},
   {id:"maquinas",label:"Máquinas",icon:"machine"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
+  {id:"planograma",label:"Foto de la máquina",icon:"camera"},
   {id:"ventas",label:"Ventas",icon:"chart"},
   {id:"cobranzas",label:"Cobranzas",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
@@ -6742,7 +6733,7 @@ const ADMIN_NAV=[
 const ABASTECEDOR_NAV=[
   {section:"Mi día"},
   {id:"mihorario",label:"Mi horario",icon:"calendar"},
-  {id:"planograma",label:"Planograma",icon:"camera"},
+  {id:"planograma",label:"Foto de la máquina",icon:"camera"},
   {section:"Operaciones"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
   {id:"cobranzas",label:"Cobranza",icon:"money"},
@@ -6769,12 +6760,22 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos y stock",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Planograma del día",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de la máquina recargada",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
 
 // ─── APP ──────────────────────────────────────────────────────────────────────────
+// Módulos que puede ver un usuario: los de su rol base, o los de su rol personalizado si tiene uno
+const idsPermitidos=(rol,rolId,roles)=>{
+  const base=rol==="admin"?ADMIN_NAV:rol==="almacenero"?ALMACENERO_NAV:ABASTECEDOR_NAV;
+  const ids=base.filter(i=>i.id).map(i=>i.id);
+  if(!rolId)return ids;
+  const r=(roles||[]).find(x=>x.id===rolId);
+  if(!r||!Array.isArray(r.modulos))return ids; // rol no encontrado: menú del rol base
+  return ids.filter(id=>r.modulos.includes(id)||(id==="productos"&&r.modulos.includes("stock")));
+};
+
 export default function App(){
   const{data,save,saveMulti,del,syncing,pausePolling,resumePolling,loadAll}=useFirebase();
   const [usuario,setUsuario]=useState(null);
@@ -6783,10 +6784,13 @@ export default function App(){
   const cerrar=()=>setSidebarOpen(false);
   const navegar=(id)=>{setTab(id);cerrar();};
   const [sesionUsuario,setSesionUsuario]=useState(null);
+  const [fotoPendiente,setFotoPendiente]=useState(null); // máquina recién recargada: se ofrece subir su foto
+  const [maqFotoPre,setMaqFotoPre]=useState(null);       // máquina ya elegida al abrir "Foto de la máquina"
 
   // Máquinas asignadas hoy — calculado siempre (antes de cualquier return)
   const maqsAsignadasHoy=(()=>{
     if(!sesionUsuario||!data)return null;
+    if(usuario!=="abastecedor")return null; // administrador y almacenero ven todas las máquinas
     const de=["domingo","lunes","martes","miercoles","jueves","viernes","sabado"];
     const da=de[new Date().getDay()];
     const h=data.horario||{};
@@ -6796,6 +6800,17 @@ export default function App(){
     const old_coms=h[da]?.comentarios||{};
     return old_maqs.filter(mid=>{const uid2=old_coms[mid+"-usuario"];return !uid2||uid2===sesionUsuario.id;});
   })();
+
+  // Mantiene al día el rol del usuario (si el admin lo cambia) y evita quedar en una pantalla que su rol no incluye
+  useEffect(()=>{
+    if(!data||!usuario||!sesionUsuario)return;
+    const vivo=(data.usuarios||[]).find(u=>u.id===sesionUsuario.id);
+    if(vivo&&vivo.rol&&vivo.rol!==usuario){setUsuario(vivo.rol);return;}
+    const rolId=vivo?vivo.rolId:sesionUsuario.rolId;
+    if(!rolId)return;
+    const ids=idsPermitidos(vivo?vivo.rol:usuario,rolId,data.roles);
+    if(ids.length&&!ids.includes(tab))setTab(ids[0]);
+  },[data,usuario,tab,sesionUsuario]);
 
   if(!data)return(<><style>{css}</style><div className="loading"><div className="spinner"><Icon name="spin" size={42}/></div><p>Conectando con la base de datos...</p></div></>);
   // Link de registro ?registro=TOKEN
@@ -6809,23 +6824,30 @@ export default function App(){
   if(!usuario)return(<><style>{css}</style><LoginScreen usuarios={data?.usuarios||[]} onLogin={(info)=>{
     const rol=info.usuario.rol;
     setUsuario(rol);setSesionUsuario(info.usuario);
-    // Si tiene rol personalizado, guardarlo también
-    if(info.usuario.rolId){setSesionUsuario({...info.usuario,_rolPersonalizado:info.usuario.rolId});}
-    setTab(rol==="admin"?"dashboard":rol==="almacenero"?"productos":"mihorario");
+    // Pantalla inicial: la de su rol, o el primer módulo permitido si su rol personalizado no la incluye
+    const inicial=rol==="admin"?"dashboard":rol==="almacenero"?"productos":"mihorario";
+    const ids=idsPermitidos(rol,info.usuario.rolId,data.roles);
+    setTab(ids.length&&!ids.includes(inicial)?ids[0]:inicial);
   }}/></>);
   const esAdmin=usuario==="admin";
   const esAbastecedor=usuario==="abastecedor";
   const esAlmacenero=usuario==="almacenero";
-  // Nav con soporte para roles personalizados
-  const modPermitidos=(()=>{
-    if(!sesionUsuario?.rolId)return null;
-    const rolP=(data?.roles||[]).find(r=>r.id===sesionUsuario.rolId);
-    return rolP?.modulos||null;
-  })();
+  // Menú según el rol (usa el usuario "en vivo", no la copia del inicio de sesión)
+  const usuarioVivo=(data.usuarios||[]).find(u=>u.id===sesionUsuario?.id);
+  const rolIdActual=usuarioVivo?usuarioVivo.rolId:sesionUsuario?.rolId;
+  const idsOk=idsPermitidos(usuario,rolIdActual,data.roles);
   const navBase=esAdmin?ADMIN_NAV:esAlmacenero?ALMACENERO_NAV:ABASTECEDOR_NAV;
-  const nav=modPermitidos
-    ?navBase.filter(item=>item.section||modPermitidos.includes(item.id)||(item.id==="productos"&&modPermitidos.includes("stock")))
-    :navBase;
+  const navFiltrado=navBase.filter(item=>item.section||idsOk.includes(item.id));
+  // sin títulos de sección vacíos
+  const nav=navFiltrado.filter((item,k)=>!item.section||(navFiltrado[k+1]&&!navFiltrado[k+1].section));
+  // Al guardar el stock de una máquina (= recarga) se ofrece subir la foto de ESA máquina
+  const alRecargar=(mid,fechaReg)=>{
+    if(!idsOk.includes("planograma"))return;
+    const hoyL=ahoraLocal().fecha;
+    if(fechaReg!==hoyL&&fechaReg!==today())return; // solo recargas de hoy
+    const yaFoto=(data.planogramas||[]).some(p=>p.maquinaId===mid&&p.fecha===hoyL);
+    if(!yaFoto)setFotoPendiente(mid);
+  };
   const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
   const rolUsuario=sesionUsuario?.rol||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
@@ -6842,7 +6864,7 @@ export default function App(){
     case "adminListasPrecios": return <AdminListasPrecios data={data} save={saveWrapped} del={delWrapped}/>;
     case "cafeteras":    return <Cafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin}/>;
     case "ventasCafeteras": return <VentasCafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
-    case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
+    case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy} maqInicial={maqFotoPre} onMaqInicialUsada={()=>setMaqFotoPre(null)}/>;
     case "ventasAtento": return <VentasAtento data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy}/>;
@@ -6859,7 +6881,7 @@ export default function App(){
     case "cobranzas":    return <Cobranzas data={data} save={saveWrapped} del={delWrapped} usuario={nombreUsuario} esAdmin={esAdmin} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
     case "preciosEco":   return <ListaPreciosEco data={data}/>;
     case "devoluciones": return <Devoluciones data={data} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario} save={saveWrapped} del={delWrapped} soloLectura={esAlmacenero} esAdmin={esAdmin} puedeEditar={esAdmin||esAbastecedor}/>;
-    case "stockMaquina":  return <StockMaquina data={data} save={saveWrapped} del={delWrapped} soloLectura={false} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
+    case "stockMaquina":  return <StockMaquina data={data} save={saveWrapped} del={delWrapped} soloLectura={false} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario} onRecargaGuardada={alRecargar}/>;
     case "sencillo":      return <ControlSencillo data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario}/>;
     case "tickets":      return <Tickets data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin}/>;
     case "prekit":       return <PreKit data={data} maqsFiltro={maqsAsignadasHoy}/>;
@@ -6894,6 +6916,19 @@ export default function App(){
         <div className="content"><RC/></div>
       </main>
     </div>
+    {fotoPendiente&&(()=>{
+      const mq=(data.maquinas||[]).find(x=>x.id===fotoPendiente);
+      return(
+        <div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+          <h3 style={{margin:"0 0 8px"}}>✅ Stock guardado</h3>
+          <p style={{fontSize:14,margin:"0 0 14px"}}>Recargaste <strong>{mq?mq.nombre:"la máquina"}</strong>. ¿Quieres subir ahora la foto de la máquina abastecida?</p>
+          <div className="modal-actions">
+            <button className="btn btn-secondary" onClick={()=>setFotoPendiente(null)}>Después</button>
+            <button className="btn btn-primary" onClick={()=>{setMaqFotoPre(fotoPendiente);setFotoPendiente(null);setTab("planograma");}}>📸 Subir foto ahora</button>
+          </div>
+        </div></div>
+      );
+    })()}
     {syncing
       ?<div className="syncing"><Icon name="spin" size={12}/> Guardando...</div>
       :<button onClick={loadAll} title="Actualizar datos" style={{background:"none",border:"1px solid rgba(245,158,11,.25)",borderRadius:7,padding:"4px 10px",cursor:"pointer",fontSize:11,color:"#94a3b8",display:"flex",alignItems:"center",gap:4}}>⟳ Actualizar</button>
