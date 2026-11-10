@@ -1527,14 +1527,14 @@ function Cobranzas({data,save,del,usuario,esAdmin=false,maqsFiltro=null,sesionUs
         <div className="card"><div className="card-label">Total {nombreMes(mes)}</div><div className="card-value green">{fmt(totalMes)}</div><div className="card-sub">{cobranzasMes.length} registros</div></div>
         <div className="card"><div className="card-label">Verificado</div><div className="card-value green">{fmt(totalVerificado)}</div><div className="card-sub">{cobranzasMes.filter(c=>c.verificado).length} confirmados</div></div>
         <div className="card"><div className="card-label">Pendiente</div><div className="card-value amber">{fmt(totalMes-totalVerificado)}</div><div className="card-sub">{cobranzasMes.filter(c=>!c.verificado).length} por verificar</div></div>
-        <div className="card"><div className="card-label">Sencillo entregado</div><div className="card-value blue">{fmt(totalSencillo)}</div><div className="card-sub">{cobranzasMes.filter(c=>c.sencillo>0).length} con sencillo</div></div>
+        {esAdmin&&<div className="card"><div className="card-label">Sencillo entregado</div><div className="card-value blue">{fmt(totalSencillo)}</div><div className="card-sub">{cobranzasMes.filter(c=>c.sencillo>0).length} con sencillo</div></div>}
       </div>
       <div className="section">
         <div className="section-header"><h3>Cobranza — {nombreMes(mes)}</h3><button className="btn btn-primary btn-sm" onClick={()=>setModal(true)}><Icon name="plus" size={13}/> Registrar</button></div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Fecha</th><th>Máquina</th><th>Ubicación</th><th>Monto cobrado</th><th>Sencillo</th><th>Responsable</th><th>Estado</th><th>Comentario</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Máquina</th><th>Ubicación</th><th>Monto cobrado</th>{esAdmin&&<th>Sencillo</th>}<th>Responsable</th><th>Estado</th><th>Comentario</th><th>Acciones</th></tr></thead>
           <tbody>
-            {cobranzasMes.length===0?<tr><td colSpan={9} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin cobranzas en {nombreMes(mes)}</td></tr>
+            {cobranzasMes.length===0?<tr><td colSpan={esAdmin?9:8} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin cobranzas en {nombreMes(mes)}</td></tr>
             :[...cobranzasMes].reverse().map(cob=>{
               const maq=data.maquinas.find(m=>m.id===cob.maquinaId);
               const verificado=!!cob.verificado;
@@ -1543,10 +1543,10 @@ function Cobranzas({data,save,del,usuario,esAdmin=false,maqsFiltro=null,sesionUs
                 <td><strong>{maq?.nombre}</strong></td>
                 <td style={{color:"var(--muted)",fontSize:11}}>{maq?.ubicacion}</td>
                 <td style={{color:"var(--green)",fontWeight:700}}>{fmt(cob.monto)}</td>
-                <td>{cob.sencillo>0
+                {esAdmin&&<td>{cob.sencillo>0
                   ?<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700,background:"rgba(59,130,246,.15)",color:"var(--accent2)"}}>💵 {fmt(cob.sencillo)}</span>
                   :<span style={{color:"var(--muted)",fontSize:11}}>—</span>
-                }</td>
+                }</td>}
                 <td style={{color:"var(--muted)"}}>{cob.responsable}</td>
                 <td>
                   {esAdmin
@@ -1584,8 +1584,8 @@ function Cobranzas({data,save,del,usuario,esAdmin=false,maqsFiltro=null,sesionUs
           <div className="form-group"><label>Fecha de cobranza</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
         </div>
         <div className="form-group"><label>Monto recogido (S/)</label><input type="number" step="0.01" value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})}/></div>
-        {/* Sencillo */}
-        <div style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:9,padding:"12px 14px",marginBottom:12}}>
+        {/* Sencillo: solo administrador. El abastecedor lo registra en «Control de sencillo» */}
+        {esAdmin&&<div style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:9,padding:"12px 14px",marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:form.sencillo?10:0}}>
             <div>
               <div style={{fontSize:13,fontWeight:600}}>💵 ¿Se entrega sencillo/cambio?</div>
@@ -1600,7 +1600,7 @@ function Cobranzas({data,save,del,usuario,esAdmin=false,maqsFiltro=null,sesionUs
             <label>Monto de sencillo entregado (S/)</label>
             <input autoFocus type="number" step="0.50" value={form.montoSencillo} onChange={e=>setForm({...form,montoSencillo:e.target.value})} placeholder="Ej: 20.00"/>
           </div>}
-        </div>
+        </div>}
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>Registrar</button></div>
       </div></div>}
 
@@ -6045,6 +6045,7 @@ function GestionRoles({data,save,del}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
+  const [modalBase,setModalBase]=useState(null); // opciones de un rol base: {rb, sel:[ids activos]}
   const EF={nombre:"",descripcion:"",rolBase:"abastecedor",modulos:[]};
   const [form,setForm]=useState(EF);
 
@@ -6052,7 +6053,11 @@ function GestionRoles({data,save,del}){
   const rolesBase=['admin','abastecedor','almacenero'];
   const ROL_LABEL={admin:"🔐 Administrador",abastecedor:"🔧 Abastecedor",almacenero:"🏭 Almacenero"};
 
-  const getModulosBase=(rolBase)=>navDeBase(rolBase).filter(i=>i.id).map(i=>i.id);
+  const todosIds=(rolBase)=>navDeBase(rolBase).filter(i=>i.id).map(i=>i.id);
+  const filaBase=(rb)=>roles.find(r=>r.id==="rol_"+rb)||null;
+  const ocultosBase=(rb)=>{const f=filaBase(rb);return Array.isArray(f&&f.ocultos)?f.ocultos:[];};
+  // módulos que hoy ve un rol base = su menú menos lo que el administrador desactivó
+  const getModulosBase=(rolBase)=>todosIds(rolBase).filter(id=>rolBase==="admin"||!ocultosBase(rolBase).includes(id));
   const getTodosModulos=(rolBase)=>navDeBase(rolBase).map(i=>i.section?{section:i.section}:{id:i.id,label:i.label});
 
   const abrirNuevo=()=>{
@@ -6067,8 +6072,20 @@ function GestionRoles({data,save,del}){
     setForm(f=>({...f,rolBase,modulos:getModulosBase(rolBase)}));
   };
   const toggleMod=(id)=>setForm(f=>({...f,modulos:f.modulos.includes(id)?f.modulos.filter(x=>x!==id):[...f.modulos,id]}));
-  const selTodos=(rolBase)=>setForm(f=>({...f,modulos:getModulosBase(rolBase)}));
+  const selTodos=(rolBase)=>setForm(f=>({...f,modulos:todosIds(rolBase)}));
   const deselTodos=()=>setForm(f=>({...f,modulos:[]}));
+
+  // ── Activar / desactivar opciones de un rol base (abastecedor, almacenero) ──
+  const abrirBase=(rb)=>setModalBase({rb,sel:getModulosBase(rb)});
+  const toggleBase=(id)=>setModalBase(m=>({...m,sel:m.sel.includes(id)?m.sel.filter(x=>x!==id):[...m.sel,id]}));
+  const guardarBase=async(rb,sel)=>{
+    if(!sel.length)return;
+    const ocultos=todosIds(rb).filter(id=>!sel.includes(id));
+    const NOMBRES={abastecedor:"Abastecedor",almacenero:"Almacenero"};
+    const f=filaBase(rb)||{nombre:NOMBRES[rb]||rb,descripcion:"",creadoEn:today()};
+    setModalBase(null);
+    await save("roles","rol_"+rb,{...f,id:"rol_"+rb,rolBase:rb,modulos:[],ocultos,activo:true});
+  };
 
   const doSave=async()=>{
     if(!form.nombre)return;
@@ -6084,7 +6101,7 @@ function GestionRoles({data,save,del}){
   return(
     <div>
       <div style={{background:"#fffbf0",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"11px 14px",fontSize:12,marginBottom:16,color:"var(--muted)"}}>
-        <strong style={{color:"var(--accent)"}}>🔐 Roles y permisos</strong> — Crea roles personalizados basados en Admin, Abastecedor o Almacenero, y ajusta qué módulos puede ver cada uno. Luego asigna el rol a cada usuario en <strong>Gestión de usuarios</strong>.
+        <strong style={{color:"var(--accent)"}}>🔐 Roles y permisos</strong> — Crea roles personalizados basados en Admin, Abastecedor o Almacenero, y ajusta qué módulos puede ver cada uno. También puedes activar o desactivar las opciones de los roles Abastecedor y Almacenero con «⚙️ Configurar opciones». Luego asigna el rol a cada usuario en <strong>Gestión de usuarios</strong>.
       </div>
 
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
@@ -6094,13 +6111,22 @@ function GestionRoles({data,save,del}){
       {/* Roles del sistema (no editables) */}
       <div style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>Roles base del sistema</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10,marginBottom:20}}>
-        {rolesBase.map(rb=>(
-          <div key={rb} style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:10,padding:"12px 14px",opacity:.8}}>
-            <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>{ROL_LABEL[rb]}</div>
-            <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>{getModulosBase(rb).length} módulos · {(data.usuarios||[]).filter(u=>u.rol===rb&&!u.rolId).length} usuario(s)</div>
-            <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"rgba(100,116,139,.15)",color:"var(--muted)",fontWeight:600}}>🔒 Solo lectura</span>
-          </div>
-        ))}
+        {rolesBase.map(rb=>{
+          const nOcultas=rb==="admin"?0:ocultosBase(rb).length;
+          const nUsr=(data.usuarios||[]).filter(u=>u.rol===rb&&!u.rolId).length;
+          return(
+            <div key={rb} style={{background:"var(--surface2)",border:"1px solid "+(nOcultas?"var(--accent)":"var(--border)"),borderRadius:10,padding:"12px 14px"}}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>{ROL_LABEL[rb]}</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginBottom:8}}>{getModulosBase(rb).length} de {todosIds(rb).length} opciones activas · {nUsr} usuario(s)</div>
+              {rb==="admin"
+                ?<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"rgba(100,116,139,.15)",color:"var(--muted)",fontWeight:600}}>🔒 Acceso completo (fijo)</span>
+                :<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>abrirBase(rb)}>⚙️ Configurar opciones</button>
+                  {nOcultas>0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"rgba(245,158,11,.15)",color:"var(--accent)",fontWeight:700}}>{nOcultas} desactivada{nOcultas!==1?"s":""}</span>}
+                </div>}
+            </div>
+          );
+        })}
       </div>
 
       {/* Roles personalizados */}
@@ -6218,6 +6244,47 @@ function GestionRoles({data,save,del}){
           </button>
         </div>
       </div></div>}
+
+      {modalBase&&(()=>{
+        const rb=modalBase.rb;
+        const total=todosIds(rb).length;
+        const lk={fontSize:11,fontWeight:600,background:"none",border:"none",cursor:"pointer"};
+        return(
+          <div className="modal-overlay"><div style={{background:"#fff",border:"1px solid rgba(245,158,11,.3)",borderRadius:16,padding:"24px 22px",width:"92%",maxWidth:560,maxHeight:"94vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(245,158,11,.1)"}}>
+            <ModalHeader titulo={"Opciones del rol "+(ROL_LABEL[rb]||rb)} subtitulo="Marca lo que verán los usuarios con este rol" onClose={()=>setModalBase(null)}/>
+            <div style={{background:"#fffbf0",border:"1px solid rgba(245,158,11,.3)",borderRadius:9,padding:"9px 12px",fontSize:12,color:"var(--muted)",marginBottom:12}}>
+              Lo que desmarques deja de verse en el menú de <strong>todos</strong> los usuarios con este rol. Quienes tengan un rol personalizado se rigen por ese rol. Los usuarios lo verán al actualizar la pantalla.
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>{modalBase.sel.length} de {total} activas</span>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={()=>setModalBase(m=>({...m,sel:todosIds(rb)}))} style={{...lk,color:"var(--accent)"}}>✅ Todas</button>
+                <button onClick={()=>setModalBase(m=>({...m,sel:[]}))} style={{...lk,color:"var(--red)"}}>✕ Ninguna</button>
+              </div>
+            </div>
+            {navDeBase(rb).map((item,k)=>{
+              if(item.section)return(
+                <div key={"s"+k} style={{fontSize:10,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",marginTop:12,marginBottom:6,paddingBottom:4,borderBottom:"1px solid rgba(245,158,11,.15)"}}>{item.section}</div>
+              );
+              const activo=modalBase.sel.includes(item.id);
+              return(
+                <div key={item.id} onClick={()=>toggleBase(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:"pointer",background:activo?"rgba(245,158,11,.06)":"transparent",marginBottom:2,border:"1px solid "+(activo?"rgba(245,158,11,.2)":"transparent")}}>
+                  <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(activo?"var(--accent)":"var(--border)"),background:activo?"var(--accent)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {activo&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>}
+                  </div>
+                  <span style={{fontSize:13,fontWeight:activo?600:400,color:activo?"var(--text)":"var(--muted)"}}>{item.label}</span>
+                </div>
+              );
+            })}
+            {modalBase.sel.length===0&&<div style={{color:"var(--red)",fontSize:12,marginTop:8}}>Deja al menos una opción activa.</div>}
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={()=>setModalBase(null)}>Cancelar</button>
+              <button className="btn btn-secondary" onClick={()=>guardarBase(rb,todosIds(rb))}>Restaurar originales</button>
+              <button className="btn btn-primary" onClick={()=>guardarBase(rb,modalBase.sel)} disabled={modalBase.sel.length===0}>Guardar</button>
+            </div>
+          </div></div>
+        );
+      })()}
 
       {confirmDel&&<ConfirmDelete
         texto={`¿Eliminar el rol "${confirmDel.nombre}"?`}
@@ -6770,7 +6837,14 @@ const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Al
 const idsPermitidos=(rol,rolId,roles)=>{
   const base=rol==="admin"?ADMIN_NAV:rol==="almacenero"?ALMACENERO_NAV:ABASTECEDOR_NAV;
   const ids=base.filter(i=>i.id).map(i=>i.id);
-  if(!rolId)return ids;
+  if(!rolId){
+    // Rol base: su menú menos lo que el administrador desactivó. El Administrador siempre ve todo (no se puede quedar sin acceso).
+    if(rol==="admin")return ids;
+    const fila=(roles||[]).find(x=>x.id==="rol_"+rol);
+    const ocultos=fila&&Array.isArray(fila.ocultos)?fila.ocultos:[];
+    const visibles=ids.filter(id=>!ocultos.includes(id));
+    return visibles.length?visibles:ids; // nunca dejar el menú vacío
+  }
   const r=(roles||[]).find(x=>x.id===rolId);
   if(!r||!Array.isArray(r.modulos))return ids; // rol no encontrado: menú del rol base
   return ids.filter(id=>r.modulos.includes(id)||(id==="productos"&&r.modulos.includes("stock")));
@@ -6807,7 +6881,6 @@ export default function App(){
     const vivo=(data.usuarios||[]).find(u=>u.id===sesionUsuario.id);
     if(vivo&&vivo.rol&&vivo.rol!==usuario){setUsuario(vivo.rol);return;}
     const rolId=vivo?vivo.rolId:sesionUsuario.rolId;
-    if(!rolId)return;
     const ids=idsPermitidos(vivo?vivo.rol:usuario,rolId,data.roles);
     if(ids.length&&!ids.includes(tab))setTab(ids[0]);
   },[data,usuario,tab,sesionUsuario]);
