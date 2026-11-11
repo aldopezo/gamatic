@@ -4845,6 +4845,8 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
     if(!imagen)return;
     setAnalizando(true);
     setErrorAnalisis("");
+    const ctrl=new AbortController();
+    const corte=setTimeout(()=>ctrl.abort(),125000); // no esperar más de ~2 minutos
     try{
         // Llamar a Supabase Edge Function (la API Key vive segura en el servidor)
       const res=await fetch(`${SUPABASE_URL}/functions/v1/analizar-planograma`,{
@@ -4853,17 +4855,29 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
           "Content-Type":"application/json",
           "Authorization":`Bearer ${SUPABASE_KEY}`,
         },
-        body:JSON.stringify({imagen,mediaType:"image/jpeg"})
+        body:JSON.stringify({imagen,mediaType:"image/jpeg"}),
+        signal:ctrl.signal
       });
-      const json=await res.json();
-      if(!res.ok||json.error) throw new Error(json.error||"Error en el servidor");
+      const txt=await res.text();
+      let json={};try{json=JSON.parse(txt);}catch(_){/* la respuesta no era JSON */}
+      if(!res.ok||json.error){
+        const detalle=json.error||json.message||json.msg||(txt?txt.slice(0,200):"");
+        throw new Error(
+          res.status===504?"El servidor tardó demasiado en responder (504). Intenta de nuevo o registra manualmente."
+          :(res.status===401||res.status===403)?"No hay autorización para usar el análisis de fotos (código "+res.status+")."
+          :"Error del servidor ("+res.status+")"+(detalle?": "+detalle:""));
+      }
       if(!json.espirales||json.espirales.length===0){setErrorAnalisis("No se detectaron números de selección en la foto (muy lejos, borrosa o con reflejos).");return;}
       setMapa(json.espirales);
       setPaso(3);
     }catch(err){
       console.error("Error analizando foto:",err);
-      setErrorAnalisis(err.message||"error desconocido");
+      setErrorAnalisis(
+        err.name==="AbortError"?"El análisis tardó demasiado (más de 2 minutos). Intenta de nuevo o registra manualmente."
+        :err.name==="TypeError"?"No hay conexión con el servidor. Revisa tu internet e intenta de nuevo."
+        :(err.message||"error desconocido"));
     }finally{
+      clearTimeout(corte);
       setAnalizando(false);
     }
   };
