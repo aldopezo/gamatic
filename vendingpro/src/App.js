@@ -315,6 +315,8 @@ const TABLE_MAP={
   planogramas:'planogramas',
   ventasAtento:'ventas_atento',
   roles:'roles',
+  fotosMaquina:'fotos_maquina',
+  repuestos:'repuestos',
   horario:'horario',
 };
 
@@ -366,7 +368,7 @@ function useFirebase(){
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
-        'ventas_cafeteras','planogramas','ventas_atento','roles'];
+        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos'];
       const results=await Promise.all(tables.map(t=>supabase.from(t).select(t==='ventas_atento'?COLS_ATENTO:'*')));
       // Horario es especial — clave primaria es "dia"
       const {data:horarioData}=await supabase.from('horario').select('*');
@@ -383,14 +385,14 @@ function useFirebase(){
       const [productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,stockMaquina,sencillo,
         tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
-        ventasCafeteras,planogramas,ventasAtento,roles]=results.map(r=>toCamel(r.data||[]));
+        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos]=results.map(r=>toCamel(r.data||[]));
 
       if(!mountedRef.current)return;
       const newData={
         productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,
         stockMaquina,sencillo,tickets,productosEco,personal,
-        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,
+        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,
         horario:horarioObj,
       };
       // Solo actualiza si los datos cambiaron — evita re-renders innecesarios que cierran modales
@@ -4779,7 +4781,79 @@ function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null,maqsFil
 // MÓDULO: PLANOGRAMA DEL DÍA (Abastecedor)
 // El abastecedor sube foto → Claude interpreta espirales → confirma → guarda
 // ═══════════════════════════════════════════════════════════════════════════════
-function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial=null,onMaqInicialUsada=null}){
+// @@lectura-ia
+// ── Lectura de fotos con IA (compartida por «Foto de la máquina» y «Fotos por leer») ──
+// Llama a la función del servidor. Devuelve {espirales, modelo} o lanza un Error con el motivo claro.
+async function llamarLecturaIA(imagenBase64,signal){
+  const res=await fetch(`${SUPABASE_URL}/functions/v1/analizar-planograma`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${SUPABASE_KEY}`},
+    body:JSON.stringify({imagen:imagenBase64,mediaType:"image/jpeg"}),
+    signal
+  });
+  const txt=await res.text();
+  let json={};try{json=JSON.parse(txt);}catch(_){/* la respuesta no era JSON */}
+  if(!res.ok||json.error){
+    const detalle=json.error||json.message||json.msg||(txt?txt.slice(0,200):"");
+    throw new Error(
+      res.status===504?"El servidor tardó demasiado en responder (504). Intenta de nuevo o registra manualmente."
+      :(res.status===401||res.status===403)?"No hay autorización para usar el análisis de fotos (código "+res.status+")."
+      :"Error del servidor ("+res.status+")"+(detalle?": "+detalle:""));
+  }
+  return json; // {success, espirales, modelo}
+}
+
+// Descarga una foto guardada y la devuelve en base64
+async function descargarBase64(url){
+  const resp=await fetch(url);
+  if(!resp.ok)throw new Error("la foto no se pudo descargar ("+resp.status+")");
+  const bytes=new Uint8Array(await (await resp.blob()).arrayBuffer());
+  let bin="";for(let k=0;k<bytes.length;k+=0x8000)bin+=String.fromCharCode.apply(null,bytes.subarray(k,k+0x8000));
+  return btoa(bin);
+}
+
+// Fotos que se leen en segundo plano (se recuerdan aunque se cambie de pantalla)
+const LECTURA_EN_CURSO=new Set();
+const LECTURA_INTENTADA=new Set(); // las ya intentadas en esta sesión no se reintentan solas
+let LECTURA_COLA_ACTIVA=false;
+const reiniciarLecturas=()=>{LECTURA_EN_CURSO.clear();LECTURA_INTENTADA.clear();LECTURA_COLA_ACTIVA=false;};
+
+async function leerFotoEnSegundoPlano(f,recargar,avisar){
+  LECTURA_EN_CURSO.add(f.id);LECTURA_INTENTADA.add(f.id);
+  if(avisar)avisar();
+  try{
+    const b64=await descargarBase64(f.url);
+    const ctrl=new AbortController();
+    const corte=setTimeout(()=>ctrl.abort(),125000);
+    let json;
+    try{json=await llamarLecturaIA(b64,ctrl.signal);}finally{clearTimeout(corte);}
+    if(!Array.isArray(json.espirales)||json.espirales.length===0)throw new Error("No se detectaron números de selección en la foto (muy lejos, borrosa o con reflejos).");
+    const {error}=await supabase.from("fotos_maquina").update({lectura:json.espirales,lectura_modelo:json.modelo||null,lectura_error:null,lectura_en:new Date().toISOString()}).eq("id",f.id);
+    if(error)throw error;
+  }catch(err){
+    const msg=err.name==="AbortError"?"tardó demasiado en responder":(err.message||String(err));
+    try{await supabase.from("fotos_maquina").update({lectura_error:msg,lectura_en:new Date().toISOString()}).eq("id",f.id);}catch(_){/* nada */}
+  }finally{
+    LECTURA_EN_CURSO.delete(f.id);
+    try{if(recargar)await recargar();}catch(_){/* nada */}
+    if(avisar)avisar();
+  }
+}
+
+// Lee de una en una las fotos pendientes que aún no tienen lectura (una sola cola a la vez)
+async function procesarColaLecturas(fotos,recargar,avisar){
+  if(LECTURA_COLA_ACTIVA)return;
+  LECTURA_COLA_ACTIVA=true;
+  try{
+    for(const f of fotos){
+      if(f.lectura||f.lecturaError||LECTURA_INTENTADA.has(f.id))continue;
+      await leerFotoEnSegundoPlano(f,recargar,avisar);
+    }
+  }finally{LECTURA_COLA_ACTIVA=false;}
+}
+// @@fin-lectura-ia
+
+function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial=null,onMaqInicialUsada=null,recargar=null,fotoInicial=null,onTerminado=null}){
   const [paso,setPaso]=useState(1); // 1=seleccionar máquina, 2=subir foto, 3=confirmar, 4=guardado
   const [maqId,setMaqId]=useState("");
   const [imagen,setImagen]=useState(null); // base64
@@ -4790,6 +4864,40 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
   const [zoom,setZoom]=useState(false);
   const [errorAnalisis,setErrorAnalisis]=useState("");
   const [nEsp,setNEsp]=useState(60);
+  const [guardandoFoto,setGuardandoFoto]=useState(false);
+  const [errorFoto,setErrorFoto]=useState("");
+  const [fotoGuardada,setFotoGuardada]=useState(null);
+  const [cargandoFoto,setCargandoFoto]=useState(false);
+  const modoLeer=!!fotoInicial;                                       // viene de «Fotos por leer»: la foto ya está guardada
+  const soloGuardar=!modoLeer&&sesionUsuario?.rol==="abastecedor";    // el abastecedor solo guarda la foto; otro usuario la lee después
+  const tieneLectura=modoLeer&&Array.isArray(fotoInicial.lectura)&&fotoInicial.lectura.length>0; // la IA ya la leyó en segundo plano
+  const [segundos,setSegundos]=useState(0);
+  useEffect(()=>{
+    if(!analizando){setSegundos(0);return;}
+    const t=setInterval(()=>setSegundos(s=>s+1),1000);
+    return()=>clearInterval(t);
+  },[analizando]);
+
+  // Leer una foto ya guardada: se descarga y se deja lista para analizar
+  useEffect(()=>{
+    if(!fotoInicial)return;
+    let vivo=true;
+    (async()=>{
+      setMaqId(fotoInicial.maquinaId||"");setPaso(2);setMapa([]);setErrorAnalisis("");setCargandoFoto(true);
+      try{
+        const b64=await descargarBase64(fotoInicial.url);
+        if(!vivo)return;
+        setImagen(b64);setImagenUrl("data:image/jpeg;base64,"+b64);
+        // Si la IA ya la leyó (en segundo plano) y se sabe la máquina: directo a revisar, sin esperar
+        if(Array.isArray(fotoInicial.lectura)&&fotoInicial.lectura.length>0&&fotoInicial.maquinaId){setMapa(fotoInicial.lectura);setPaso(3);}
+      }catch(e){
+        if(vivo)setErrorAnalisis("No se pudo abrir la foto guardada: "+(e.message||e));
+      }finally{
+        if(vivo)setCargandoFoto(false);
+      }
+    })();
+    return()=>{vivo=false;};
+  },[fotoInicial?fotoInicial.id:null]);
 
   // Si llega desde "Stock por máquina" ya sabemos qué máquina fue: va directo a subir la foto
   useEffect(()=>{
@@ -4811,7 +4919,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
   // Máquinas que ya recargó hoy (según Stock por máquina) y todavía no tienen foto
   const hoyUtc=today();
   const recargada=(mid)=>(data.stockMaquina||[]).some(r=>r.maquinaId===mid&&(r.fecha===hoy||r.fecha===hoyUtc));
-  const sinFotoHoy=(mid)=>!(data.planogramas||[]).some(p=>p.maquinaId===mid&&p.fecha===hoy);
+  const sinFotoHoy=(mid)=>!(data.planogramas||[]).some(p=>p.maquinaId===mid&&p.fecha===hoy)&&!(data.fotosMaquina||[]).some(f=>f.maquinaId===mid&&f.fecha===hoy);
   const pendientes=maqsDisp.filter(m=>recargada(m.id)&&sinFotoHoy(m.id));
   const maqsOrdenadas=[...maqsDisp].sort((a,b)=>(pendientes.includes(b)?1:0)-(pendientes.includes(a)?1:0)||(a.nombre||"").localeCompare(b.nombre||""));
 
@@ -4848,25 +4956,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
     const ctrl=new AbortController();
     const corte=setTimeout(()=>ctrl.abort(),125000); // no esperar más de ~2 minutos
     try{
-        // Llamar a Supabase Edge Function (la API Key vive segura en el servidor)
-      const res=await fetch(`${SUPABASE_URL}/functions/v1/analizar-planograma`,{
-        method:"POST",
-        headers:{
-          "Content-Type":"application/json",
-          "Authorization":`Bearer ${SUPABASE_KEY}`,
-        },
-        body:JSON.stringify({imagen,mediaType:"image/jpeg"}),
-        signal:ctrl.signal
-      });
-      const txt=await res.text();
-      let json={};try{json=JSON.parse(txt);}catch(_){/* la respuesta no era JSON */}
-      if(!res.ok||json.error){
-        const detalle=json.error||json.message||json.msg||(txt?txt.slice(0,200):"");
-        throw new Error(
-          res.status===504?"El servidor tardó demasiado en responder (504). Intenta de nuevo o registra manualmente."
-          :(res.status===401||res.status===403)?"No hay autorización para usar el análisis de fotos (código "+res.status+")."
-          :"Error del servidor ("+res.status+")"+(detalle?": "+detalle:""));
-      }
+      const json=await llamarLecturaIA(imagen,ctrl.signal);
       if(!json.espirales||json.espirales.length===0){setErrorAnalisis("No se detectaron números de selección en la foto (muy lejos, borrosa o con reflejos).");return;}
       setMapa(json.espirales);
       setPaso(3);
@@ -4884,6 +4974,36 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
 
   const buscarCatalogo=(nombre)=>(data.productos||[]).find(p=>(p.nombre||"").trim().toLowerCase()===String(nombre||"").trim().toLowerCase());
 
+  // Guarda la foto en el almacenamiento y la deja registrada para que otro usuario la lea
+  const guardarFoto=async()=>{
+    if(!imagenUrl||guardandoFoto)return;
+    setGuardandoFoto(true);setErrorFoto("");
+    let ruta=null,subida=false,insertada=false;
+    try{
+      const ahora=ahoraLocal();
+      const id=uid();
+      const blob=await (await fetch(imagenUrl)).blob();
+      ruta=(maqId||"sin-maquina")+"/"+ahora.fecha+"_"+ahora.hora.replace(/:/g,"")+"_"+String(id).slice(0,8)+".jpg";
+      const {error:eSub}=await supabase.storage.from("fotos-maquinas").upload(ruta,blob,{contentType:"image/jpeg",upsert:false});
+      if(eSub)throw eSub;
+      subida=true;
+      const url=supabase.storage.from("fotos-maquinas").getPublicUrl(ruta).data.publicUrl;
+      const fila={id,maquinaId:maqId||null,fecha:ahora.fecha,hora:ahora.hora,usuarioId:sesionUsuario?.id||null,usuarioNombre:sesionUsuario?.nombre||"",ruta,url,estado:"pendiente"};
+      const {error:eIns}=await supabase.from("fotos_maquina").insert(toSnake(fila));
+      if(eIns)throw eIns;
+      insertada=true;
+      setFotoGuardada(fila);
+      setPaso(5);
+      if(recargar){try{await recargar();}catch(_){/* la foto ya quedó guardada */}}
+    }catch(err){
+      console.error("Error guardando foto:",err);
+      if(ruta&&subida&&!insertada)Promise.resolve(supabase.storage.from("fotos-maquinas").remove([ruta])).catch(()=>{}); // no dejar archivos huérfanos
+      setErrorFoto("No se pudo guardar la foto: "+(err.message||JSON.stringify(err))+". Revisa tu internet e intenta de nuevo.");
+    }finally{
+      setGuardandoFoto(false);
+    }
+  };
+
   const guardarPlanograma=async()=>{
     if(!maqId)return;
     const validas=mapa
@@ -4892,19 +5012,37 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
     if(validas.length===0){alert("Agrega al menos un número de selección con su producto antes de guardar.");return;}
     const omitidas=mapa.length-validas.length;
     if(omitidas>0&&!window.confirm(omitidas+" espiral(es) sin producto no se guardarán. ¿Continuar?"))return;
-    const ahora=ahoraLocal();
+    // Si se lee una foto guardada, el abastecimiento es de CUANDO el abastecedor la subió (no de cuando se leyó)
+    const ahora=modoLeer?{fecha:fotoInicial.fecha,hora:fotoInicial.hora||"00:00:00"}:ahoraLocal();
     const id=uid();
-    await save("planogramas",id,{
+    const fila={
       id,
       maquinaId:maqId,
       maquinaNombre:maq?.nombre||"",
       fecha:ahora.fecha,
       hora:ahora.hora,
-      usuarioId:sesionUsuario?.id||null,
-      usuarioNombre:sesionUsuario?.nombre||"",
+      usuarioId:(modoLeer?fotoInicial.usuarioId:sesionUsuario?.id)||null,
+      usuarioNombre:(modoLeer?fotoInicial.usuarioNombre:sesionUsuario?.nombre)||"",
       espirales:validas,
       totalEspirales:validas.length,
-    });
+    };
+    if(modoLeer){
+      let planInsertado=false;
+      try{
+        const {error:e1}=await supabase.from("planogramas").insert(toSnake(fila));
+        if(e1)throw e1;
+        planInsertado=true;
+        const {error:e2}=await supabase.from("fotos_maquina").update({estado:"leida",planograma_id:id,maquina_id:maqId,leida_por:sesionUsuario?.nombre||"",leida_en:new Date().toISOString()}).eq("id",fotoInicial.id);
+        if(e2)throw e2;
+      }catch(err){
+        if(planInsertado)await supabase.from("planogramas").delete().eq("id",id); // deshacer para no dejar la lectura a medias
+        alert("No se pudo guardar la lectura: "+(err.message||JSON.stringify(err)));
+        return;
+      }
+      if(recargar){try{await recargar();}catch(_){/* ya quedó guardado */}}
+    }else{
+      await save("planogramas",id,fila);
+    }
     setMapa(validas);
     setPaso(4);
   };
@@ -4937,7 +5075,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
   const iniciarManual=()=>{setErrorAnalisis("");setPaso(3);};
 
   const resetear=()=>{
-    setPaso(1);setMaqId("");setImagen(null);setImagenUrl(null);setMapa([]);setErrorAnalisis("");
+    setPaso(1);setMaqId("");setImagen(null);setImagenUrl(null);setMapa([]);setErrorAnalisis("");setFotoGuardada(null);setErrorFoto("");
   };
 
   const CONF_COLOR={"alta":"var(--green)","media":"var(--accent)","baja":"var(--red)","editado":"var(--accent2)","manual":"#7c3aed"};
@@ -4979,6 +5117,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
                 {maqsOrdenadas.map(m=>{
                   const planHoyM=(data.planogramas||[]).find(p=>p.maquinaId===m.id&&p.fecha===hoy);
                   const recargadaM=recargada(m.id);
+                  const fotoPendM=(data.fotosMaquina||[]).find(f=>f.maquinaId===m.id&&f.fecha===hoy&&f.estado==="pendiente");
                   return(
                     <div key={m.id} onClick={()=>{setMaqId(m.id);setPaso(2);}}
                       style={{padding:"14px",borderRadius:10,cursor:"pointer",border:`2px solid ${(maqId===m.id||(recargadaM&&!planHoyM))?"var(--accent)":"var(--border)"}`,
@@ -4986,14 +5125,18 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
                       <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{m.nombre}</div>
                       {m.ubicacion&&<div style={{fontSize:11,color:"var(--muted)"}}>📍 {m.ubicacion}</div>}
                       <div style={{marginTop:8,fontSize:10,fontWeight:700,
-                        color:planHoyM?"var(--green)":recargadaM?"var(--accent)":"var(--muted)"}}>
-                        {planHoyM?`✅ Foto de hoy registrada (${planHoyM.totalEspirales} selecciones)`:recargadaM?"🔄 Recargada hoy · falta la foto":"⏳ Sin recarga registrada hoy"}
+                        color:planHoyM?"var(--green)":(fotoPendM||recargadaM)?"var(--accent)":"var(--muted)"}}>
+                        {planHoyM?`✅ Foto de hoy registrada (${planHoyM.totalEspirales} selecciones)`:fotoPendM?"📷 Foto guardada · pendiente de leer":recargadaM?"🔄 Recargada hoy · falta la foto":"⏳ Sin recarga registrada hoy"}
                       </div>
                     </div>
                   );
                 })}
               </div>
             }
+            <div style={{textAlign:"center",marginTop:14}}>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{setMaqId("");setPaso(2);}}>📷 Subir la foto sin elegir la máquina</button>
+              <div style={{fontSize:10,color:"var(--muted)",marginTop:4}}>Quien lea la foto después le asignará la máquina.</div>
+            </div>
           </div>
         </div>
       )}
@@ -5003,12 +5146,14 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
         <div>
           <div className="section" style={{marginBottom:12}}>
             <div className="section-header">
-              <h3>📸 {maq?.nombre}</h3>
-              <button className="btn btn-secondary btn-sm" onClick={()=>setPaso(1)}>← Cambiar máquina</button>
+              <h3>📸 {maq?.nombre||"Foto sin máquina asignada"}</h3>
+              {modoLeer
+                ?<button className="btn btn-secondary btn-sm" onClick={()=>onTerminado&&onTerminado()}>← Volver a la lista</button>
+                :<button className="btn btn-secondary btn-sm" onClick={()=>setPaso(1)}>← Cambiar máquina</button>}
             </div>
             <div style={{padding:"20px 16px"}}>
               {/* Si ya hay planograma de hoy */}
-              {planHoy&&(
+              {planHoy&&!modoLeer&&(
                 <div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"12px 14px",marginBottom:14,fontSize:13}}>
                   <strong style={{color:"var(--green)"}}>✅ Ya tienes planograma de hoy</strong>
                   <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>
@@ -5021,12 +5166,12 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
                 </div>
               )}
 
-              <div style={{border:"2px dashed rgba(245,158,11,.4)",borderRadius:12,padding:"32px 20px",textAlign:"center",background:"#fffbf0",display:imagenUrl?"none":"block"}}>
+              <div style={{border:"2px dashed rgba(245,158,11,.4)",borderRadius:12,padding:"32px 20px",textAlign:"center",background:"#fffbf0",display:(imagenUrl||modoLeer)?"none":"block"}}>
                 <div style={{fontSize:48,marginBottom:12}}>📸</div>
                 <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Toma o sube una foto del frente de la máquina</div>
                 <div style={{fontSize:12,color:"var(--muted)",marginBottom:16}}>
                   Asegúrate que se vean claramente los números de espiral y los productos.<br/>
-                  Claude analizará la foto automáticamente.
+                  {soloGuardar?"Se guarda al instante y el administrador la lee después.":"La foto se analizará automáticamente."}
                 </div>
                 <label style={{display:"inline-block",padding:"10px 24px",background:"var(--accent)",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:14,color:"#000"}}>
                   📷 Seleccionar foto
@@ -5036,7 +5181,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
                   Formatos: JPG, PNG, HEIC · Recomendado: foto vertical completa de la máquina
                 </div>
               </div>
-              {!imagenUrl&&<div style={{textAlign:"center",marginTop:12}}><button className="btn btn-secondary btn-sm" onClick={iniciarManual}>✍️ Prefiero registrarlo manualmente (sin foto)</button></div>}
+              {!imagenUrl&&!cargandoFoto&&<div style={{textAlign:"center",marginTop:12}}><button className="btn btn-secondary btn-sm" onClick={iniciarManual}>✍️ Prefiero registrarlo manualmente (sin foto)</button></div>}
             </div>
           </div>
 
@@ -5074,23 +5219,50 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
         </div>
       )}
 
+      {paso===2&&cargandoFoto&&(
+        <div className="section" style={{marginTop:12}}><div style={{padding:24,textAlign:"center",color:"var(--muted)"}}>⏳ Cargando la foto guardada...</div></div>
+      )}
+
       {/* Vista previa de la foto antes de analizar */}
       {paso===2&&imagenUrl&&!analizando&&(
         <div className="section" style={{marginTop:12}}>
-          <div className="section-header"><h3>👀 Vista previa — {maq?.nombre}</h3></div>
+          <div className="section-header"><h3>👀 Vista previa — {maq?.nombre||"sin máquina asignada"}</h3></div>
           <div style={{padding:"14px 16px",textAlign:"center"}}>
             <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,textAlign:"left"}}>
-              Revisa que se vean <strong>claramente los números de selección</strong> y los productos. Si hay reflejos, está borrosa o cortada, toma otra foto antes de analizar.
+              Revisa que se vean <strong>claramente los números de selección</strong> y los productos. Si hay reflejos, está borrosa o cortada, {modoLeer?"si no se lee bien, vuelve a la lista y descártala.":(soloGuardar?"toma otra foto antes de guardar.":"toma otra foto antes de analizar.")}
             </div>
             <img src={imagenUrl} alt="Máquina" onClick={()=>setZoom(true)} style={{maxWidth:"100%",maxHeight:480,borderRadius:10,marginBottom:8,cursor:"zoom-in",border:"1px solid rgba(245,158,11,.3)"}}/>
             <div style={{fontSize:11,color:"var(--muted)",marginBottom:12}}>Toca la foto para verla en grande</div>
+            {errorFoto&&<div style={{background:"rgba(239,68,68,.07)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,color:"var(--red)",textAlign:"left"}}>⚠️ {errorFoto}</div>}
+            {!maqId&&!soloGuardar&&(
+              <div style={{textAlign:"left",marginBottom:12}}>
+                <label style={{fontSize:11,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>¿De qué máquina es esta foto?</label>
+                <select value={maqId} onChange={e=>setMaqId(e.target.value)} style={{width:"100%",padding:"9px 12px",border:"1px solid rgba(245,158,11,.4)",borderRadius:8,fontSize:14,marginTop:4,background:"#fff"}}>
+                  <option value="">Selecciona la máquina...</option>
+                  {[...(data.maquinas||[])].filter(m=>m.activa).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(m=><option key={m.id} value={m.id}>{String(m.nombre||"").trim()}{m.ubicacion?" — "+m.ubicacion:""}</option>)}
+                </select>
+              </div>
+            )}
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-              <label className="btn btn-secondary" style={{flex:1,justifyContent:"center",cursor:"pointer",minWidth:140}}>
-                🔄 Tomar otra foto
-                <input type="file" accept="image/*" capture="environment" onChange={handleFoto} style={{display:"none"}}/>
-              </label>
-              <button className="btn btn-primary" onClick={analizarFoto} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>✅ Se ve bien — Analizar</button>
+              {!modoLeer&&(
+                <label className="btn btn-secondary" style={{flex:1,justifyContent:"center",cursor:"pointer",minWidth:140}}>
+                  🔄 Tomar otra foto
+                  <input type="file" accept="image/*" capture="environment" onChange={handleFoto} style={{display:"none"}}/>
+                </label>
+              )}
+              {soloGuardar
+                ?<button className="btn btn-primary" onClick={guardarFoto} disabled={guardandoFoto} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>{guardandoFoto?"⏳ Guardando...":"💾 Guardar foto"}</button>
+                :<>
+                  {tieneLectura
+                    ?<>
+                      <button className="btn btn-primary" onClick={()=>{setMapa(fotoInicial.lectura);setPaso(3);}} disabled={!maqId} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>📖 Ver la lectura ({fotoInicial.lectura.length} selecciones)</button>
+                      <button className="btn btn-secondary" onClick={analizarFoto} disabled={!maqId} style={{flex:1,justifyContent:"center",minWidth:140}}>🔄 Leer de nuevo</button>
+                    </>
+                    :<button className="btn btn-primary" onClick={analizarFoto} disabled={!maqId} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>✅ Se ve bien — Analizar</button>}
+                  {!modoLeer&&<button className="btn btn-secondary" onClick={guardarFoto} disabled={guardandoFoto} style={{flex:1,justifyContent:"center",minWidth:160}}>{guardandoFoto?"⏳ Guardando...":"💾 Guardar para leer después"}</button>}
+                </>}
             </div>
+            {!soloGuardar&&!maqId&&<div style={{fontSize:11,color:"var(--muted)",marginTop:8}}>{tieneLectura?"Elige la máquina para ver la lectura.":"Elige la máquina para poder analizar la foto."}</div>}
           </div>
         </div>
       )}
@@ -5107,8 +5279,8 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
         <div className="section" style={{marginTop:12}}>
           <div style={{padding:32,textAlign:"center"}}>
             <div style={{fontSize:40,marginBottom:12,animation:"spin 1s linear infinite"}}>🔍</div>
-            <div style={{fontSize:14,fontWeight:700,color:"var(--accent)",marginBottom:6}}>Claude está analizando la foto...</div>
-            <div style={{fontSize:12,color:"var(--muted)"}}>Identificando espirales y productos. Esto toma unos segundos.</div>
+            <div style={{fontSize:14,fontWeight:700,color:"var(--accent)",marginBottom:6}}>Analizando la foto... {segundos} s</div>
+            <div style={{fontSize:12,color:"var(--muted)"}}>Identificando los productos de cada número. Normalmente tarda entre 10 y 40 segundos; no cierres esta pantalla.</div>
           </div>
         </div>
       )}
@@ -5203,14 +5375,29 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
         <div className="section">
           <div style={{padding:40,textAlign:"center"}}>
             <div style={{fontSize:60,marginBottom:16}}>✅</div>
-            <div style={{fontSize:18,fontWeight:800,color:"var(--green)",marginBottom:8}}>¡Planograma guardado!</div>
+            <div style={{fontSize:18,fontWeight:800,color:"var(--green)",marginBottom:8}}>{modoLeer?"¡Foto leída y registrada!":"¡Planograma guardado!"}</div>
             <div style={{fontSize:13,color:"var(--muted)",marginBottom:24}}>
               {maq?.nombre} · {hoy} · {mapa.length} espirales registrados
             </div>
             <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
-              <button className="btn btn-primary" onClick={resetear}>📸 Registrar otra máquina</button>
+              {modoLeer
+                ?<button className="btn btn-primary" onClick={()=>onTerminado&&onTerminado()}>← Volver a las fotos por leer</button>
+                :<button className="btn btn-primary" onClick={resetear}>📸 Registrar otra máquina</button>}
               <button className="btn btn-secondary" onClick={()=>{setPaso(3);}}>Ver planograma guardado</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* PASO 5: Foto guardada (la leerá otro usuario) */}
+      {paso===5&&fotoGuardada&&(
+        <div className="section">
+          <div style={{padding:40,textAlign:"center"}}>
+            <div style={{fontSize:60,marginBottom:16}}>📷</div>
+            <div style={{fontSize:18,fontWeight:800,color:"var(--green)",marginBottom:8}}>¡Foto guardada!</div>
+            <div style={{fontSize:13,color:"var(--muted)",marginBottom:6}}>{String(((data.maquinas||[]).find(m=>m.id===fotoGuardada.maquinaId)||{}).nombre||"Sin máquina asignada").trim()} · {fotoGuardada.fecha} · {String(fotoGuardada.hora||"").slice(0,5)}</div>
+            <div style={{fontSize:12,color:"var(--muted)",marginBottom:24}}>Quedó registrada. Un administrador la leerá después para identificar los productos de cada número.</div>
+            <button className="btn btn-primary" onClick={resetear}>📸 Subir la foto de otra máquina</button>
           </div>
         </div>
       )}
@@ -5573,8 +5760,10 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
     const ultPlan=plans.length?plans[plans.length-1]:null;
     const ultImp=(data.ventasAtento||[]).filter(v=>v.maquinaId===m.id&&v.hasta).sort((a,b)=>String(b.hasta).localeCompare(String(a.hasta)))[0]||null;
     const ultStock=(data.stockMaquina||[]).filter(s=>s.maquinaId===m.id&&s.fecha).map(s=>s.fecha).sort().pop()||null;
+    const pend=(data.fotosMaquina||[]).filter(f=>f.maquinaId===m.id&&f.estado==="pendiente").length;
     let estado="",color="var(--green)";
-    if(!ultPlan){estado="📸 Sin planograma";color="var(--red)";}
+    if(pend>0){estado="🔍 "+pend+" foto"+(pend!==1?"s":"")+" por leer";color="var(--accent)";}
+    else if(!ultPlan){estado="📸 Sin planograma";color="var(--red)";}
     else if(ultStock&&ultStock>ultPlan.fecha){estado="⚠️ Abastecimiento del "+ultStock+" sin foto";color="var(--red)";}
     else if(!ultImp){estado="⏳ Sin ventas importadas";color="var(--accent)";}
     else if(String(ultImp.hasta)<iniP(ultPlan)){estado="⏳ Importa ventas: faltan las del ciclo anterior";color="var(--accent)";}
@@ -6779,6 +6968,513 @@ function ReporteAtento({data}){
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: FOTOS POR LEER
+// El abastecedor sube la foto de la máquina recargada y queda guardada; aquí otro usuario la lee.
+// ═══════════════════════════════════════════════════════════════════════════════
+function FotosPorLeer({data,save,del,sesionUsuario=null,recargar=null}){
+  const [vista,setVista]=useState("pendientes"); // pendientes | leidas
+  const [leyendo,setLeyendo]=useState(null);     // foto que se está leyendo
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [zoomUrl,setZoomUrl]=useState(null);
+  const [errorDel,setErrorDel]=useState("");
+  const [actualizando,setActualizando]=useState(false);
+  const [,setTick]=useState(0);
+  const vivo=useRef(true);
+  useEffect(()=>()=>{vivo.current=false;},[]);
+  const avisar=()=>{if(vivo.current)setTick(t=>t+1);}; // vuelve a dibujar cuando cambia el estado de una lectura
+
+  // al abrir la pantalla se traen las fotos más recientes
+  useEffect(()=>{if(recargar)recargar();},[]);
+
+  const orden=(a,b)=>((b.fecha||"")+" "+(b.hora||"")).localeCompare((a.fecha||"")+" "+(a.hora||""));
+  const fotos=[...(data.fotosMaquina||[])].sort(orden);
+  const pend=fotos.filter(f=>f.estado==="pendiente");
+  const leidas=fotos.filter(f=>f.estado==="leida").slice(0,40);
+
+  // La IA lee en segundo plano las fotos pendientes (de una en una) para que al abrirlas el resultado ya esté listo
+  const clavePend=pend.map(f=>f.id+(f.lectura?"L":"")+(f.lecturaError?"E":"")).join(",");
+  useEffect(()=>{procesarColaLecturas(pend,recargar,avisar);},[clavePend]);
+  const maqDe=(id)=>(data.maquinas||[]).find(m=>m.id===id)||null;
+  const MS=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  const cuando=(f)=>{const p=String(f.fecha||"").split("-");return p.length===3?(+p[2])+" "+MS[(+p[1])-1]+" "+p[0]+" · "+String(f.hora||"").slice(0,5):"";};
+
+  const reintentar=async(f)=>{
+    LECTURA_INTENTADA.delete(f.id);
+    try{await supabase.from("fotos_maquina").update({lectura_error:null}).eq("id",f.id);}catch(_){/* nada */}
+    if(recargar)await recargar(); // al llegar los datos nuevos, la cola vuelve a leerla
+  };
+  const actualizar=async()=>{if(!recargar)return;setActualizando(true);try{await recargar();}finally{setActualizando(false);}};
+  const descartar=async(f)=>{
+    setConfirmDel(null);setErrorDel("");
+    try{
+      const {error}=await supabase.from("fotos_maquina").delete().eq("id",f.id);
+      if(error)throw error;
+      Promise.resolve(supabase.storage.from("fotos-maquinas").remove([f.ruta])).catch(()=>{});
+      if(recargar)await recargar();
+    }catch(err){setErrorDel("No se pudo descartar la foto: "+(err.message||JSON.stringify(err)));}
+  };
+
+  // Leyendo una foto: se usa la misma pantalla de lectura (analizar, corregir y guardar)
+  if(leyendo){
+    return(
+      <Planograma data={data} save={save} del={del} sesionUsuario={sesionUsuario} maqsFiltro={null}
+        recargar={recargar} fotoInicial={leyendo} onTerminado={()=>setLeyendo(null)}/>
+    );
+  }
+
+  const lista=vista==="pendientes"?pend:leidas;
+  return(
+    <div>
+      <div style={{background:"#fffbf0",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"11px 14px",fontSize:12,marginBottom:14,color:"var(--muted)"}}>
+        <strong style={{color:"var(--accent)"}}>📷 Fotos por leer</strong> — Los abastecedores suben la foto de la máquina recargada y queda guardada. Mientras estés aquí, la IA va leyendo las fotos pendientes; al abrir una, el resultado ya está listo. Tú confirmas la máquina, corriges lo que haga falta y guardas.
+      </div>
+
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
+        {[["pendientes","Pendientes ("+pend.length+")"],["leidas","Leídas ("+fotos.filter(f=>f.estado==="leida").length+")"]].map(([id,l])=>(
+          <button key={id} onClick={()=>setVista(id)} style={{padding:"7px 16px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",border:"2px solid "+(vista===id?"var(--accent)":"var(--border)"),background:vista===id?"var(--accent)":"#fff",color:vista===id?"#000":"var(--muted)"}}>{l}</button>
+        ))}
+        {recargar&&<button className="btn btn-secondary btn-sm" onClick={actualizar} disabled={actualizando} style={{marginLeft:"auto"}}>{actualizando?"⏳ Actualizando...":"⟳ Actualizar"}</button>}
+      </div>
+
+      {errorDel&&<div style={{background:"rgba(239,68,68,.07)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,color:"var(--red)"}}>⚠️ {errorDel}</div>}
+
+      {lista.length===0
+        ?<div className="section"><div style={{padding:32,textAlign:"center",color:"var(--muted)",fontSize:13}}>
+            <div style={{fontSize:36,marginBottom:8}}>{vista==="pendientes"?"🎉":"📷"}</div>
+            {vista==="pendientes"?"No hay fotos pendientes de leer.":"Todavía no hay fotos leídas."}
+          </div></div>
+        :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
+          {lista.map(f=>{
+            const m=maqDe(f.maquinaId);
+            const est=f.lectura?"lista":LECTURA_EN_CURSO.has(f.id)?"leyendo":f.lecturaError?"error":"cola";
+            return(
+              <div key={f.id} className="section" style={{marginBottom:0}}>
+                <img src={f.url} alt="Foto de la máquina" loading="lazy" onClick={()=>setZoomUrl(f.url)} style={{width:"100%",height:190,objectFit:"cover",cursor:"zoom-in",display:"block",background:"#f1f5f9"}}/>
+                <div style={{padding:"12px 14px"}}>
+                  <div style={{fontWeight:800,fontSize:14,marginBottom:2}}>{m?String(m.nombre||"").trim():<span style={{color:"var(--red)"}}>⚠️ Sin máquina asignada</span>}</div>
+                  {m&&m.ubicacion&&<div style={{fontSize:11,color:"var(--muted)"}}>📍 {m.ubicacion}</div>}
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>📅 {cuando(f)} · 👤 {String(f.usuarioNombre||"—").trim()}</div>
+                  {f.estado==="leida"&&<div style={{fontSize:11,color:"var(--green)",marginTop:4}}>✅ Leída por {f.leidaPor||"—"}</div>}
+                  {f.estado==="pendiente"&&(
+                    <div style={{fontSize:11,marginTop:6,fontWeight:700,color:est==="lista"?"var(--green)":est==="error"?"var(--red)":"var(--accent)"}}>
+                      {est==="lista"?"✅ Lectura lista · "+f.lectura.length+" selecciones":est==="leyendo"?"⏳ Leyendo con IA...":est==="error"?"⚠️ No se pudo leer automáticamente":"⏳ En cola para leer"}
+                    </div>
+                  )}
+                  {f.estado==="pendiente"&&est==="error"&&<div style={{fontSize:10,color:"var(--muted)",marginTop:2,wordBreak:"break-word"}}>{String(f.lecturaError).slice(0,140)}</div>}
+                  {f.estado==="pendiente"&&(
+                    <div style={{display:"flex",gap:8,marginTop:10}}>
+                      <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:"center"}} onClick={()=>setLeyendo(f)}>{est==="lista"?"📖 Revisar lectura":"🔍 Leer foto"}</button>
+                      {est==="error"&&<button className="btn btn-secondary btn-sm" onClick={()=>reintentar(f)}>🔄 Reintentar</button>}
+                      <button className="btn btn-danger btn-sm" title="Descartar" onClick={()=>setConfirmDel(f)}><Icon name="trash" size={12}/></button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      }
+
+      {zoomUrl&&(
+        <div onClick={()=>setZoomUrl(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.92)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:10,cursor:"zoom-out"}}>
+          <img src={zoomUrl} alt="Foto de la máquina" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+          <div style={{position:"absolute",top:14,right:18,color:"#fff",fontSize:13}}>✕ Cerrar</div>
+        </div>
+      )}
+      {confirmDel&&<ConfirmDelete texto={"¿Descartar esta foto"+((maqDe(confirmDel.maquinaId)||{}).nombre?" de "+String(maqDe(confirmDel.maquinaId).nombre).trim():"")+"? No se podrá recuperar."} onConfirm={()=>descartar(confirmDel)} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MÓDULO: ALMACÉN DE REPUESTOS (administrador y almacenero)
+// Piezas para reparar las máquinas: inventario, entradas, salidas (uso en máquina) y ajustes.
+// ═══════════════════════════════════════════════════════════════════════════════
+const CATS_REPUESTO=["Motores y espirales","Monedero y billetero","Placas y electrónica","Refrigeración","Pantalla y teclado","Mecánica y estructura","Cafetera","Otros"];
+const MOTIVOS_REP={
+  entrada:["Compra","Devolución de una máquina","Reparado y reingresado","Otro"],
+  salida:["Reparación","Reemplazo por falla","Mantenimiento preventivo","Instalación nueva","Préstamo a técnico","Merma / dañado","Otro"],
+  ajuste:["Conteo de inventario","Corrección de error","Otro"],
+};
+const TIPO_REP={entrada:{lbl:"Entrada",icon:"➕",cls:"green"},salida:{lbl:"Salida",icon:"➖",cls:"red"},ajuste:{lbl:"Ajuste",icon:"⚖️",cls:"blue"}};
+
+function Repuestos({data,sesionUsuario=null,esAdmin=false,recargar=null}){
+  const [vista,setVista]=useState("inventario"); // inventario | movimientos
+  const [busqueda,setBusqueda]=useState("");
+  const [catF,setCatF]=useState("");
+  const [soloBajo,setSoloBajo]=useState(false);
+  const [verInactivos,setVerInactivos]=useState(false);
+  const FORM0={codigo:"",nombre:"",categoria:"Otros",unidad:"unid",minimo:"",ubicacion:"",costo:"",proveedor:"",notas:"",stockInicial:"",activo:true};
+  const [modalRep,setModalRep]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [form,setForm]=useState(FORM0);
+  const [errorRep,setErrorRep]=useState("");
+  const [mov,setMov]=useState(null);       // {tipo, repuesto, cantidad, fecha, maquinaId, ticketId, motivo, nota, costo}
+  const [errorMov,setErrorMov]=useState("");
+  const [guardando,setGuardando]=useState(false);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [errorGen,setErrorGen]=useState("");
+  const [mes,setMes]=useState(mesActual());
+  const [movs,setMovs]=useState([]);
+  const [cargandoMovs,setCargandoMovs]=useState(false);
+  const [filtroTipo,setFiltroTipo]=useState("");
+  const [busMov,setBusMov]=useState("");
+  const [hist,setHist]=useState(null);     // {repuesto, movs|null, error}
+
+  const hoy=ahoraLocal().fecha;
+  const todos=data.repuestos||[];
+  const activos=todos.filter(r=>r.activo!==false);
+  const stockDe=(r)=>+r.stock||0;
+  const esBajo=(r)=>stockDe(r)<=(+r.minimo||0);
+  const maqNombre=(id,fb)=>{const m=(data.maquinas||[]).find(x=>x.id===id);return m?String(m.nombre||"").trim():(fb||"");};
+  const repDe=(id)=>todos.find(r=>r.id===id)||null;
+
+  // ── Resumen ──
+  const agotados=activos.filter(r=>stockDe(r)<=0);
+  const bajos=activos.filter(r=>stockDe(r)>0&&esBajo(r));
+  const valorInv=activos.reduce((s,r)=>s+stockDe(r)*(+r.costo||0),0);
+
+  // ── Inventario filtrado ──
+  const q=busqueda.trim().toLowerCase();
+  const lista=(verInactivos?todos:activos).filter(r=>{
+    if(catF&&r.categoria!==catF)return false;
+    if(soloBajo&&!esBajo(r))return false;
+    if(q&&!((r.nombre||"")+" "+(r.codigo||"")+" "+(r.ubicacion||"")+" "+(r.proveedor||"")).toLowerCase().includes(q))return false;
+    return true;
+  }).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||""));
+
+  // ── Movimientos (se traen del servidor por mes) ──
+  const rangoMes=(m)=>{const [y,mm]=m.split("-").map(Number);return [m+"-01",m+"-"+String(new Date(y,mm,0).getDate()).padStart(2,"0")];};
+  const cargarMovs=async(m)=>{
+    setCargandoMovs(true);
+    const [ini,fin]=rangoMes(m||mes);
+    const {data:rows,error}=await supabase.from("repuestos_movimientos").select("*").gte("fecha",ini).lte("fecha",fin).order("fecha",{ascending:false}).order("created_at",{ascending:false});
+    if(error){setErrorGen("No se pudieron cargar los movimientos: "+(error.message||""));setMovs([]);}
+    else{setErrorGen("");setMovs(toCamel(rows||[]));}
+    setCargandoMovs(false);
+  };
+  useEffect(()=>{if(vista==="movimientos")cargarMovs(mes);},[vista,mes]);
+
+  const abrirHistorial=async(r)=>{
+    setHist({repuesto:r,movs:null,error:""});
+    const {data:rows,error}=await supabase.from("repuestos_movimientos").select("*").eq("repuesto_id",r.id).order("created_at",{ascending:false}).limit(100);
+    setHist({repuesto:r,movs:error?[]:toCamel(rows||[]),error:error?(error.message||"error"):""});
+  };
+
+  // ── Parámetros del registro de un movimiento (función de la base de datos: valida y actualiza el stock de una vez) ──
+  const argsMov=(m)=>{
+    const ahora=ahoraLocal();
+    return {
+      p_id:m.id,p_repuesto_id:m.repuestoId,p_tipo:m.tipo,p_cantidad:Math.round(+m.cantidad),
+      p_fecha:m.fecha||ahora.fecha,p_hora:ahora.hora,
+      p_maquina_id:m.maquinaId||null,p_maquina_nombre:m.maquinaId?maqNombre(m.maquinaId):null,
+      p_ticket_id:m.ticketId||null,p_motivo:m.motivo||null,
+      p_usuario_id:sesionUsuario?.id||null,p_usuario_nombre:sesionUsuario?.nombre||"",
+      p_nota:m.nota?String(m.nota).trim():null,
+      p_costo_unitario:(m.costo!==""&&m.costo!=null&&+m.costo>0)?+m.costo:null,
+    };
+  };
+
+  // ── Crear / editar un repuesto ──
+  const abrirNuevo=()=>{setForm(FORM0);setEditando(null);setErrorRep("");setModalRep(true);};
+  const abrirEditar=(r)=>{
+    setForm({codigo:r.codigo||"",nombre:r.nombre||"",categoria:r.categoria||"Otros",unidad:r.unidad||"unid",minimo:String(r.minimo??""),ubicacion:r.ubicacion||"",costo:String(r.costo??""),proveedor:r.proveedor||"",notas:r.notas||"",stockInicial:"",activo:r.activo!==false});
+    setEditando(r);setErrorRep("");setModalRep(true);
+  };
+  const guardarRep=async()=>{
+    if(!form.nombre.trim()){setErrorRep("Escribe el nombre del repuesto.");return;}
+    setGuardando(true);setErrorRep("");
+    try{
+      const base={codigo:form.codigo.trim()||null,nombre:form.nombre.trim(),categoria:form.categoria,unidad:form.unidad.trim()||"unid",
+        minimo:Math.max(0,parseInt(form.minimo,10)||0),ubicacion:form.ubicacion.trim()||null,costo:+form.costo||0,
+        proveedor:form.proveedor.trim()||null,notas:form.notas.trim()||null,activo:form.activo};
+      if(editando){
+        const {error}=await supabase.from("repuestos").update(toSnake(base)).eq("id",editando.id);
+        if(error)throw error;
+      }else{
+        const id=uid();
+        const {error}=await supabase.from("repuestos").insert(toSnake({id,...base,stock:0}));
+        if(error)throw error;
+        const ini=parseInt(form.stockInicial,10)||0;
+        if(ini>0){ // el stock inicial entra como un movimiento, para que el historial cuadre
+          const {error:e2}=await supabase.rpc("mover_repuesto",argsMov({id:uid(),repuestoId:id,tipo:"entrada",cantidad:ini,motivo:"Stock inicial",costo:base.costo||""}));
+          if(e2)throw e2;
+        }
+      }
+      setModalRep(false);setEditando(null);
+      if(recargar)await recargar();
+    }catch(err){setErrorRep("No se pudo guardar: "+(err.message||JSON.stringify(err)));}
+    finally{setGuardando(false);}
+  };
+  const eliminarRep=async(r)=>{
+    setConfirmDel(null);
+    const {error}=await supabase.from("repuestos").delete().eq("id",r.id);
+    if(error){
+      setErrorRep(/foreign key|violates/i.test(error.message||"")?"«"+r.nombre+"» ya tiene movimientos registrados, así que no se puede eliminar. Puedes desactivarlo (desmarca «Activo»).":"No se pudo eliminar: "+(error.message||""));
+      return;
+    }
+    setModalRep(false);setEditando(null);setErrorGen("");
+    if(recargar)await recargar();
+  };
+
+  // ── Entradas, salidas y ajustes ──
+  const abrirMov=(tipo,r)=>{
+    setMov({tipo,repuesto:r,cantidad:tipo==="ajuste"?String(stockDe(r)):"",fecha:hoy,maquinaId:"",ticketId:"",motivo:MOTIVOS_REP[tipo][0],nota:"",costo:tipo==="entrada"&&r.costo?String(r.costo):""});
+    setErrorMov("");
+  };
+  const guardarMov=async()=>{
+    const r=mov.repuesto;const actual=stockDe(r);const n=+mov.cantidad;
+    if(mov.fecha>hoy){setErrorMov("La fecha no puede ser futura.");return;}
+    if(mov.tipo==="ajuste"){
+      if(mov.cantidad===""||isNaN(n)||n<0){setErrorMov("Escribe el conteo real (0 o más).");return;}
+      if(Math.round(n)===actual){setErrorMov("El conteo es igual al stock actual: no hay nada que ajustar.");return;}
+    }else{
+      if(!n||n<=0){setErrorMov("Escribe una cantidad mayor a 0.");return;}
+      if(mov.tipo==="salida"&&n>actual){setErrorMov("No hay suficiente stock: hay "+actual+" "+(r.unidad||"unid")+".");return;}
+    }
+    setGuardando(true);setErrorMov("");
+    try{
+      const {error}=await supabase.rpc("mover_repuesto",argsMov({id:uid(),repuestoId:r.id,tipo:mov.tipo,cantidad:n,fecha:mov.fecha,
+        maquinaId:mov.tipo==="salida"?mov.maquinaId:"",ticketId:mov.tipo==="salida"?mov.ticketId:"",motivo:mov.motivo,nota:mov.nota,costo:mov.tipo==="entrada"?mov.costo:""}));
+      if(error)throw error;
+      setMov(null);
+      if(recargar)await recargar();
+      if(vista==="movimientos")await cargarMovs(mes);
+    }catch(err){setErrorMov(err.message||"No se pudo registrar el movimiento");}
+    finally{setGuardando(false);}
+  };
+
+  // ── Resumen de movimientos del mes ──
+  const movsFiltrados=movs.filter(m=>{
+    if(filtroTipo&&m.tipo!==filtroTipo)return false;
+    if(busMov){const rp=repDe(m.repuestoId);const t=((rp?rp.nombre:"")+" "+(m.maquinaNombre||"")+" "+(m.motivo||"")+" "+(m.usuarioNombre||"")).toLowerCase();if(!t.includes(busMov.toLowerCase()))return false;}
+    return true;
+  });
+  const unid=(tipo)=>movs.filter(m=>m.tipo===tipo).reduce((s,m)=>s+Math.abs(m.cantidad||0),0);
+  const sal=movs.filter(m=>m.tipo==="salida");
+  const costoSalidas=sal.reduce((s,m)=>s+(m.cantidad||0)*(+m.costoUnitario||0),0);
+  const porMaq={};
+  sal.forEach(m=>{const k=m.maquinaId||"_";const o=porMaq[k]||(porMaq[k]={nombre:m.maquinaId?(maqNombre(m.maquinaId,m.maquinaNombre)||"Máquina"):"Sin máquina (taller / almacén)",unid:0,costo:0});o.unid+=m.cantidad||0;o.costo+=(m.cantidad||0)*(+m.costoUnitario||0);});
+  const rankMaq=Object.values(porMaq).sort((a,b)=>b.costo-a.costo);
+
+  const MS=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  const cuando=(m)=>{const p=String(m.fecha||"").split("-");return p.length===3?(+p[2])+" "+MS[(+p[1])-1]+" · "+String(m.hora||"").slice(0,5):"";};
+  const lblS={fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"};
+  const chip=(act)=>({padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",border:"2px solid "+(act?"var(--accent)":"var(--border)"),background:act?"var(--accent)":"#fff",color:act?"#000":"var(--muted)"});
+  const ticketsDisp=mov&&mov.tipo==="salida"?(data.tickets||[]).filter(t=>t.estado!=="Resuelto"&&(!mov.maquinaId||t.maquinaId===mov.maquinaId)):[];
+  const movCant=mov?+mov.cantidad:0;
+
+  return(
+    <div>
+      {/* Resumen */}
+      <div className="cards" style={{marginBottom:14}}>
+        <div className="card"><div className="card-label">Repuestos</div><div className="card-value amber">{activos.length}</div><div className="card-sub">{activos.reduce((s,r)=>s+stockDe(r),0)} unidades en total</div></div>
+        <div className="card"><div className="card-label">Valor del inventario</div><div className="card-value green">{fmt(valorInv)}</div><div className="card-sub">al último costo</div></div>
+        <div className="card" onClick={()=>{setVista("inventario");setSoloBajo(true);}} style={{cursor:"pointer"}}><div className="card-label">Stock bajo</div><div className="card-value amber">{bajos.length}</div><div className="card-sub">en o bajo su mínimo</div></div>
+        <div className="card" onClick={()=>{setVista("inventario");setSoloBajo(true);}} style={{cursor:"pointer"}}><div className="card-label">Agotados</div><div className="card-value red">{agotados.length}</div><div className="card-sub">sin unidades</div></div>
+      </div>
+
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        {[["inventario","📦 Inventario"],["movimientos","🔁 Movimientos"]].map(([id,l])=>(
+          <button key={id} onClick={()=>setVista(id)} style={{padding:"9px 18px",borderRadius:10,border:"2px solid "+(vista===id?"var(--accent)":"var(--border)"),background:vista===id?"var(--accent)":"#fff",color:vista===id?"#000":"var(--muted)",fontWeight:700,fontSize:13,cursor:"pointer"}}>{l}</button>
+        ))}
+      </div>
+
+      {errorGen&&<div style={{background:"rgba(239,68,68,.07)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,color:"var(--red)"}}>⚠️ {errorGen}</div>}
+
+      {/* ═══ INVENTARIO ═══ */}
+      {vista==="inventario"&&(
+        <div>
+          <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por nombre, código, ubicación o proveedor..." total={activos.length} filtrado={lista.length}/>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+            <button onClick={()=>setCatF("")} style={chip(!catF)}>Todas</button>
+            {CATS_REPUESTO.map(cat=><button key={cat} onClick={()=>setCatF(catF===cat?"":cat)} style={chip(catF===cat)}>{cat}</button>)}
+            <button onClick={()=>setSoloBajo(s=>!s)} style={chip(soloBajo)}>⚠️ Solo stock bajo</button>
+            <label style={{fontSize:11,color:"var(--muted)",display:"flex",alignItems:"center",gap:4,marginLeft:"auto",cursor:"pointer"}}><input type="checkbox" checked={verInactivos} onChange={e=>setVerInactivos(e.target.checked)}/> Ver desactivados</label>
+          </div>
+          <div className="section">
+            <div className="section-header"><h3>Inventario de repuestos</h3><button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Nuevo repuesto</button></div>
+            <div className="table-wrap"><table>
+              <thead><tr><th>Código</th><th>Repuesto</th><th>Categoría</th><th>Ubicación</th><th>Stock</th><th>Mínimo</th><th>Costo</th><th>Valor</th><th>Estado</th><th>Acciones</th></tr></thead>
+              <tbody>
+                {lista.length===0&&<tr><td colSpan={10} style={{padding:28,textAlign:"center",color:"var(--muted)"}}>{todos.length===0?"Aún no hay repuestos. Toca «Nuevo repuesto» para registrar el primero.":"Sin repuestos con este filtro"}</td></tr>}
+                {lista.map(r=>{
+                  const st=stockDe(r);const inactivo=r.activo===false;
+                  return(
+                    <tr key={r.id} style={inactivo?{opacity:.5}:null}>
+                      <td style={{color:"var(--muted)",fontSize:12}}>{r.codigo||"—"}</td>
+                      <td><strong>{r.nombre}</strong>{inactivo&&<span className="badge" style={{marginLeft:6,background:"rgba(100,116,139,.15)",color:"var(--muted)"}}>desactivado</span>}{r.proveedor&&<div style={{fontSize:10,color:"var(--muted)"}}>{r.proveedor}</div>}</td>
+                      <td style={{fontSize:12}}>{r.categoria||"—"}</td>
+                      <td style={{fontSize:12}}>{r.ubicacion?"📍 "+r.ubicacion:"—"}</td>
+                      <td><span style={{fontSize:16,fontWeight:800,color:st<=0?"var(--red)":esBajo(r)?"var(--accent)":"var(--text)"}}>{st}</span> <span style={{fontSize:10,color:"var(--muted)"}}>{r.unidad||"unid"}</span></td>
+                      <td style={{color:"var(--muted)"}}>{r.minimo||0}</td>
+                      <td>{fmt(r.costo||0)}</td>
+                      <td>{fmt(st*(+r.costo||0))}</td>
+                      <td><span className={"badge "+(st<=0?"red":esBajo(r)?"amber":"green")}>{st<=0?"Agotado":esBajo(r)?"Stock bajo":"OK"}</span></td>
+                      <td><div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                        {!inactivo&&<button className="btn btn-secondary btn-sm" title="Entrada (llegó stock)" onClick={()=>abrirMov("entrada",r)}>➕</button>}
+                        {!inactivo&&<button className="btn btn-secondary btn-sm" title="Salida (uso en una máquina)" onClick={()=>abrirMov("salida",r)} disabled={st<=0}>➖</button>}
+                        {!inactivo&&<button className="btn btn-secondary btn-sm" title="Ajuste de inventario" onClick={()=>abrirMov("ajuste",r)}>⚖️</button>}
+                        <button className="btn btn-secondary btn-sm" title="Historial" onClick={()=>abrirHistorial(r)}>🕘</button>
+                        <button className="btn btn-secondary btn-sm" title="Editar" onClick={()=>abrirEditar(r)}><Icon name="edit" size={12}/></button>
+                      </div></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table></div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MOVIMIENTOS ═══ */}
+      {vista==="movimientos"&&(
+        <div>
+          <div className="cards" style={{marginBottom:12}}>
+            <div className="card"><div className="card-label">Entradas</div><div className="card-value green">{unid("entrada")}</div><div className="card-sub">unidades en {nombreMes(mes)}</div></div>
+            <div className="card"><div className="card-label">Salidas</div><div className="card-value red">{unid("salida")}</div><div className="card-sub">unidades usadas</div></div>
+            <div className="card"><div className="card-label">Costo de repuestos usados</div><div className="card-value amber">{fmt(costoSalidas)}</div><div className="card-sub">salidas del mes al costo</div></div>
+          </div>
+          {rankMaq.length>0&&(
+            <div className="section" style={{marginBottom:12}}>
+              <div className="section-header"><h3>🎰 Repuestos usados por máquina</h3></div>
+              <div style={{padding:"10px 16px"}}>
+                {rankMaq.map((o,k)=>(
+                  <div key={k} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"6px 0",borderBottom:"1px solid rgba(245,158,11,.1)",fontSize:13}}>
+                    <span style={{fontWeight:600}}>{o.nombre}</span><span style={{color:"var(--muted)"}}>{o.unid} unid · <strong style={{color:"var(--text)"}}>{fmt(o.costo)}</strong></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
+            <MesNav mes={mes} setMes={setMes}/>
+            {[["","Todos"],["entrada","➕ Entradas"],["salida","➖ Salidas"],["ajuste","⚖️ Ajustes"]].map(([v,l])=><button key={v||"t"} onClick={()=>setFiltroTipo(v)} style={chip(filtroTipo===v)}>{l}</button>)}
+            <input value={busMov} onChange={e=>setBusMov(e.target.value)} placeholder="Buscar repuesto, máquina, motivo..." style={{padding:"7px 12px",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,fontSize:12,minWidth:210}}/>
+          </div>
+          <div className="section"><div className="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Repuesto</th><th>Tipo</th><th>Cantidad</th><th>Stock</th><th>Máquina</th><th>Motivo</th><th>Registró</th></tr></thead>
+            <tbody>
+              {cargandoMovs&&<tr><td colSpan={8} style={{padding:24,textAlign:"center",color:"var(--muted)"}}>⏳ Cargando movimientos...</td></tr>}
+              {!cargandoMovs&&movsFiltrados.length===0&&<tr><td colSpan={8} style={{padding:24,textAlign:"center",color:"var(--muted)"}}>Sin movimientos en {nombreMes(mes)}</td></tr>}
+              {!cargandoMovs&&movsFiltrados.map(m=>{
+                const rp=repDe(m.repuestoId);const t=TIPO_REP[m.tipo]||TIPO_REP.ajuste;
+                return(
+                  <tr key={m.id}>
+                    <td style={{fontSize:12,whiteSpace:"nowrap"}}>{cuando(m)}</td>
+                    <td><strong>{rp?rp.nombre:"(eliminado)"}</strong></td>
+                    <td><span className={"badge "+t.cls}>{t.icon} {t.lbl}</span></td>
+                    <td style={{fontWeight:800,color:m.tipo==="salida"||m.cantidad<0?"var(--red)":"var(--green)"}}>{m.tipo==="salida"?"-":m.cantidad>0?"+":""}{m.cantidad}</td>
+                    <td style={{fontSize:12,color:"var(--muted)"}}>{m.stockAntes} → <strong style={{color:"var(--text)"}}>{m.stockDespues}</strong></td>
+                    <td style={{fontSize:12}}>{m.maquinaId?maqNombre(m.maquinaId,m.maquinaNombre):(m.maquinaNombre||"—")}</td>
+                    <td style={{fontSize:12}}>{m.motivo||"—"}{m.ticketId&&<span style={{marginLeft:6,fontSize:10,color:"var(--accent)"}}>🔧 ticket</span>}{m.nota&&<div style={{fontSize:10,color:"var(--muted)"}}>{m.nota}</div>}</td>
+                    <td style={{fontSize:12}}>{String(m.usuarioNombre||"—").trim()}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div></div>
+        </div>
+      )}
+
+      {/* ═══ Nuevo / editar repuesto ═══ */}
+      {modalRep&&<div className="modal-overlay"><div className="modal">
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>{editando?"Editar repuesto":"Nuevo repuesto"}</h3><CloseBtn onClick={()=>{setModalRep(false);setEditando(null);}}/></div>
+        {editando&&<div className="edit-banner">✏️ Editando: <strong>{editando.nombre}</strong> · stock actual: <strong>{stockDe(editando)}</strong> (para cambiarlo usa ➕ ➖ ⚖️)</div>}
+        <div className="form-row">
+          <div className="form-group"><label>Nombre</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Motor de espiral 12V"/></div>
+          <div className="form-group"><label>Código (opcional)</label><input value={form.codigo} onChange={e=>setForm({...form,codigo:e.target.value})} placeholder="Ej: MOT-12"/></div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Categoría</label><select value={form.categoria} onChange={e=>setForm({...form,categoria:e.target.value})}>{CATS_REPUESTO.map(cat=><option key={cat} value={cat}>{cat}</option>)}</select></div>
+          <div className="form-group"><label>Ubicación en el almacén</label><input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: Estante B, caja 3"/></div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Stock mínimo</label><input type="number" min="0" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})} placeholder="0"/></div>
+          <div className="form-group"><label>Costo unitario (S/)</label><input type="number" min="0" step="0.01" value={form.costo} onChange={e=>setForm({...form,costo:e.target.value})} placeholder="0.00"/></div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Unidad</label><input value={form.unidad} onChange={e=>setForm({...form,unidad:e.target.value})} placeholder="unid"/></div>
+          <div className="form-group"><label>Proveedor</label>
+            <input list="prov-repuestos" value={form.proveedor} onChange={e=>setForm({...form,proveedor:e.target.value})} placeholder="Opcional"/>
+            <datalist id="prov-repuestos">{(data.proveedores||[]).map(p=><option key={p.id} value={p.nombre}/>)}</datalist>
+          </div>
+        </div>
+        {!editando&&<div className="form-group"><label>Stock inicial (opcional)</label><input type="number" min="0" value={form.stockInicial} onChange={e=>setForm({...form,stockInicial:e.target.value})} placeholder="Cuántas unidades tienes hoy"/></div>}
+        <div className="form-group"><label>Notas</label><input value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})} placeholder="Compatibilidad, modelo de máquina, etc."/></div>
+        {editando&&<label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:10,cursor:"pointer"}}><input type="checkbox" checked={form.activo} onChange={e=>setForm({...form,activo:e.target.checked})}/> Activo (desmárcalo si ya no se usa; el historial se conserva)</label>}
+        {errorRep&&<div style={{background:"rgba(239,68,68,.07)",border:"1px solid rgba(239,68,68,.3)",borderRadius:9,padding:"9px 12px",fontSize:12,color:"var(--red)",marginBottom:10}}>⚠️ {errorRep}</div>}
+        <div className="modal-actions">
+          {editando&&esAdmin&&<button className="btn btn-danger" style={{marginRight:"auto"}} onClick={()=>setConfirmDel(editando)}>🗑️ Eliminar</button>}
+          <button className="btn btn-secondary" onClick={()=>{setModalRep(false);setEditando(null);}}>Cancelar</button>
+          <button className="btn btn-primary" onClick={guardarRep} disabled={guardando||!form.nombre.trim()}>{guardando?"Guardando...":(editando?"Guardar cambios":"Guardar")}</button>
+        </div>
+      </div></div>}
+
+      {/* ═══ Entrada / salida / ajuste ═══ */}
+      {mov&&(()=>{
+        const r=mov.repuesto;const actual=stockDe(r);const t=TIPO_REP[mov.tipo];
+        const nuevo=mov.tipo==="entrada"?actual+(movCant||0):mov.tipo==="salida"?actual-(movCant||0):movCant;
+        return(
+          <div className="modal-overlay"><div className="modal" style={{maxWidth:460}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>{t.icon} {mov.tipo==="entrada"?"Entrada de stock":mov.tipo==="salida"?"Salida (uso en máquina)":"Ajuste de inventario"}</h3><CloseBtn onClick={()=>setMov(null)}/></div>
+            <div className="edit-banner"><strong>{r.nombre}</strong> · stock actual: <strong>{actual} {r.unidad||"unid"}</strong></div>
+            <div className="form-row">
+              <div className="form-group"><label>{mov.tipo==="ajuste"?"Conteo real (lo que hay ahora)":"Cantidad"}</label><input type="number" min="0" autoFocus value={mov.cantidad} onChange={e=>setMov({...mov,cantidad:e.target.value})} placeholder={mov.tipo==="ajuste"?"":"Ej: 4"}/></div>
+              <div className="form-group"><label>Fecha</label><input type="date" max={hoy} value={mov.fecha} onChange={e=>setMov({...mov,fecha:e.target.value})}/></div>
+            </div>
+            {mov.tipo==="entrada"&&<div className="form-group"><label>Costo unitario pagado (S/) — opcional, actualiza el costo</label><input type="number" min="0" step="0.01" value={mov.costo} onChange={e=>setMov({...mov,costo:e.target.value})}/></div>}
+            {mov.tipo==="salida"&&(
+              <>
+                <div className="form-group"><label>¿En qué máquina se usó?</label>
+                  <select value={mov.maquinaId} onChange={e=>setMov({...mov,maquinaId:e.target.value,ticketId:""})}>
+                    <option value="">— Sin máquina (taller / almacén) —</option>
+                    {[...(data.maquinas||[])].filter(m=>m.activa).sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(m=><option key={m.id} value={m.id}>{String(m.nombre||"").trim()}{m.ubicacion?" — "+m.ubicacion:""}</option>)}
+                  </select>
+                </div>
+                <div className="form-group"><label>Ticket de mantenimiento (opcional)</label>
+                  <select value={mov.ticketId} onChange={e=>setMov({...mov,ticketId:e.target.value})}>
+                    <option value="">— Sin ticket —</option>
+                    {ticketsDisp.map(tk=><option key={tk.id} value={tk.id}>{(tk.tipo||"Ticket")+": "+String(tk.descripcion||"").slice(0,50)+" ("+maqNombre(tk.maquinaId)+")"}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
+            <div className="form-group"><label>Motivo</label><select value={mov.motivo} onChange={e=>setMov({...mov,motivo:e.target.value})}>{MOTIVOS_REP[mov.tipo].map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+            <div className="form-group"><label>Nota (opcional)</label><input value={mov.nota} onChange={e=>setMov({...mov,nota:e.target.value})} placeholder="Detalle, quién lo pidió, etc."/></div>
+            {mov.cantidad!==""&&!isNaN(movCant)&&<div className="info-box">{mov.tipo==="ajuste"?"Diferencia":"Nuevo stock"}: {mov.tipo==="ajuste"?<strong>{nuevo-actual>0?"+":""}{nuevo-actual}</strong>:<strong style={{color:nuevo<0?"var(--red)":"inherit"}}>{nuevo}</strong>} {mov.tipo==="ajuste"?"unidades":"→ quedará "+(r.unidad||"unid")}</div>}
+            {errorMov&&<div style={{background:"rgba(239,68,68,.07)",border:"1px solid rgba(239,68,68,.3)",borderRadius:9,padding:"9px 12px",fontSize:12,color:"var(--red)",marginBottom:10}}>⚠️ {errorMov}</div>}
+            <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setMov(null)}>Cancelar</button><button className="btn btn-primary" onClick={guardarMov} disabled={guardando}>{guardando?"Guardando...":"Registrar"}</button></div>
+          </div></div>
+        );
+      })()}
+
+      {/* ═══ Historial de un repuesto ═══ */}
+      {hist&&(
+        <div className="modal-overlay"><div className="modal" style={{maxWidth:620}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}><h3 style={{margin:0}}>🕘 Historial — {hist.repuesto.nombre}</h3><CloseBtn onClick={()=>setHist(null)}/></div>
+          <div style={{fontSize:12,color:"var(--muted)",marginBottom:10}}>Stock actual: <strong style={{color:"var(--text)"}}>{stockDe(repDe(hist.repuesto.id)||hist.repuesto)} {hist.repuesto.unidad||"unid"}</strong> · últimos 100 movimientos</div>
+          {hist.movs===null?<div style={{padding:24,textAlign:"center",color:"var(--muted)"}}>⏳ Cargando...</div>
+            :hist.error?<div style={{color:"var(--red)",fontSize:12}}>⚠️ {hist.error}</div>
+            :hist.movs.length===0?<div style={{padding:24,textAlign:"center",color:"var(--muted)"}}>Sin movimientos todavía.</div>
+            :<div style={{maxHeight:380,overflowY:"auto"}}>
+              {hist.movs.map(m=>{const t=TIPO_REP[m.tipo]||TIPO_REP.ajuste;return(
+                <div key={m.id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"8px 0",borderBottom:"1px solid rgba(245,158,11,.1)",fontSize:12}}>
+                  <div><span className={"badge "+t.cls}>{t.icon} {t.lbl}</span> <strong>{m.tipo==="salida"?"-":m.cantidad>0?"+":""}{m.cantidad}</strong>
+                    <div style={{color:"var(--muted)",marginTop:2}}>{m.motivo||""}{m.maquinaNombre?" · "+m.maquinaNombre:""}{m.nota?" · "+m.nota:""}</div></div>
+                  <div style={{textAlign:"right",color:"var(--muted)",whiteSpace:"nowrap"}}>{cuando(m)}<div>{m.stockAntes} → {m.stockDespues} · {String(m.usuarioNombre||"—").trim()}</div></div>
+                </div>);})}
+            </div>}
+          <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setHist(null)}>Cerrar</button></div>
+        </div></div>
+      )}
+
+      {confirmDel&&<ConfirmDelete texto={'¿Eliminar el repuesto "'+confirmDel.nombre+'"? Solo se puede si no tiene movimientos.'} onConfirm={()=>eliminarRep(confirmDel)} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
 // ─── NAVEGACIÓN ─────────────────────────────────────────────────────────────────
 const ADMIN_NAV=[
   {section:"General"},
@@ -6794,12 +7490,14 @@ const ADMIN_NAV=[
   {id:"maquinas",label:"Máquinas",icon:"machine"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
   {id:"planograma",label:"Foto de la máquina",icon:"camera"},
+  {id:"fotosPorLeer",label:"Fotos por leer",icon:"camera"},
   {id:"ventas",label:"Ventas",icon:"chart"},
   {id:"cobranzas",label:"Cobranzas",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
   {id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
+  {id:"repuestos",label:"Almacén de repuestos",icon:"stock"},
   {id:"gastos",label:"Gastos adicionales",icon:"bolt"},
   {section:"Cafeteras"},
   {id:"cafeteras",label:"Control cafeteras",icon:"coffee"},
@@ -6832,16 +7530,18 @@ const ABASTECEDOR_NAV=[
 ];
 const ALMACENERO_NAV=[
   {section:"Mi semana"},{id:"mihorario",label:"Mi horario",icon:"calendar"},
-  {section:"Almacén"},{section:"Catálogo"},{id:"productos",label:"Productos y stock",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
+  {section:"Almacén"},{id:"repuestos",label:"Almacén de repuestos",icon:"stock"},
+  {section:"Catálogo"},{id:"productos",label:"Productos y stock",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"traslados",label:"Traslados",icon:"transfer"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
+  {id:"fotosPorLeer",label:"Fotos por leer",icon:"camera"},
 ];
 const TITLES={
   dashboard:"Dashboard",rentabilidad:"Rentabilidad",horario:"Horario semanal",mihorario:"Mi horario",
   gastos:"Gastos adicionales",productos:"Productos y stock",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de la máquina recargada",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de la máquina recargada",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -6932,9 +7632,10 @@ export default function App(){
     if(!idsOk.includes("planograma"))return;
     const hoyL=ahoraLocal().fecha;
     if(fechaReg!==hoyL&&fechaReg!==today())return; // solo recargas de hoy
-    const yaFoto=(data.planogramas||[]).some(p=>p.maquinaId===mid&&p.fecha===hoyL);
+    const yaFoto=(data.planogramas||[]).some(p=>p.maquinaId===mid&&p.fecha===hoyL)||(data.fotosMaquina||[]).some(f=>f.maquinaId===mid&&f.fecha===hoyL);
     if(!yaFoto)setFotoPendiente(mid);
   };
+  const nFotosPend=(data.fotosMaquina||[]).filter(f=>f.estado==="pendiente").length;
   const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
   const rolUsuario=sesionUsuario?.rol||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
@@ -6951,7 +7652,9 @@ export default function App(){
     case "adminListasPrecios": return <AdminListasPrecios data={data} save={saveWrapped} del={delWrapped}/>;
     case "cafeteras":    return <Cafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin}/>;
     case "ventasCafeteras": return <VentasCafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
-    case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy} maqInicial={maqFotoPre} onMaqInicialUsada={()=>setMaqFotoPre(null)}/>;
+    case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy} maqInicial={maqFotoPre} onMaqInicialUsada={()=>setMaqFotoPre(null)} recargar={()=>loadAll(true)}/>;
+    case "repuestos": return <Repuestos data={data} sesionUsuario={sesionUsuario} esAdmin={esAdmin} recargar={()=>loadAll(true)}/>;
+    case "fotosPorLeer": return <FotosPorLeer data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "ventasAtento": return <VentasAtento data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
     case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy}/>;
@@ -6989,7 +7692,7 @@ export default function App(){
         <nav className="nav">
           {nav.map((item,i)=>item.section
             ?<div key={i} className="nav-section">{item.section}</div>
-            :<div key={item.id} className={`nav-item ${tab===item.id?"active":""}`} onClick={()=>navegar(item.id)}><Icon name={item.icon} size={15}/>{item.label}</div>
+            :<div key={item.id} className={`nav-item ${tab===item.id?"active":""}`} onClick={()=>navegar(item.id)}><Icon name={item.icon} size={15}/>{item.label}{item.id==="fotosPorLeer"&&nFotosPend>0&&<span style={{marginLeft:8,background:"var(--accent)",color:"#000",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{nFotosPend}</span>}</div>
           )}
         </nav>
         <div className="logout-btn" onClick={()=>{setUsuario(null);setSesionUsuario(null);}}><Icon name="logout" size={15}/> Cerrar sesión</div>
