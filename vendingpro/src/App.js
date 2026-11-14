@@ -684,6 +684,7 @@ function Dashboard({data,recargar=null}){
   return(
     <div>
       {stockBajo.length>0&&<div className="alert-box"><Icon name="alert" size={14}/>{stockBajo.length} producto(s) con stock bajo mínimo</div>}
+      <AlertasVencimiento data={data}/>
       <MesNav mes={mes} setMes={setMes}/>
       <AvisoCostosAtento data={data} maqIds={maqIds} recargar={recargar}/>
       {/* Filtro por máquina */}
@@ -802,6 +803,48 @@ function HistorialPlanogramas({data}){
   );
 }
 
+// ─── ALERTAS DE VENCIMIENTO: almacén (lotes) y máquinas (último registro de stock) ───────────
+const diasAvisoVenc=()=>{try{const v=parseInt(localStorage.getItem("gamatic_dias_venc"),10);return v>0?v:30;}catch(_){return 30;}};
+const guardarDiasAvisoVenc=(n)=>{try{localStorage.setItem("gamatic_dias_venc",String(n));}catch(_){}};
+function alertasVencimiento(data,dias){
+  const out=[];
+  const nom=(id)=>(data.productos||[]).find(p=>p.id===id)?.nombre||"—";
+  (data.lotes||[]).forEach(l=>{
+    if(!(l.cantidadActual>0)||!l.fechaVencimiento)return;
+    const d=diasHasta(l.fechaVencimiento);
+    if(d>dias)return;
+    out.push({tipo:"almacen",id:"l"+l.id,lote:l,productoId:l.productoId,nombre:nom(l.productoId),lugar:"Almacén",fecha:l.fechaVencimiento,dias:d,cantidad:l.cantidadActual,detalle:l.proveedorNombre||""});
+  });
+  const ult={};
+  [...(data.stockMaquina||[])].sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")).forEach(r=>{(r.registros||[]).forEach(g=>{ult[r.maquinaId+"|"+g.productoId]={r,g};});});
+  Object.entries(ult).forEach(([k,{r,g}])=>{
+    if(!g.fechaVenc)return;
+    const cant=g.stockFinal!=null?g.stockFinal:(g.traslado||0);
+    if(!(cant>0))return;
+    const d=diasHasta(g.fechaVenc);
+    if(d>dias)return;
+    const m=(data.maquinas||[]).find(x=>x.id===r.maquinaId);
+    out.push({tipo:"maquina",id:"m"+k,productoId:g.productoId,nombre:nom(g.productoId),lugar:m?String(m.nombre).trim():"Máquina",fecha:g.fechaVenc,dias:d,cantidad:cant,detalle:"Último registro "+(r.fecha||"")});
+  });
+  return out.sort((a,b)=>a.dias-b.dias);
+}
+const badgeDiasVenc=(d)=>d<0?<span className="badge red">Vencido hace {-d} d</span>:d<=7?<span className="badge red">{d===0?"Vence hoy":d+" días"}</span>:d<=30?<span className="badge amber">{d} días</span>:<span className="badge green">{d} días</span>;
+function AlertasVencimiento({data,limite=10}){
+  const dias=diasAvisoVenc();
+  const al=alertasVencimiento(data,dias);
+  if(!al.length)return null;
+  return(
+    <div className="section" style={{marginBottom:14,border:"1px solid rgba(239,68,68,.3)"}}>
+      <div className="section-header"><h3>⏰ Retirar pronto — vencen en {dias} días o ya vencieron ({al.length})</h3></div>
+      <div className="table-wrap"><table>
+        <thead><tr><th>Producto</th><th>Dónde está</th><th>Vence</th><th>Unidades</th></tr></thead>
+        <tbody>{al.slice(0,limite).map(a=>(<tr key={a.id}><td><strong>{a.nombre}</strong>{a.detalle&&<div style={{fontSize:10,color:"var(--muted)"}}>{a.detalle}</div>}</td><td>{a.lugar}</td><td>{a.fecha}<div>{badgeDiasVenc(a.dias)}</div></td><td>{a.cantidad}</td></tr>))}</tbody>
+      </table></div>
+      {al.length>limite&&<div style={{padding:"8px 16px",fontSize:11,color:"var(--muted)"}}>y {al.length-limite} más en Productos → Lotes y proveedores → Por vencer.</div>}
+    </div>
+  );
+}
+
 // ─── LOTES Y PROVEEDORES ──────────────────────────────────────────────────────
 function diasHasta(f){return f?Math.ceil((new Date(f+"T00:00:00")-new Date(ahoraLocal().fecha+"T00:00:00"))/86400000):null;}
 function calcularProveedores(lotes,movs,productos,pesos){
@@ -834,8 +877,10 @@ function calcularProveedores(lotes,movs,productos,pesos){
   });
   return out.sort((a,b)=>a.producto.localeCompare(b.producto));
 }
-function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false}){
-  const [vista,setVista]=useState("lotes");
+function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,vistaInicial=null}){
+  const [vista,setVista]=useState(vistaInicial||"lotes");
+  useEffect(()=>{if(vistaInicial)setVista(vistaInicial);},[vistaInicial]);
+  const [diasAviso,setDiasAviso]=useState(diasAvisoVenc());
   const [q,setQ]=useState("");
   const [soloStock,setSoloStock]=useState(true);
   const [movs,setMovs]=useState([]);
@@ -934,25 +979,34 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false})
         </div>
       )}
 
-      {vista==="vencer"&&(
+      {vista==="vencer"&&(()=>{
+        const al=alertasVencimiento(data,diasAviso);
+        return(
         <div className="section">
-          <div className="section-header"><h3>Vencidos y por vencer (60 días)</h3></div>
+          <div className="section-header"><h3>Vencidos y por vencer ({al.length})</h3>
+            <label style={{fontSize:11,color:"var(--muted)",display:"flex",gap:6,alignItems:"center"}}>Avisar con
+              <select value={diasAviso} onChange={e=>{const n=+e.target.value;setDiasAviso(n);guardarDiasAvisoVenc(n);}}>{[15,30,45,60,90].map(n=><option key={n} value={n}>{n} días</option>)}</select>
+            </label>
+          </div>
           <div className="table-wrap"><table>
-            <thead><tr><th>Producto</th><th>Proveedor</th><th>Vencimiento</th><th>Quedan</th><th>Valor</th><th></th></tr></thead>
+            <thead><tr><th>Producto</th><th>Dónde está</th><th>Vencimiento</th><th>Unidades</th><th>Valor</th><th></th></tr></thead>
             <tbody>
-              {[...vencidos,...porVencer].sort((a,b)=>(a.fechaVencimiento||"").localeCompare(b.fechaVencimiento||"")).map(l=>(
-                <tr key={l.id}>
-                  <td><strong>{prodDe(l.productoId)?.nombre||"—"}</strong></td><td>{l.proveedorNombre}</td>
-                  <td>{l.fechaVencimiento}<div>{badgeVenc(l.fechaVencimiento)}</div></td>
-                  <td>{l.cantidadActual}</td><td>{fmt(l.cantidadActual*(+l.costoUnitario||0))}</td>
-                  <td><button className="btn btn-secondary btn-sm" onClick={()=>setModal({lote:l,tipo:"merma",cantidad:String(l.cantidadActual),motivo:diasHasta(l.fechaVencimiento)<0?"Vencido":"Por vencer",nota:""})}>Dar de baja</button></td>
+              {al.map(a=>(
+                <tr key={a.id}>
+                  <td><strong>{a.nombre}</strong>{a.detalle&&<div style={{fontSize:10,color:"var(--muted)"}}>{a.detalle}</div>}</td>
+                  <td>{a.lugar}</td>
+                  <td>{a.fecha}<div>{badgeDiasVenc(a.dias)}</div></td>
+                  <td>{a.cantidad}</td>
+                  <td>{a.lote?fmt(a.cantidad*(+a.lote.costoUnitario||0)):"—"}</td>
+                  <td>{a.lote?<button className="btn btn-secondary btn-sm" onClick={()=>setModal({lote:a.lote,tipo:"merma",cantidad:String(a.lote.cantidadActual),motivo:a.dias<0?"Vencido":"Por vencer",nota:""})}>Dar de baja</button>:<span style={{fontSize:10,color:"var(--muted)"}}>Retirar de la máquina</span>}</td>
                 </tr>
               ))}
-              {vencidos.length+porVencer.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"var(--muted)",padding:20}}>✅ Nada vencido ni por vencer</td></tr>}
+              {al.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"var(--muted)",padding:20}}>✅ Nada vence en los próximos {diasAviso} días</td></tr>}
             </tbody>
           </table></div>
-        </div>
-      )}
+          <div style={{padding:"8px 16px",fontSize:11,color:"var(--muted)"}}>Las máquinas se toman del último registro de "Stock por máquina" con fecha de vencimiento.</div>
+        </div>);
+      })()}
 
       {vista==="proveedores"&&(
         <div>
@@ -5495,6 +5549,10 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
   const [guardandoFoto,setGuardandoFoto]=useState(false);
   const [errorFoto,setErrorFoto]=useState("");
   const [fotoGuardada,setFotoGuardada]=useState(null);
+  const [cargandoFoto,setCargandoFoto]=useState(false);
+  const modoLeer=!!fotoInicial;                                       // viene de «Fotos por leer»: la foto ya está guardada
+  const soloGuardar=!modoLeer&&sesionUsuario?.rol==="abastecedor";    // el abastecedor solo guarda la foto; otro usuario la lee después
+  const tieneLectura=modoLeer&&Array.isArray(fotoInicial.lectura)&&fotoInicial.lectura.length>0; // la IA ya la leyó en segundo plano
   // Foto pasada: permite registrar un abastecimiento de otro día (para ponerse al día)
   const [fotoPasada,setFotoPasada]=useState(false);
   const [fechaPasada,setFechaPasada]=useState("");
@@ -5519,10 +5577,6 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
       </div>}
     </div>
   ):null;
-  const [cargandoFoto,setCargandoFoto]=useState(false);
-  const modoLeer=!!fotoInicial;                                       // viene de «Fotos por leer»: la foto ya está guardada
-  const soloGuardar=!modoLeer&&sesionUsuario?.rol==="abastecedor";    // el abastecedor solo guarda la foto; otro usuario la lee después
-  const tieneLectura=modoLeer&&Array.isArray(fotoInicial.lectura)&&fotoInicial.lectura.length>0; // la IA ya la leyó en segundo plano
   const [segundos,setSegundos]=useState(0);
   useEffect(()=>{
     if(!analizando){setSegundos(0);return;}
@@ -8272,6 +8326,9 @@ export default function App(){
   const cerrar=()=>setSidebarOpen(false);
   const navegar=(id)=>{setTab(id);cerrar();};
   const [sesionUsuario,setSesionUsuario]=useState(null);
+  const [vistaLotes,setVistaLotes]=useState(null);
+  const [bannerVencOculto,setBannerVencOculto]=useState(false);
+  useEffect(()=>{if(tab!=="lotes")setVistaLotes(null);},[tab]);
   const [fotoPendiente,setFotoPendiente]=useState(null); // máquina recién recargada: se ofrece subir su foto
   const [maqFotoPre,setMaqFotoPre]=useState(null);       // máquina ya elegida al abrir "Foto de la máquina"
 
@@ -8357,7 +8414,7 @@ export default function App(){
     case "ventasCafeteras": return <VentasCafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
     case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy} maqInicial={maqFotoPre} onMaqInicialUsada={()=>setMaqFotoPre(null)} recargar={()=>loadAll(true)}/>;
     case "historialPlanogramas": return <HistorialPlanogramas data={data}/>;
-    case "lotes": return <LotesProveedores data={data} sesionUsuario={sesionUsuario} esAdmin={esAdmin} recargar={()=>loadAll(true)}/>;
+    case "lotes": return <LotesProveedores data={data} sesionUsuario={sesionUsuario} esAdmin={esAdmin} recargar={()=>loadAll(true)} vistaInicial={vistaLotes}/>;
     case "depositoPos": return <DepositoPOS data={data}/>;
     case "repuestos": return <Repuestos data={data} sesionUsuario={sesionUsuario} esAdmin={esAdmin} recargar={()=>loadAll(true)}/>;
     case "fotosPorLeer": return <FotosPorLeer data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
@@ -8417,6 +8474,17 @@ export default function App(){
               <button key={id} className={`btn btn-sm ${tab===id?"btn-primary":"btn-secondary"}`} onClick={()=>setTab(id)}>{lbl}{id==="fotosPorLeer"&&nFotosPend>0&&<span style={{marginLeft:6,background:"var(--accent)",color:"#000",borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:800}}>{nFotosPend}</span>}</button>
             ))}
           </div>}
+          {(esAdmin||esAlmacenero)&&idsOk.includes("lotes")&&!bannerVencOculto&&(()=>{
+            const al=alertasVencimiento(data,diasAvisoVenc());
+            if(!al.length)return null;
+            const venc=al.filter(a=>a.dias<0).length;
+            return(
+              <div style={{background:venc?"rgba(239,68,68,.1)":"rgba(245,158,11,.1)",border:`1px solid ${venc?"rgba(239,68,68,.35)":"rgba(245,158,11,.4)"}`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <span style={{flex:1,minWidth:200}}>⏰ <strong>{al.length}</strong> producto(s) vencen pronto o ya vencieron{venc>0&&<> — <strong style={{color:"var(--red)"}}>{venc} ya vencido(s)</strong></>}. Retíralos.</span>
+                <button className="btn btn-primary btn-sm" onClick={()=>{setVistaLotes("vencer");setTab("lotes");}}>Ver lista</button>
+                <button className="btn btn-secondary btn-sm" onClick={()=>setBannerVencOculto(true)}>Ocultar</button>
+              </div>);
+          })()}
           <RC/>
         </div>
       </main>
