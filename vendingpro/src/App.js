@@ -317,6 +317,7 @@ const TABLE_MAP={
   roles:'roles',
   fotosMaquina:'fotos_maquina',
   repuestos:'repuestos',
+  lotes:'lotes',
   horario:'horario',
 };
 
@@ -368,7 +369,7 @@ function useFirebase(){
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
-        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos'];
+        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos','lotes'];
       const results=await Promise.all(tables.map(t=>supabase.from(t).select(t==='ventas_atento'?COLS_ATENTO:'*')));
       // Horario es especial — clave primaria es "dia"
       const {data:horarioData}=await supabase.from('horario').select('*');
@@ -385,14 +386,14 @@ function useFirebase(){
       const [productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,stockMaquina,sencillo,
         tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
-        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos]=results.map(r=>toCamel(r.data||[]));
+        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes]=results.map(r=>toCamel(r.data||[]));
 
       if(!mountedRef.current)return;
       const newData={
         productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,
         stockMaquina,sencillo,tickets,productosEco,personal,
-        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,
+        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,
         horario:horarioObj,
       };
       // Solo actualiza si los datos cambiaron — evita re-renders innecesarios que cierran modales
@@ -524,6 +525,45 @@ function LoginScreen({onLogin,usuarios=[]}){
 }
 
 // ─── DASHBOARD con filtro por máquina ──────────────────────────────────────────
+// ─── POS: comisión sobre ventas con tarjeta / QR ───────────────────────────────
+const COMISION_POS_DEFECTO=3.5;
+const esPagoElectronico=(pago)=>!!pago&&!/efectivo/i.test(String(pago));
+// Trae las ventas ACEPTADAS de Atento en el rango (sin duplicados) con su medio de pago
+async function cargarPagosAtento(ini,fin){
+  const {data:rows,error}=await supabase.from("ventas_atento")
+    .select("id,maquina_id,transacciones").lte("desde",fin+" 23:59:59").gte("hasta",ini+" 00:00:00");
+  if(error)throw error;
+  const out=[];const visto=new Set();
+  (rows||[]).forEach(r=>{
+    (Array.isArray(r.transacciones)?r.transacciones:[]).forEach(t=>{
+      let fecha=String(t.fecha||"");
+      if(!/^[0-9]{4}-/.test(fecha)){const q=fecha.split(/[-/]/);if(q.length===3)fecha=q[2]+"-"+q[1].padStart(2,"0")+"-"+q[0].padStart(2,"0");}
+      if(fecha<ini||fecha>fin)return;
+      if(String(t.status||"").toUpperCase()!=="ACEPTADA")return;
+      const num=t.num!=null?t.num:parseInt(t.numAtento,10);
+      if(!isNaN(num)){const k=r.maquina_id+"|"+num;if(visto.has(k))return;visto.add(k);}
+      out.push({maquinaId:r.maquina_id,fecha,hora:String(t.hora||""),pago:t.pago||"",tecnologia:String(t.tecnologia||""),valor:+t.valor||0});
+    });
+  });
+  return out;
+}
+// Comisión por máquina (solo máquinas con POS y solo ventas electrónicas)
+function comisionPorMaquina(trans,maquinas){
+  const res={};
+  (maquinas||[]).forEach(m=>{if(m.conPos)res[m.id]={bruto:0,comision:0,tasa:+m.comisionPos||0};});
+  (trans||[]).forEach(t=>{const r=res[t.maquinaId];if(r&&esPagoElectronico(t.pago)){r.bruto+=t.valor;r.comision+=t.valor*r.tasa/100;}});
+  return res;
+}
+function useComisionesPOS(data,ini,fin){
+  const [trans,setTrans]=useState([]);
+  const hayPOS=(data.maquinas||[]).some(m=>m.conPos);
+  useEffect(()=>{let vivo=true;if(!hayPOS){setTrans([]);return;}
+    cargarPagosAtento(ini,fin).then(r=>{if(vivo)setTrans(r);}).catch(()=>{if(vivo)setTrans([]);});
+    return()=>{vivo=false;};},[ini,fin,hayPOS,(data.ventasAtento||[]).length]);
+  return useMemo(()=>comisionPorMaquina(trans,data.maquinas),[trans,data.maquinas]);
+}
+const rangoDeMes=(m)=>{const [y,mm]=m.split("-").map(Number);return [m+"-01",m+"-"+String(new Date(y,mm,0).getDate()).padStart(2,"0")];};
+
 // ─── Costos de ventas Atento: asigna a cada venta el producto del planograma vigente ───
 const _normEspC=(x)=>{const t=String(x||'').trim();return /^\d+$/.test(t)?String(parseInt(t,10)):t;};
 function ventasAtentoSinCosto(data,maqIds=null){
@@ -595,7 +635,10 @@ function Dashboard({data,recargar=null}){
     const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",mes+"-01").lte("fecha",fin);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[mes,data.repuestos]);
   const movRepSel=movRep.filter(r=>maqFiltro==="todas"||!r.maquinaId||r.maquinaId===maqFiltro);
   const tr=movRepSel.reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
-  const util=tv-cp-ta-tg-tr;
+  const [iniM,finM]=rangoDeMes(mes);
+  const comPOS=useComisionesPOS(data,iniM,finM);
+  const tcom=maqList.reduce((s,m)=>s+(comPOS[m.id]?.comision||0),0);
+  const util=tv-cp-ta-tg-tr-tcom;
   const stockBajo=data.stock.filter(s=>s.cantidad<=s.minimo);
   const dias=[...new Set(ventasMes.map(v=>v.fecha))].sort();
   const acum=dias.map(d=>({fecha:d,total:ventasMes.filter(v=>v.fecha<=d).reduce((s,v)=>s+(v.ingreso||0),0)}));
@@ -613,7 +656,7 @@ function Dashboard({data,recargar=null}){
         </select>
       </div>
       <div className="cards">
-        {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg+tr),"red",`${gastosMes.length} reg.${tr>0?" + repuestos "+fmt(tr):""}`],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
+        {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg+tr),"red",`${gastosMes.length} reg.${tr>0?" + repuestos "+fmt(tr):""}`],["Comisión POS",fmt(tcom),"red","tarjeta y QR"],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
           <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{s}</div></div>
         ))}
       </div>
@@ -635,8 +678,8 @@ function Dashboard({data,recargar=null}){
             const cost=vm.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
             const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
             const gr=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
-            const rent=ing-cost-(m.alquiler||0)-gm-gr;
-            return(<tr key={m.id}><td><strong>{m.nombre}</strong></td><td style={{color:"var(--muted)",fontSize:11}}>{m.ubicacion}</td><td>{fmt(ing)}</td><td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td><td style={{color:"var(--red)"}}>{gm+gr>0?fmt(gm+gr):"—"}</td><td><span className={`badge ${rent>=0?"green":"red"}`}>{fmt(rent)}</span></td></tr>);
+            const rent=ing-cost-(m.alquiler||0)-gm-gr-(comPOS[m.id]?.comision||0);
+            return(<tr key={m.id}><td><strong>{m.nombre}</strong></td><td style={{color:"var(--muted)",fontSize:11}}>{m.ubicacion}</td><td>{fmt(ing)}</td><td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td><td style={{color:"var(--red)"}}>{gm+gr+(comPOS[m.id]?.comision||0)>0?fmt(gm+gr+(comPOS[m.id]?.comision||0)):"—"}</td><td><span className={`badge ${rent>=0?"green":"red"}`}>{fmt(rent)}</span></td></tr>);
           })}</tbody>
         </table></div>
       </div>
@@ -719,6 +762,294 @@ function HistorialPlanogramas({data}){
   );
 }
 
+// ─── LOTES Y PROVEEDORES ──────────────────────────────────────────────────────
+function diasHasta(f){return f?Math.ceil((new Date(f+"T00:00:00")-new Date(ahoraLocal().fecha+"T00:00:00"))/86400000):null;}
+function calcularProveedores(lotes,movs,productos,pesos){
+  const merma={};
+  (movs||[]).forEach(m=>{if(m.tipo==="merma"||m.tipo==="devolucion")merma[m.loteId]=(merma[m.loteId]||0)+(m.cantidad||0);});
+  const porProd={};
+  (lotes||[]).forEach(l=>{
+    const pv=l.proveedorNombre||"Sin asignar";
+    const P=(porProd[l.productoId]=porProd[l.productoId]||{});
+    const r=(P[pv]=P[pv]||{proveedor:pv,comprado:0,valor:0,merma:0,vidaSum:0,vidaN:0,ultFecha:"",ultPrecio:null});
+    r.comprado+=l.cantidadInicial||0;r.valor+=(l.cantidadInicial||0)*(+l.costoUnitario||0);r.merma+=merma[l.id]||0;
+    if(!l.inicial&&l.fechaIngreso&&l.fechaVencimiento){r.vidaSum+=(new Date(l.fechaVencimiento)-new Date(l.fechaIngreso))/86400000;r.vidaN++;}
+    if((l.fechaIngreso||"")>=r.ultFecha){r.ultFecha=l.fechaIngreso||"";r.ultPrecio=+l.costoUnitario||0;}
+  });
+  const wt=(pesos.precio||0)+(pesos.vida||0)+(pesos.calidad||0)||1;
+  const out=[];
+  Object.entries(porProd).forEach(([pid,P])=>{
+    const filas=Object.values(P).map(r=>({...r,precioProm:r.comprado?r.valor/r.comprado:0,vida:r.vidaN?r.vidaSum/r.vidaN:null,mermaPct:r.comprado?r.merma/r.comprado*100:0}));
+    const conPrecio=filas.filter(f=>f.precioProm>0).map(f=>f.precioProm);
+    const minP=conPrecio.length?Math.min(...conPrecio):0;
+    const maxV=Math.max(0,...filas.map(f=>f.vida||0));
+    filas.forEach(f=>{
+      const sp=f.precioProm>0&&minP>0?minP/f.precioProm:0.5;
+      const sv=f.vida!=null&&maxV>0?f.vida/maxV:0.5;
+      const sc=Math.max(0,1-f.mermaPct/100);
+      f.puntaje=100*((pesos.precio||0)*sp+(pesos.vida||0)*sv+(pesos.calidad||0)*sc)/wt;
+    });
+    filas.sort((a,b)=>b.puntaje-a.puntaje);
+    out.push({productoId:pid,producto:(productos||[]).find(x=>x.id===pid)?.nombre||"—",filas});
+  });
+  return out.sort((a,b)=>a.producto.localeCompare(b.producto));
+}
+function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false}){
+  const [vista,setVista]=useState("lotes");
+  const [q,setQ]=useState("");
+  const [soloStock,setSoloStock]=useState(true);
+  const [movs,setMovs]=useState([]);
+  const [error,setError]=useState("");
+  const [modal,setModal]=useState(null); // {lote,tipo,cantidad,motivo,nota}
+  const [guardando,setGuardando]=useState(false);
+  const [pesos,setPesos]=useState({precio:40,vida:30,calidad:30});
+  const [prodSel,setProdSel]=useState("todos");
+  const usuario=sesionUsuario?.nombre||"";
+  const cargarMovs=async()=>{
+    const {data:rows,error:e}=await supabase.from("lotes_movimientos").select("*").order("created_at",{ascending:false}).limit(5000);
+    if(e)setError("No se pudieron cargar los movimientos: "+(e.message||""));else{setError("");setMovs(toCamel(rows||[]));}
+  };
+  useEffect(()=>{cargarMovs();},[data.lotes]);
+  const prodDe=(id)=>(data.productos||[]).find(p=>p.id===id);
+  const lotes=data.lotes||[];
+  const lista=lotes.filter(l=>{
+    if(soloStock&&!(l.cantidadActual>0))return false;
+    const n=(prodDe(l.productoId)?.nombre||"")+" "+(l.proveedorNombre||"")+" "+(l.factura||"");
+    return !q||n.toLowerCase().includes(q.toLowerCase());
+  }).sort((a,b)=>(a.fechaVencimiento||"9999").localeCompare(b.fechaVencimiento||"9999"));
+  const badgeVenc=(f)=>{
+    const d=diasHasta(f);
+    if(d===null)return <span className="badge" style={{opacity:.7}}>Sin fecha</span>;
+    if(d<0)return <span className="badge red">Vencido hace {-d} d</span>;
+    if(d<=30)return <span className="badge red">{d} días</span>;
+    if(d<=60)return <span className="badge amber">{d} días</span>;
+    return <span className="badge green">{d} días</span>;
+  };
+  const conStock=lotes.filter(l=>l.cantidadActual>0);
+  const vencidos=conStock.filter(l=>diasHasta(l.fechaVencimiento)!==null&&diasHasta(l.fechaVencimiento)<0);
+  const porVencer=conStock.filter(l=>{const d=diasHasta(l.fechaVencimiento);return d!==null&&d>=0&&d<=60;});
+  const valorStock=conStock.reduce((t,l)=>t+l.cantidadActual*(+l.costoUnitario||0),0);
+  const valorVencido=vencidos.reduce((t,l)=>t+l.cantidadActual*(+l.costoUnitario||0),0);
+  const mermaRegistrada=movs.filter(m=>m.tipo==="merma"||m.tipo==="devolucion").reduce((t,m)=>{const l=lotes.find(x=>x.id===m.loteId);return t+(m.cantidad||0)*(l?+l.costoUnitario||0:0);},0);
+
+  const guardarMov=async()=>{
+    const n=+modal.cantidad;
+    if(!n||n<=0||n>modal.lote.cantidadActual)return;
+    setGuardando(true);
+    try{
+      await moverLoteRPC({loteId:modal.lote.id,tipo:modal.tipo,cantidad:n,motivo:modal.motivo,usuario,nota:modal.nota});
+      setModal(null);
+      if(recargar)await recargar();
+    }catch(e){alert("No se pudo registrar: "+(e.message||""));}
+    setGuardando(false);
+  };
+
+  const prov=useMemo(()=>calcularProveedores(lotes,movs,data.productos,pesos),[lotes,movs,data.productos,pesos]);
+  const general=useMemo(()=>{
+    const A={};
+    prov.forEach(P=>{if(P.filas.length<2)return;P.filas.forEach(f=>{const r=(A[f.proveedor]=A[f.proveedor]||{proveedor:f.proveedor,pesoSum:0,pun:0,productos:0,comprado:0,valor:0,merma:0});r.pesoSum+=f.comprado||1;r.pun+=f.puntaje*(f.comprado||1);r.productos++;r.comprado+=f.comprado;r.valor+=f.valor;r.merma+=f.merma;});});
+    return Object.values(A).map(r=>({...r,puntaje:r.pun/r.pesoSum,mermaPct:r.comprado?r.merma/r.comprado*100:0})).sort((a,b)=>b.puntaje-a.puntaje);
+  },[prov]);
+  const setPeso=(k,v)=>setPesos(p=>({...p,[k]:Math.max(0,Math.min(100,+v||0))}));
+  const provVista=prodSel==="todos"?prov.filter(P=>P.filas.length>=2):prov.filter(P=>P.productoId===prodSel);
+
+  return(
+    <div>
+      <div className="cards">
+        {[["Valor en almacén",fmt(valorStock),"green",conStock.length+" lotes con stock"],["Por vencer (60 días)",String(porVencer.length),"amber","lotes"],["Vencidos con stock",String(vencidos.length),"red",fmt(valorVencido)+" en riesgo"],["Merma + devoluciones",fmt(mermaRegistrada),"red","registradas por lote"]].map(([l,v,c,sb])=>(
+          <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{sb}</div></div>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+        {[["lotes","📦 Lotes"],["vencer","⏰ Por vencer"],["proveedores","🏷️ Comparar proveedores"]].map(([k,l])=>(
+          <button key={k} className={`btn btn-sm ${vista===k?"btn-primary":"btn-secondary"}`} onClick={()=>setVista(k)}>{l}</button>
+        ))}
+      </div>
+      {error&&<div className="alert-box">{error}</div>}
+
+      {vista==="lotes"&&(
+        <div className="section">
+          <div className="section-header"><h3>Lotes del almacén</h3>
+            <label style={{fontSize:11,color:"var(--muted)",display:"flex",gap:5,alignItems:"center"}}><input type="checkbox" checked={soloStock} onChange={e=>setSoloStock(e.target.checked)}/> Solo con stock</label>
+          </div>
+          <div style={{padding:"0 16px 12px"}}><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar producto, proveedor o factura..." style={{width:"100%"}}/></div>
+          <div className="table-wrap"><table>
+            <thead><tr><th>Producto</th><th>Proveedor</th><th>Ingreso</th><th>Vencimiento</th><th>Quedan</th><th>Costo</th><th>Valor</th><th></th></tr></thead>
+            <tbody>
+              {lista.length===0?<tr><td colSpan={8} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin lotes</td></tr>
+              :lista.map(l=>(
+                <tr key={l.id}>
+                  <td><strong>{prodDe(l.productoId)?.nombre||"—"}</strong>{l.factura&&<div style={{fontSize:10,color:"var(--muted)"}}>Fact. {l.factura}</div>}{l.inicial&&<div style={{fontSize:10,color:"var(--muted)"}}>Lote inicial</div>}</td>
+                  <td>{l.proveedorNombre||"Sin asignar"}</td>
+                  <td style={{color:"var(--muted)"}}>{l.fechaIngreso||"—"}</td>
+                  <td>{l.fechaVencimiento||"—"}<div>{badgeVenc(l.fechaVencimiento)}</div></td>
+                  <td><strong>{l.cantidadActual}</strong><span style={{color:"var(--muted)",fontSize:10}}> / {l.cantidadInicial}</span></td>
+                  <td>{fmt(l.costoUnitario)}</td>
+                  <td>{fmt(l.cantidadActual*(+l.costoUnitario||0))}</td>
+                  <td>{l.cantidadActual>0&&<button className="btn btn-secondary btn-sm" onClick={()=>setModal({lote:l,tipo:"merma",cantidad:"",motivo:diasHasta(l.fechaVencimiento)!==null&&diasHasta(l.fechaVencimiento)<0?"Vencido":"Dañado",nota:""})}>Merma / dev.</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+
+      {vista==="vencer"&&(
+        <div className="section">
+          <div className="section-header"><h3>Vencidos y por vencer (60 días)</h3></div>
+          <div className="table-wrap"><table>
+            <thead><tr><th>Producto</th><th>Proveedor</th><th>Vencimiento</th><th>Quedan</th><th>Valor</th><th></th></tr></thead>
+            <tbody>
+              {[...vencidos,...porVencer].sort((a,b)=>(a.fechaVencimiento||"").localeCompare(b.fechaVencimiento||"")).map(l=>(
+                <tr key={l.id}>
+                  <td><strong>{prodDe(l.productoId)?.nombre||"—"}</strong></td><td>{l.proveedorNombre}</td>
+                  <td>{l.fechaVencimiento}<div>{badgeVenc(l.fechaVencimiento)}</div></td>
+                  <td>{l.cantidadActual}</td><td>{fmt(l.cantidadActual*(+l.costoUnitario||0))}</td>
+                  <td><button className="btn btn-secondary btn-sm" onClick={()=>setModal({lote:l,tipo:"merma",cantidad:String(l.cantidadActual),motivo:diasHasta(l.fechaVencimiento)<0?"Vencido":"Por vencer",nota:""})}>Dar de baja</button></td>
+                </tr>
+              ))}
+              {vencidos.length+porVencer.length===0&&<tr><td colSpan={6} style={{textAlign:"center",color:"var(--muted)",padding:20}}>✅ Nada vencido ni por vencer</td></tr>}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+
+      {vista==="proveedores"&&(
+        <div>
+          <div className="section" style={{marginBottom:12}}>
+            <div className="section-header"><h3>¿Qué pesa más al recomendar?</h3></div>
+            <div style={{padding:"4px 16px 14px",display:"flex",gap:14,flexWrap:"wrap",alignItems:"center",fontSize:12}}>
+              {[["precio","Precio"],["vida","Vida útil (fechas largas)"],["calidad","Calidad (mermas y devoluciones)"]].map(([k,l])=>(
+                <label key={k} style={{display:"flex",gap:6,alignItems:"center"}}>{l}<input type="number" min="0" max="100" value={pesos[k]} onChange={e=>setPeso(k,e.target.value)} style={{width:64}}/>%</label>
+              ))}
+            </div>
+            <div style={{padding:"0 16px 12px",fontSize:11,color:"var(--muted)"}}>Puntaje de 0 a 100 dentro de cada producto: precio = el más barato obtiene el máximo; vida útil = días promedio entre el ingreso y el vencimiento; calidad = 100% menos el porcentaje de unidades dadas de baja por merma o devolución. Se necesitan al menos 2 proveedores del mismo producto para comparar.</div>
+          </div>
+          {general.length>0&&(
+            <div className="section" style={{marginBottom:12}}>
+              <div className="section-header"><h3>Ranking general de proveedores</h3></div>
+              <div className="table-wrap"><table>
+                <thead><tr><th>#</th><th>Proveedor</th><th>Productos comparados</th><th>Compras (uds)</th><th>Merma / dev.</th><th>Puntaje</th></tr></thead>
+                <tbody>{general.map((r,i)=>(
+                  <tr key={r.proveedor}><td>{i+1}</td><td><strong>{r.proveedor}</strong>{i===0&&<span className="badge green" style={{marginLeft:6}}>Recomendado</span>}</td><td>{r.productos}</td><td>{r.comprado}</td><td>{r.mermaPct.toFixed(1)}%</td><td><strong>{r.puntaje.toFixed(0)}</strong></td></tr>
+                ))}</tbody>
+              </table></div>
+            </div>
+          )}
+          <div className="filtro-bar">
+            <span className="filtro-label">Producto:</span>
+            <select value={prodSel} onChange={e=>setProdSel(e.target.value)}>
+              <option value="todos">Todos los que tienen 2+ proveedores</option>
+              {prov.map(P=><option key={P.productoId} value={P.productoId}>{P.producto} ({P.filas.length} prov.)</option>)}
+            </select>
+          </div>
+          {provVista.length===0?<div className="section"><div style={{padding:20,textAlign:"center",color:"var(--muted)",fontSize:13}}>Todavía no hay productos comprados a 2 o más proveedores. Cuando ingreses lotes del mismo producto con distinto proveedor aparecerá la comparación aquí.</div></div>
+          :provVista.map(P=>(
+            <div key={P.productoId} className="section" style={{marginBottom:12}}>
+              <div className="section-header"><h3>{P.producto}</h3></div>
+              <div className="table-wrap"><table>
+                <thead><tr><th>Proveedor</th><th>Compras</th><th>Último precio</th><th>Precio prom.</th><th>Vida útil</th><th>Merma / dev.</th><th>Puntaje</th></tr></thead>
+                <tbody>{P.filas.map((f,i)=>(
+                  <tr key={f.proveedor}>
+                    <td><strong>{f.proveedor}</strong>{i===0&&P.filas.length>1&&<span className="badge green" style={{marginLeft:6}}>Recomendado</span>}</td>
+                    <td>{f.comprado} uds</td><td>{f.ultPrecio!=null?fmt(f.ultPrecio):"—"}</td><td>{fmt(f.precioProm)}</td>
+                    <td>{f.vida!=null?Math.round(f.vida)+" días":"—"}</td><td>{f.mermaPct.toFixed(1)}%</td><td><strong>{f.puntaje.toFixed(0)}</strong></td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>Baja de lote</h3><CloseBtn onClick={()=>setModal(null)}/></div>
+        <div className="edit-banner"><strong>{prodDe(modal.lote.productoId)?.nombre}</strong> · {modal.lote.proveedorNombre} · quedan {modal.lote.cantidadActual}</div>
+        <div className="form-group"><label>Tipo</label><select value={modal.tipo} onChange={e=>setModal({...modal,tipo:e.target.value})}><option value="merma">Merma (vencido, dañado, perdido)</option><option value="devolucion">Devolución al proveedor</option></select></div>
+        <div className="form-row">
+          <div className="form-group"><label>Cantidad</label><input type="number" min="1" max={modal.lote.cantidadActual} value={modal.cantidad} onChange={e=>setModal({...modal,cantidad:e.target.value})}/></div>
+          <div className="form-group"><label>Motivo</label><select value={modal.motivo} onChange={e=>setModal({...modal,motivo:e.target.value})}>{["Vencido","Por vencer","Dañado","Mala calidad","Perdido","Otro"].map(m=><option key={m}>{m}</option>)}</select></div>
+        </div>
+        <div className="form-group"><label>Nota (opcional)</label><input value={modal.nota} onChange={e=>setModal({...modal,nota:e.target.value})}/></div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button><button className="btn btn-primary" disabled={guardando||!(+modal.cantidad>0&&+modal.cantidad<=modal.lote.cantidadActual)} onClick={guardarMov}>{guardando?"Guardando...":"Registrar baja"}</button></div>
+      </div></div>}
+    </div>
+  );
+}
+
+// ─── DEPÓSITO POS: cuánto debe depositar el proveedor del POS (tarjeta y QR, menos comisión) ─────
+function DepositoPOS({data}){
+  const hoy=ahoraLocal().fecha;
+  const hace7=(()=>{const d=new Date(hoy+"T12:00:00");d.setDate(d.getDate()-6);return d.toISOString().slice(0,10);})();
+  const [desde,setDesde]=useState(hace7);
+  const [hasta,setHasta]=useState(hoy);
+  const [maqF,setMaqF]=useState("todas");
+  const [trans,setTrans]=useState([]);
+  const [cargando,setCargando]=useState(false);
+  const [error,setError]=useState("");
+  const maqsPOS=(data.maquinas||[]).filter(m=>m.conPos);
+  useEffect(()=>{let vivo=true;setCargando(true);setError("");
+    cargarPagosAtento(desde,hasta).then(r=>{if(vivo){setTrans(r);setCargando(false);}}).catch(e=>{if(vivo){setError(e.message||"No se pudieron cargar las ventas");setTrans([]);setCargando(false);}});
+    return()=>{vivo=false;};},[desde,hasta,(data.ventasAtento||[]).length]);
+  const tasaDe=(id)=>+(maqsPOS.find(m=>m.id===id)?.comisionPos)||0;
+  const sel=trans.filter(t=>esPagoElectronico(t.pago)&&maqsPOS.some(m=>m.id===t.maquinaId)&&(maqF==="todas"||t.maquinaId===maqF));
+  const esQR=(t)=>/qr|yape|plin/i.test(t.pago+" "+t.tecnologia);
+  const dias={};
+  sel.forEach(t=>{
+    const d=(dias[t.fecha]=dias[t.fecha]||{fecha:t.fecha,tarjeta:0,qr:0,n:0,comision:0});
+    if(esQR(t))d.qr+=t.valor;else d.tarjeta+=t.valor;
+    d.n++;d.comision+=t.valor*tasaDe(t.maquinaId)/100;
+  });
+  const filas=Object.values(dias).sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(d=>({...d,bruto:d.tarjeta+d.qr,neto:d.tarjeta+d.qr-d.comision}));
+  const tot=filas.reduce((a,d)=>({tarjeta:a.tarjeta+d.tarjeta,qr:a.qr+d.qr,bruto:a.bruto+d.bruto,comision:a.comision+d.comision,neto:a.neto+d.neto,n:a.n+d.n}),{tarjeta:0,qr:0,bruto:0,comision:0,neto:0,n:0});
+  const porMaq=maqsPOS.filter(m=>maqF==="todas"||m.id===maqF).map(m=>{
+    const ts=sel.filter(t=>t.maquinaId===m.id);const b=ts.reduce((s,t)=>s+t.valor,0);const c=b*(+m.comisionPos||0)/100;
+    return{m,n:ts.length,bruto:b,comision:c,neto:b-c};
+  });
+  const efectivo=trans.filter(t=>!esPagoElectronico(t.pago)&&(maqF==="todas"||t.maquinaId===maqF)).reduce((s,t)=>s+t.valor,0);
+  const csv=()=>{
+    const l=["Fecha,Operaciones,Tarjeta,QR,Total electronico,Comision,Neto a depositar",...[...filas].reverse().map(d=>[d.fecha,d.n,d.tarjeta.toFixed(2),d.qr.toFixed(2),d.bruto.toFixed(2),d.comision.toFixed(2),d.neto.toFixed(2)].join(","))];
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+l.join("\n")],{type:"text/csv"}));a.download="deposito_pos_"+desde+"_"+hasta+".csv";a.click();
+  };
+  const fm=(n)=>"S/ "+(+n||0).toFixed(2);
+  return(
+    <div>
+      {maqsPOS.length===0&&<div className="alert-box">Ninguna máquina está marcada "Con POS". Edita la máquina en Operaciones → Máquinas y define la comisión.</div>}
+      <div className="filtro-bar" style={{flexWrap:"wrap",gap:8}}>
+        <span className="filtro-label">Del</span><input type="date" value={desde} max={hasta} onChange={e=>setDesde(e.target.value)}/>
+        <span className="filtro-label">al</span><input type="date" value={hasta} min={desde} onChange={e=>setHasta(e.target.value)}/>
+        <select value={maqF} onChange={e=>setMaqF(e.target.value)}><option value="todas">Todas las máquinas con POS</option>{maqsPOS.map(m=><option key={m.id} value={m.id}>{m.nombre} ({+m.comisionPos||0}%)</option>)}</select>
+        <button className="btn btn-secondary btn-sm" onClick={csv} disabled={!filas.length}>⬇ Excel (CSV)</button>
+      </div>
+      {error&&<div className="alert-box">{error}</div>}
+      <div className="cards">
+        {[["Ventas tarjeta + QR",fm(tot.bruto),"amber",tot.n+" operaciones"],["Comisión POS",fm(tot.comision),"red","descontada"],["Debe depositar el POS",fm(tot.neto),"green","neto del período"],["Efectivo (no va al POS)",fm(efectivo),"blue","sin comisión"]].map(([l,v,c,sb])=>(
+          <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{sb}</div></div>
+        ))}
+      </div>
+      <div className="section" style={{marginBottom:12}}>
+        <div className="section-header"><h3>Depósito diario esperado</h3>{cargando&&<span style={{fontSize:11,color:"var(--muted)"}}>⏳ Cargando...</span>}</div>
+        <div className="table-wrap"><table>
+          <thead><tr><th>Fecha</th><th>Operaciones</th><th>Tarjeta</th><th>QR</th><th>Total</th><th>Comisión</th><th>A depositar</th></tr></thead>
+          <tbody>
+            {filas.length===0?<tr><td colSpan={7} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin ventas con tarjeta o QR en el período</td></tr>
+            :filas.map(d=>(<tr key={d.fecha}><td>{d.fecha}</td><td>{d.n}</td><td>{fm(d.tarjeta)}</td><td>{fm(d.qr)}</td><td>{fm(d.bruto)}</td><td style={{color:"var(--red)"}}>-{fm(d.comision)}</td><td><strong style={{color:"var(--green)"}}>{fm(d.neto)}</strong></td></tr>))}
+            {filas.length>0&&<tr style={{fontWeight:800}}><td>Total</td><td>{tot.n}</td><td>{fm(tot.tarjeta)}</td><td>{fm(tot.qr)}</td><td>{fm(tot.bruto)}</td><td style={{color:"var(--red)"}}>-{fm(tot.comision)}</td><td style={{color:"var(--green)"}}>{fm(tot.neto)}</td></tr>}
+          </tbody>
+        </table></div>
+      </div>
+      <div className="section">
+        <div className="section-header"><h3>Por máquina</h3></div>
+        <div className="table-wrap"><table>
+          <thead><tr><th>Máquina</th><th>Comisión %</th><th>Operaciones</th><th>Total</th><th>Comisión</th><th>A depositar</th></tr></thead>
+          <tbody>{porMaq.map(r=>(<tr key={r.m.id}><td><strong>{r.m.nombre}</strong></td><td>{+r.m.comisionPos||0}%</td><td>{r.n}</td><td>{fm(r.bruto)}</td><td style={{color:"var(--red)"}}>-{fm(r.comision)}</td><td><strong>{fm(r.neto)}</strong></td></tr>))}</tbody>
+        </table></div>
+      </div>
+      <div style={{fontSize:11,color:"var(--muted)",marginTop:10}}>Se calcula con las ventas aceptadas importadas de Atento, por fecha de venta. Tarjeta y QR/Yape pagan comisión; efectivo no. Si el POS deposita en otro día, compara por fecha de venta.</div>
+    </div>
+  );
+}
+
 // ─── RENTABILIDAD ────────────────────────────────────────────────────────────────
 function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const [mes,setMes]=useState(mesActual());
@@ -728,6 +1059,8 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const [movRep,setMovRep]=useState([]);
   useEffect(()=>{(async()=>{const [y,m]=mes.split("-").map(Number);const fin=mes+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0");
     const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",mes+"-01").lte("fecha",fin);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[mes,data.repuestos]);
+  const [iniR,finR]=rangoDeMes(mes);
+  const comPOS=useComisionesPOS(data,iniR,finR);
   return(
     <div>
       <MesNav mes={mes} setMes={setMes}/>
@@ -741,7 +1074,8 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
         const cost=vm.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
         const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
         const rep=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
-        const util=ing-cost-(m.alquiler||0)-gm-rep;
+        const com=comPOS[m.id]?.comision||0;
+        const util=ing-cost-(m.alquiler||0)-gm-rep-com;
         const roi=ing>0?((util/ing)*100).toFixed(1):0;
         const tipo=util>50?"positive":util>=0?"neutral":"negative";
         return(
@@ -751,7 +1085,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
               <span className={`badge ${tipo==="positive"?"green":tipo==="negative"?"red":"amber"}`}>ROI: {roi}%</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
-              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod.",fmt(cost),"var(--muted)"],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Repuestos",fmt(rep),"var(--red)"],["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
+              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod.",fmt(cost),"var(--muted)"],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Repuestos",fmt(rep),"var(--red)"],...(m.conPos?[["Comisión POS ("+(+m.comisionPos||0)+"%)",fmt(com),"var(--red)"]]:[]),["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
                 <div key={l} style={{background:"rgba(0,0,0,.2)",padding:"7px 10px",borderRadius:8}}>
                   <div style={{fontSize:9,color:"var(--muted)",marginBottom:2,textTransform:"uppercase"}}>{l}</div>
                   <div style={{fontSize:13,fontWeight:700,color:c}}>{v}</div>
@@ -834,8 +1168,27 @@ function GastosAdicionales({data,save,del}){
   );
 }
 
+// ─── LOTES: helpers compartidos ───────────────────────────────────────────────
+const lotesDe=(data,productoId,soloConStock=true)=>(data.lotes||[])
+  .filter(l=>l.productoId===productoId&&(!soloConStock||(l.cantidadActual||0)>0))
+  .sort((a,b)=>(a.fechaVencimiento||"9999-12-31").localeCompare(b.fechaVencimiento||"9999-12-31")||(a.fechaIngreso||"").localeCompare(b.fechaIngreso||""));
+const etiquetaLote=(l)=>`${l.proveedorNombre||"Sin asignar"} · vence ${l.fechaVencimiento||"s/f"} · quedan ${l.cantidadActual} · S/ ${(+l.costoUnitario||0).toFixed(2)}`;
+const costoPromedioLotes=(data,productoId)=>{
+  const ls=lotesDe(data,productoId);const u=ls.reduce((t,l)=>t+l.cantidadActual,0);
+  return u>0?ls.reduce((t,l)=>t+l.cantidadActual*(+l.costoUnitario||0),0)/u:null;
+};
+const crearLoteRPC=async({productoId,proveedorId,proveedorNombre,cantidad,costo,fechaIngreso,fechaVenc,factura,nota,usuario})=>{
+  const {error}=await supabase.rpc("crear_lote",{p_id:uid(),p_producto_id:productoId,p_proveedor_id:proveedorId||null,p_proveedor_nombre:proveedorNombre||"",
+    p_cantidad:+cantidad,p_costo:+costo||0,p_fecha_ingreso:fechaIngreso||ahoraLocal().fecha,p_fecha_venc:fechaVenc||null,p_factura:factura||null,p_nota:nota||null,p_usuario:usuario||""});
+  if(error)throw error;
+};
+const moverLoteRPC=async({loteId,tipo,cantidad,fecha,maquinaId,motivo,usuario,nota})=>{
+  const {error}=await supabase.rpc("mover_lote",{p_lote_id:loteId,p_tipo:tipo,p_cantidad:+cantidad,p_fecha:fecha||ahoraLocal().fecha,p_maquina_id:maquinaId||null,p_motivo:motivo||null,p_usuario:usuario||"",p_nota:nota||null});
+  if(error)throw error;
+};
+
 // ─── PRODUCTOS ────────────────────────────────────────────────────────────────
-function Productos({data,save,del,soloEditar=false}){
+function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre=""}){
   const [busqueda,setBusqueda]=useState("");
   const [filtro,setFiltro]=useState("todos"); // todos | bajo | vence | sinstock
   const [modal,setModal]=useState(false);
@@ -843,7 +1196,7 @@ function Productos({data,save,del,soloEditar=false}){
   const [precioEdit,setPrecioEdit]=useState("");
   const [editandoPrecioId,setEditandoPrecioId]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
-  const [entrada,setEntrada]=useState(null); // {producto, cantidad, fechaVenc}
+  const [entrada,setEntrada]=useState(null); // {producto, cantidad, fechaVenc, costo, proveedorId, factura}
   const FORM0={nombre:"",costo:"",margen:"",precioVenta:"",proveedor:"",fecha:"",cantidad:"",minimo:"",fechaReg:"",fechaVenc:""};
   const [form,setForm]=useState(FORM0);
 
@@ -876,19 +1229,25 @@ function Productos({data,save,del,soloEditar=false}){
     setModal(false);
     const pid=editando?editando.id:uid();
     await save("productos",pid,editando?{...editando,...obj}:{id:pid,...obj});
-    // Stock: se registra aquí mismo o luego al editar. Si no se llena nada, el producto queda sin stock.
-    const s=editando?stockDe(editando.id):null;
-    const hayStock=form.cantidad!==""||form.minimo!==""||form.fechaVenc!=="";
-    if(s||hayStock){
-      const sid=s?s.id:uid();
-      await save("stock",sid,{
-        ...(s||{}),id:sid,productoId:pid,
-        cantidad:form.cantidad===""?(s?s.cantidad:0):+form.cantidad,
-        minimo:form.minimo===""?(s?s.minimo:10):+form.minimo,
-        fechaVenc:form.fechaVenc||null,
-        fechaReg:form.fechaReg||(s?s.fechaReg:null)||ahoraLocal().fecha,
-      });
-    }
+    // Stock por lotes: el stock inicial entra como un lote; si ya tiene lotes, la cantidad solo cambia con ingresos/salidas
+    try{
+      const s=editando?stockDe(editando.id):null;
+      const tieneLotes=lotesDe(data,pid,false).length>0;
+      const actual=s?(+s.cantidad||0):0;
+      const nuevo=form.cantidad===""?actual:+form.cantidad;
+      const dif=nuevo-actual;
+      if(!tieneLotes&&dif>0){
+        const prov=(data.proveedores||[]).find(x=>(x.nombre||"").trim().toLowerCase()===(form.proveedor||"").trim().toLowerCase());
+        await crearLoteRPC({productoId:pid,proveedorId:prov?.id,proveedorNombre:form.proveedor,cantidad:dif,costo:+form.costo,fechaIngreso:form.fechaReg||ahoraLocal().fecha,fechaVenc:form.fechaVenc,nota:"Ingreso inicial",usuario:usuarioNombre});
+        if(form.minimo!=="")await supabase.from("stock").update({minimo:+form.minimo}).eq("producto_id",pid);
+      }else if(tieneLotes){
+        if(s&&form.minimo!=="")await save("stock",s.id,{...s,minimo:+form.minimo});
+      }else if(s||form.minimo!==""||form.fechaVenc!==""){
+        const sid=s?s.id:uid();
+        await save("stock",sid,{...(s||{}),id:sid,productoId:pid,cantidad:Math.max(0,nuevo),minimo:form.minimo===""?(s?s.minimo:10):+form.minimo,fechaVenc:form.fechaVenc||null,fechaReg:form.fechaReg||(s?s.fechaReg:null)||ahoraLocal().fecha});
+      }
+      if(recargar)await recargar();
+    }catch(err){alert("No se pudo guardar el stock: "+(err.message||""));}
     setEditando(null);
   };
   // @@fin-doSave
@@ -898,11 +1257,18 @@ function Productos({data,save,del,soloEditar=false}){
     const n=+(entrada&&entrada.cantidad);
     if(!n||n<=0)return;
     const p=entrada.producto;
-    const s=stockDe(p.id);
-    const fv=entrada.fechaVenc;
+    const e=entrada;
+    const prov=(data.proveedores||[]).find(x=>x.id===e.proveedorId);
     setEntrada(null);
-    if(s)await save("stock",s.id,{...s,cantidad:(+s.cantidad||0)+n,fechaVenc:fv||s.fechaVenc||null,fechaReg:ahoraLocal().fecha});
-    else{const sid=uid();await save("stock",sid,{id:sid,productoId:p.id,cantidad:n,minimo:10,fechaVenc:fv||null,fechaReg:ahoraLocal().fecha});}
+    try{
+      await crearLoteRPC({productoId:p.id,proveedorId:prov?.id,proveedorNombre:prov?.nombre||p.proveedor||"",cantidad:n,costo:+e.costo||p.costo,fechaIngreso:ahoraLocal().fecha,fechaVenc:e.fechaVenc,factura:e.factura,usuario:usuarioNombre});
+      // El costo del producto pasa a ser el promedio ponderado de los lotes con stock
+      const ls=[...lotesDe(data,p.id),{cantidadActual:n,costoUnitario:+e.costo||p.costo}];
+      const u=ls.reduce((t,l)=>t+l.cantidadActual,0);
+      const prom=u>0?ls.reduce((t,l)=>t+l.cantidadActual*(+l.costoUnitario||0),0)/u:p.costo;
+      if(prom>0&&Math.abs(prom-(p.costo||0))>0.004)await save("productos",p.id,{...p,costo:+prom.toFixed(2)});
+      if(recargar)await recargar();
+    }catch(err){alert("No se pudo registrar el ingreso: "+(err.message||""));}
   };
   // @@fin-entrada
 
@@ -972,7 +1338,7 @@ function Productos({data,save,del,soloEditar=false}){
                   ?<span style={{color:"var(--muted)",fontSize:11}}>—</span>
                   :<span style={{fontSize:11,fontWeight:600,color:dias<=7?"var(--red)":dias<=30?"var(--accent)":"var(--muted)"}}>{s.fechaVenc}{dias<=30&&<span style={{marginLeft:3,fontSize:9}}>{dias<=0?"⚠️ Vencido":dias<=7?"⚠️ "+dias+"d":"⚡ "+dias+"d"}</span>}</span>}</td>
                 <td><div style={{display:"flex",gap:5}}>
-                  <button className="btn btn-secondary btn-sm" title="Ingreso de stock" onClick={()=>setEntrada({producto:p,cantidad:"",fechaVenc:""})}>➕</button>
+                  <button className="btn btn-secondary btn-sm" title="Ingreso de stock" onClick={()=>setEntrada({producto:p,cantidad:"",fechaVenc:"",costo:String(p.costo??""),proveedorId:((data.proveedores||[]).find(x=>(x.nombre||"").trim().toLowerCase()===(p.proveedor||"").trim().toLowerCase())||{}).id||"",factura:""})}>➕</button>
                   <button className="btn btn-secondary btn-sm" title="Editar" onClick={()=>abrirEditar(p)}><Icon name="edit" size={12}/></button>
                   {!soloEditar&&<button className="btn btn-danger btn-sm" title="Eliminar" onClick={()=>setConfirmDel(p)}><Icon name="trash" size={12}/></button>}
                 </div></td>
@@ -1006,7 +1372,7 @@ function Productos({data,save,del,soloEditar=false}){
         <div style={{fontSize:11,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",margin:"14px 0 6px",paddingTop:10,borderTop:"1px solid rgba(245,158,11,.2)"}}>📦 Stock en almacén</div>
         <div style={{fontSize:11,color:"var(--muted)",marginBottom:8}}>{editando?"Corrige aquí la cantidad actual. Para sumar unidades usa el botón ➕ de la lista.":"Opcional: puedes dejarlo vacío y registrarlo después, editando el producto."}</div>
         <div className="form-row">
-          <div className="form-group"><label>{editando?"Cantidad en stock":"Cantidad inicial"}</label><input type="number" min="0" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})} placeholder="0"/></div>
+          <div className="form-group"><label>{editando?"Cantidad en stock":"Cantidad inicial"}</label><input type="number" min="0" value={form.cantidad} disabled={!!editando&&lotesDe(data,editando.id,false).length>0} onChange={e=>setForm({...form,cantidad:e.target.value})} placeholder="0"/>{!!editando&&lotesDe(data,editando.id,false).length>0&&<div style={{fontSize:10,color:"var(--muted)",marginTop:3}}>Cambia con ingresos (➕) y salidas por lote.</div>}</div>
           <div className="form-group"><label>Stock mínimo</label><input type="number" min="0" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})} placeholder="10"/></div>
         </div>
         <div className="form-row">
@@ -1025,7 +1391,13 @@ function Productos({data,save,del,soloEditar=false}){
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>➕ Ingreso de stock</h3><CloseBtn onClick={()=>setEntrada(null)}/></div>
             <div className="edit-banner"><strong>{entrada.producto.nombre}</strong> · stock actual: <strong>{s?actual:"sin registrar"}</strong></div>
             <div className="form-group"><label>Unidades que ingresan</label><input type="number" min="1" autoFocus value={entrada.cantidad} onChange={e=>setEntrada({...entrada,cantidad:e.target.value})} placeholder="Ej: 24"/></div>
-            <div className="form-group"><label>Fecha de vencimiento (opcional)</label><input type="date" value={entrada.fechaVenc} onChange={e=>setEntrada({...entrada,fechaVenc:e.target.value})}/></div>
+            <div className="form-row">
+              <div className="form-group"><label>Precio de compra (S/ por unidad)</label><input type="number" step="0.01" value={entrada.costo} onChange={e=>setEntrada({...entrada,costo:e.target.value})}/></div>
+              <div className="form-group"><label>Fecha de vencimiento</label><input type="date" value={entrada.fechaVenc} onChange={e=>setEntrada({...entrada,fechaVenc:e.target.value})}/></div>
+            </div>
+            <div className="form-group"><label>Proveedor</label><select value={entrada.proveedorId} onChange={e=>setEntrada({...entrada,proveedorId:e.target.value})}><option value="">Sin asignar</option>{(data.proveedores||[]).map(x=><option key={x.id} value={x.id}>{x.nombre}</option>)}</select></div>
+            <div className="form-group"><label>N° de factura / guía (opcional)</label><input value={entrada.factura} onChange={e=>setEntrada({...entrada,factura:e.target.value})}/></div>
+            <div className="info-box" style={{marginBottom:8}}>Se registra como un <strong>lote nuevo</strong>: así se compara precio, vencimiento y calidad por proveedor.</div>
             {n>0&&<div className="info-box">Nuevo stock: <strong>{actual+n}</strong> unidades</div>}
             <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEntrada(null)}>Cancelar</button><button className="btn btn-primary" onClick={guardarEntrada} disabled={n<=0}>Registrar ingreso</button></div>
           </div></div>
@@ -1090,12 +1462,12 @@ function Proveedores({data,save,del,soloEditar=false}){
 // ─── MÁQUINAS ─────────────────────────────────────────────────────────────────
 function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
-  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:""};const [form,setForm]=useState(EF);
+  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO)};const [form,setForm]=useState(EF);
   const doSave=async()=>{
     if(!form.nombre||!form.ubicacion)return;
     setModal(false);setForm(EF);setEditando(null);
-    if(editando)await save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||""});
-    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",activa:true});}
+    if(editando)await save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0});
+    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,activa:true});}
   };
   const toggleActiva=async(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
   const puedeVerAlquiler=esAdmin||soloEditar;
@@ -1119,14 +1491,15 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
       <div className="section">
         <div className="section-header"><h3>Máquinas registradas</h3><button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Máquina</th><th>Ubicación</th>{puedeVerAlquiler&&<th>Alquiler/mes</th>}<th>Estado</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Máquina</th><th>Ubicación</th>{puedeVerAlquiler&&<th>Alquiler/mes</th>}<th>POS</th><th>Estado</th><th>Acciones</th></tr></thead>
           <tbody>{data.maquinas.map(m=>(<tr key={m.id}>
             <td><strong>{m.nombre}</strong></td>
             <td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}</td>
             {puedeVerAlquiler&&<td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>}
+            <td><div onClick={()=>save("maquinas",m.id,{...m,conPos:!m.conPos,comisionPos:!m.conPos?(+m.comisionPos||COMISION_POS_DEFECTO):(+m.comisionPos||0)})} title="Toca para cambiar entre Con POS y Sin POS" style={{cursor:"pointer",display:"inline-block"}}>{m.conPos?<span className="badge blue">POS {+m.comisionPos||0}%</span>:<span className="badge" style={{opacity:.7}}>Sin POS</span>}</div></td>
             <td><div onClick={()=>toggleActiva(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Activa":"Inactiva"}</div></td>
             <td><div style={{display:"flex",gap:5}}>
-              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||""});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO)});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
               {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(m)}><Icon name="trash" size={12}/></button>}
             </div></td>
           </tr>))}</tbody>
@@ -1138,6 +1511,18 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
         <div className="form-group"><label>Nombre / Código</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Máquina D4"/></div>
         <div className="form-group"><label>Ubicación</label><input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: CC Real Plaza - Piso 2"/></div>
         <div className="form-group"><label>Alquiler mensual (S/)</label><input type="number" step="0.01" value={form.alquiler} onChange={e=>setForm({...form,alquiler:e.target.value})}/></div>
+        <div className="form-group"><label>Medio de cobro</label>
+          <div style={{display:"flex",gap:8}}>
+            {[[true,"Con POS"],[false,"Sin POS"]].map(([v,l])=>(
+              <button key={l} type="button" className={`btn btn-sm ${!!form.conPos===v?"btn-primary":"btn-secondary"}`} onClick={()=>setForm({...form,conPos:v})}>{l}</button>
+            ))}
+          </div>
+          {form.conPos?<div style={{marginTop:8}}>
+            <label style={{fontSize:11}}>Comisión del POS (% por venta con tarjeta o QR)</label>
+            <input type="number" step="0.01" min="0" value={form.comisionPos} onChange={e=>setForm({...form,comisionPos:e.target.value})}/>
+            <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Se descuenta de las ventas con tarjeta o QR. El efectivo no paga comisión.</div>
+          </div>:<div style={{fontSize:11,color:"var(--muted)",marginTop:6}}>Sin comisión.</div>}
+        </div>
         <div className="form-group"><label>Número de comercio Atento (opcional)</label>
           <input value={form.comercioAtento||""} onChange={e=>setForm({...form,comercioAtento:e.target.value})}
             placeholder="Ej: 651066277 — para importar CSV automáticamente"/>
@@ -1229,20 +1614,24 @@ function Stock({data,save,del,soloLectura=false,esAdmin=false}){
 }
 
 // ─── TRASLADOS con fecha, edición y borrado ─────────────────────────────────────
-function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=false}){
+function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=false,recargar=null}){
   const [modal,setModal]=useState(false);
   const [editando,setEditando]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
   const [maquinasSelec,setMaquinasSelec]=useState([]);
   const [fechaReg,setFechaReg]=useState(today());
-  const [items,setItems]=useState([{productoId:"",cantidad:""}]);
+  const [items,setItems]=useState([{productoId:"",cantidad:"",loteId:""}]);
   const [mes,setMes]=useState(mesActual());
   const [formEdit,setFormEdit]=useState({fecha:"",maquinaId:"",productoId:"",cantidad:""});
   const maqActivas=data.maquinas.filter(m=>m.activa);
   const toggleMaqSelec=(id)=>setMaquinasSelec(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
-  const addItem=()=>setItems(i=>[...i,{productoId:"",cantidad:""}]);
+  const addItem=()=>setItems(i=>[...i,{productoId:"",cantidad:"",loteId:""}]);
   const removeItem=idx=>setItems(i=>i.filter((_,j)=>j!==idx));
-  const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>j===idx?{...r,[f]:v}:r));
+  const setItem=(idx,f,v)=>setItems(i=>i.map((r,j)=>{
+    if(j!==idx)return r;
+    if(f==="productoId"){const ls=lotesDe(data,v);return{...r,productoId:v,loteId:ls.length?ls[0].id:""};} // sugiere el lote que vence primero
+    return{...r,[f]:v};
+  }));
   const abrirEditar=(t)=>{setFormEdit({fecha:t.fecha,maquinaId:t.maquinaId,productoId:t.productoId,cantidad:String(t.cantidad)});setEditando(t);};
   const doGuardarEdicion=async()=>{
     if(!editando)return;
@@ -1253,19 +1642,34 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
     if(maquinasSelec.length===0)return;
     const valid=items.filter(it=>it.productoId&&it.cantidad);
     if(!valid.length)return;
+    // Cada producto con lotes exige elegir de qué lote sale y que alcance para todas las máquinas
+    for(const it of valid){
+      const ls=lotesDe(data,it.productoId);
+      if(ls.length){
+        const l=ls.find(x=>x.id===it.loteId);
+        const prod=data.productos.find(p=>p.id===it.productoId);
+        if(!l){alert("Elige el lote de "+(prod?.nombre||"producto"));return;}
+        if(+it.cantidad*maquinasSelec.length>l.cantidadActual){alert("El lote elegido de "+(prod?.nombre||"producto")+" solo tiene "+l.cantidadActual+" unidades y necesitas "+(+it.cantidad*maquinasSelec.length)+".");return;}
+      }
+    }
     const ops=[];
-    maquinasSelec.forEach(maqId=>{
-      valid.forEach(it=>{
-        const tId=uid();
-        ops.push(["traslados",tId,{id:tId,fecha:fechaReg,maquinaId:maqId,productoId:it.productoId,cantidad:+it.cantidad,responsable:usuario}]);
-      });
-    });
-    valid.forEach(it=>{
-      const si=data.stock.find(s=>s.productoId===it.productoId);
-      if(si){const total=+it.cantidad*maquinasSelec.length;ops.push(["stock",si.id,{...si,cantidad:Math.max(0,si.cantidad-total)}]);}
-    });
-    await saveMulti(ops);
-    setModal(false);setMaquinasSelec([]);setFechaReg(today());setItems([{productoId:"",cantidad:""}]);
+    try{
+      for(const it of valid){
+        const conLote=lotesDe(data,it.productoId).some(x=>x.id===it.loteId);
+        for(const maqId of maquinasSelec){
+          const tId=uid();
+          if(conLote)await moverLoteRPC({loteId:it.loteId,tipo:"traslado",cantidad:+it.cantidad,fecha:fechaReg,maquinaId:maqId,usuario});
+          ops.push(["traslados",tId,{id:tId,fecha:fechaReg,maquinaId:maqId,productoId:it.productoId,cantidad:+it.cantidad,responsable:usuario,loteId:conLote?it.loteId:null}]);
+        }
+        if(!conLote){
+          const si=data.stock.find(s=>s.productoId===it.productoId);
+          if(si){const total=+it.cantidad*maquinasSelec.length;ops.push(["stock",si.id,{...si,cantidad:Math.max(0,si.cantidad-total)}]);}
+        }
+      }
+      await saveMulti(ops);
+      if(recargar)await recargar();
+    }catch(err){alert("No se pudo registrar el traslado: "+(err.message||""));return;}
+    setModal(false);setMaquinasSelec([]);setFechaReg(today());setItems([{productoId:"",cantidad:"",loteId:""}]);
   };
   const trasladosMes=data.traslados.filter(t=>t.fecha?.startsWith(mes));
   const grupos={};
@@ -1290,7 +1694,7 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
                 return(<tr key={t.id}>
                   <td style={{color:"var(--muted)"}}>{t.fecha}</td>
                   <td><strong>{maq?.nombre||"—"}</strong><br/><span style={{fontSize:10,color:"var(--muted)"}}>{maq?.ubicacion}</span></td>
-                  <td>{prod?.nombre||"—"}</td>
+                  <td>{prod?.nombre||"—"}{t.loteId&&(()=>{const l=(data.lotes||[]).find(x=>x.id===t.loteId);return l?<div style={{fontSize:10,color:"var(--muted)"}}>Lote: {l.proveedorNombre} · vence {l.fechaVencimiento||"s/f"}</div>:null;})()}</td>
                   <td><span className="badge blue">{t.cantidad} uds</span></td>
                   <td style={{color:"var(--muted)"}}>{t.responsable}{t.origenStockMaquina&&<span style={{marginLeft:5,fontSize:9,padding:"1px 6px",borderRadius:10,background:"rgba(59,130,246,.15)",color:"var(--accent2)",fontWeight:700}}>Stock máq.</span>}</td>
                   {!soloLectura&&<td><div style={{display:"flex",gap:5}}>
@@ -1332,6 +1736,10 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
                 </select>
                 <input type="number" value={it.cantidad} onChange={e=>setItem(idx,"cantidad",e.target.value)} placeholder="0"/>
                 <button className="btn btn-danger btn-sm" style={{padding:"5px 7px"}} onClick={()=>removeItem(idx)} disabled={items.length===1}>✕</button>
+                {it.productoId&&lotesDe(data,it.productoId).length>0&&<select style={{flexBasis:"100%",marginTop:4}} value={it.loteId} onChange={e=>setItem(idx,"loteId",e.target.value)}>
+                  <option value="">Elegir lote...</option>
+                  {lotesDe(data,it.productoId).map(l=><option key={l.id} value={l.id}>{etiquetaLote(l)}</option>)}
+                </select>}
               </div>
             ))}
             <button className="add-prod-btn" onClick={addItem}><Icon name="plus" size={12}/> Agregar producto</button>
@@ -1357,10 +1765,15 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
             {data.productos.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
           </select>
         </div>
-        <div className="form-group"><label>Cantidad</label><input type="number" value={formEdit.cantidad} onChange={e=>setFormEdit({...formEdit,cantidad:e.target.value})}/></div>
+        <div className="form-group"><label>Cantidad</label><input type="number" value={formEdit.cantidad} disabled={!!editando?.loteId} onChange={e=>setFormEdit({...formEdit,cantidad:e.target.value})}/></div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setEditando(null)}>Cancelar</button><button className="btn btn-primary" onClick={doGuardarEdicion}>Guardar cambios</button></div>
       </div></div>}
-      {confirmDel&&<ConfirmDelete texto="¿Eliminar este traslado? El stock no se revertirá automáticamente." onConfirm={()=>{del("traslados",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+      {confirmDel&&<ConfirmDelete texto={confirmDel.loteId?"¿Eliminar este traslado? Las unidades vuelven a su lote.":"¿Eliminar este traslado? El stock no se revertirá automáticamente."} onConfirm={async()=>{
+        const t=confirmDel;setConfirmDel(null);
+        if(t.loteId){const {error}=await supabase.rpc("reponer_lote",{p_lote_id:t.loteId,p_cantidad:+t.cantidad,p_fecha:ahoraLocal().fecha,p_maquina_id:t.maquinaId||null,p_usuario:usuario||"",p_nota:"Traslado eliminado"});if(error){alert("No se pudo devolver al lote: "+error.message);return;}}
+        await del("traslados",t.id);
+        if(t.loteId&&recargar)await recargar();
+      }} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
 }
@@ -7631,6 +8044,8 @@ const ADMIN_NAV=[
   {id:"planograma",label:"Foto de la máquina",icon:"camera"},
   {id:"historialPlanogramas",label:"Historial de planogramas",icon:"layers"},
   {id:"fotosPorLeer",label:"Fotos por leer",icon:"camera"},
+  {id:"lotes",label:"Lotes y proveedores",icon:"stock"},
+  {id:"depositoPos",label:"Depósito POS",icon:"money"},
   {id:"ventas",label:"Ventas",icon:"chart"},
   {id:"cobranzas",label:"Cobranzas",icon:"money"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
@@ -7675,13 +8090,14 @@ const ALMACENERO_NAV=[
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"traslados",label:"Traslados",icon:"transfer"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"fotosPorLeer",label:"Fotos por leer",icon:"camera"},
+  {id:"lotes",label:"Lotes y proveedores",icon:"stock"},
 ];
 const TITLES={
   dashboard:"Dashboard",rentabilidad:"Rentabilidad",horario:"Horario semanal",mihorario:"Mi horario",
   gastos:"Gastos adicionales",productos:"Productos y stock",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  historialPlanogramas:"Historial de planogramas",devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de la máquina recargada",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  historialPlanogramas:"Historial de planogramas",lotes:"Lotes y proveedores",depositoPos:"Depósito POS",devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de la máquina recargada",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -7794,6 +8210,8 @@ export default function App(){
     case "ventasCafeteras": return <VentasCafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
     case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy} maqInicial={maqFotoPre} onMaqInicialUsada={()=>setMaqFotoPre(null)} recargar={()=>loadAll(true)}/>;
     case "historialPlanogramas": return <HistorialPlanogramas data={data}/>;
+    case "lotes": return <LotesProveedores data={data} sesionUsuario={sesionUsuario} esAdmin={esAdmin} recargar={()=>loadAll(true)}/>;
+    case "depositoPos": return <DepositoPOS data={data}/>;
     case "repuestos": return <Repuestos data={data} sesionUsuario={sesionUsuario} esAdmin={esAdmin} recargar={()=>loadAll(true)}/>;
     case "fotosPorLeer": return <FotosPorLeer data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "ventasAtento": return <VentasAtento data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
@@ -7802,12 +8220,12 @@ export default function App(){
     case "horario":      return <HorarioAdmin data={data} save={saveWrapped}/>;
     case "mihorario":    return <MiHorario data={data} save={saveWrapped} puedeComentarMaq={esAbastecedor||esAdmin} sesionUsuario={sesionUsuario}/>;
     case "gastos":       return <GastosAdicionales data={data} save={saveWrapped} del={delWrapped}/>;
-    case "productos":    return <Productos data={data} save={saveWrapped} del={delWrapped} soloEditar={esAlmacenero}/>;
+    case "productos":    return <Productos data={data} save={saveWrapped} del={delWrapped} soloEditar={esAlmacenero} recargar={()=>loadAll(true)} usuarioNombre={sesionUsuario?.nombre||""}/>;
     case "precios":      return <ListaPrecios data={data}/>;
     case "proveedores":  return <Proveedores data={data} save={saveWrapped} del={delWrapped} soloEditar={esAlmacenero}/>;
     case "maquinas":     return <Maquinas data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} esAbastecedor={esAbastecedor} soloEditar={esAlmacenero}/>;
     case "stock":        return <Stock data={data} save={saveWrapped} del={delWrapped} soloLectura={esAbastecedor} esAdmin={esAdmin}/>;
-    case "traslados":    return <Traslados data={data} save={saveWrapped} saveMulti={async(...args)=>{pausePolling();try{await saveMulti(...args);}finally{setTimeout(resumePolling,2000);}}} del={delWrapped} usuario={nombreUsuario} esAdmin={esAdmin} soloLectura={esAlmacenero}/>;
+    case "traslados":    return <Traslados data={data} save={saveWrapped} saveMulti={async(...args)=>{pausePolling();try{await saveMulti(...args);}finally{setTimeout(resumePolling,2000);}}} del={delWrapped} usuario={nombreUsuario} esAdmin={esAdmin} soloLectura={false} recargar={()=>loadAll(true)}/>;
     case "ventas":       return <Ventas data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} soloLectura={esAbastecedor}/>;
     case "cobranzas":    return <Cobranzas data={data} save={saveWrapped} del={delWrapped} usuario={nombreUsuario} esAdmin={esAdmin} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
     case "preciosEco":   return <ListaPreciosEco data={data}/>;
