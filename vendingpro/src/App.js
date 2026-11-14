@@ -4859,7 +4859,7 @@ function Cafeteras({data,save,del,esAdmin=false}){
       chocolate:{cafe_gr:0,leche_ml:150,chocolate_gr:20,azucar_gr:10, agua_ml:50},
       capuchino:{cafe_gr:7,leche_ml:100,chocolate_gr:5, azucar_gr:5,  agua_ml:100},
     },
-    margenGanancia:50,   // % margen sobre costo para precio sugerido
+    margenGanancia:100,  // % sobre el costo del vaso: 100% = vender al doble del costo
   };
   const [form,setForm]=useState(EF);
   const [receta,setReceta]=useState(EF.recetas);
@@ -4887,7 +4887,7 @@ function Cafeteras({data,save,del,esAdmin=false}){
     return costo;
   };
 
-  const precioSugerido=(costo,margen)=>costo*(1+(margen||0)/100);
+  const precioSugerido=(costo,margen)=>costo*(1+((margen??100))/100);
 
   const doSave=async()=>{
     if(!form.nombre)return;
@@ -4991,7 +4991,7 @@ function Cafeteras({data,save,del,esAdmin=false}){
                         </tbody>
                       </table>
                       <div style={{marginTop:8,padding:"7px 10px",background:"#fffbf0",borderRadius:7,fontSize:11,color:"var(--muted)"}}>
-                        Margen configurado: <strong style={{color:"var(--accent)"}}>{caf.margenGanancia||50}%</strong>
+                        Margen configurado: <strong style={{color:"var(--accent)"}}>{caf.margenGanancia??100}%</strong>
                       </div>
                     </div>
 
@@ -5123,11 +5123,12 @@ function Cafeteras({data,save,del,esAdmin=false}){
                 {/* Preview costo en tiempo real */}
                 {(()=>{
                   const costo=calcCostoVaso(form,receta,b.id);
-                  const precio=precioSugerido(costo,form.margenGanancia||50);
+                  const precio=precioSugerido(costo,form.margenGanancia??100);
                   return costo>0&&(
                     <div style={{marginTop:8,padding:"6px 8px",background:"rgba(245,158,11,.1)",borderRadius:7,textAlign:"center"}}>
                       <div style={{fontSize:9,color:"var(--muted)"}}>Costo: S/ {costo.toFixed(2)}</div>
                       <div style={{fontSize:14,fontWeight:800,color:"var(--accent)"}}>Venta: S/ {precio.toFixed(2)}</div>
+                      <div style={{fontSize:10,color:"var(--green)",fontWeight:700}}>Ganancia: S/ {(precio-costo).toFixed(2)} por vaso</div>
                     </div>
                   );
                 })()}
@@ -5138,9 +5139,10 @@ function Cafeteras({data,save,del,esAdmin=false}){
 
         {/* Margen */}
         <div className="form-group">
-          <label>Margen de ganancia deseado (%)</label>
-          <input type="number" min="0" max="500" value={form.margenGanancia||50} onChange={e=>setForm({...form,margenGanancia:+e.target.value})}
-            placeholder="50"/>
+          <label>Ganancia sobre el costo del vaso (%)</label>
+          <input type="number" min="0" max="1000" value={form.margenGanancia??100} onChange={e=>setForm({...form,margenGanancia:e.target.value===""?"":+e.target.value})}
+            placeholder="100"/>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>100% = el precio de venta es el doble del costo (ganas lo mismo que gastas en insumos). 200% = vendes al triple.</div>
         </div>
 
         <div className="modal-actions">
