@@ -370,7 +370,19 @@ function useFirebase(){
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
         'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos','lotes'];
-      const results=await Promise.all(tables.map(t=>supabase.from(t).select(t==='ventas_atento'?COLS_ATENTO:'*')));
+      // Supabase devuelve máx. 1000 filas por consulta: se pide por páginas para no perder ventas
+      const traerTodo=async(t)=>{
+        const cols=t==='ventas_atento'?COLS_ATENTO:'*';
+        let todo=[];
+        for(let desde=0;;desde+=1000){
+          const {data:rows,error}=await supabase.from(t).select(cols).order('id',{ascending:true}).range(desde,desde+999);
+          if(error)return {data:todo.length?todo:null,error};
+          todo=todo.concat(rows||[]);
+          if(!rows||rows.length<1000)break;
+        }
+        return {data:todo};
+      };
+      const results=await Promise.all(tables.map(traerTodo));
       // Horario es especial — clave primaria es "dia"
       const {data:horarioData}=await supabase.from('horario').select('*');
       const horarioObj={};
@@ -4250,7 +4262,7 @@ function GestionUsuarios({data,save,del}){
   const [confirmDel,setConfirmDel]=useState(null);
   const [busqueda,setBusqueda]=useState("");
   const [linkCopiado,setLinkCopiado]=useState(null);
-  const EF={nombre:"",dni:"",rol:"abastecedor",rolId:"",password:"",crearPass:true};
+  const EF={nombre:"",dni:"",rol:"abastecedor",rolId:"",password:"",crearPass:true,sueldo:""};
   const [form,setForm]=useState(EF);
   const generarToken=()=>Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
   const baseUrl=window.location.origin+window.location.pathname;
@@ -4258,18 +4270,18 @@ function GestionUsuarios({data,save,del}){
     if(!form.nombre||!form.dni)return;
     setModal(false);setForm(EF);setEditando(null);
     if(editando){
-      const upd={...editando,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null};
+      const upd={...editando,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null,sueldo:+form.sueldo||0};
       if(form.password)upd.password=form.password;
       await save("usuarios",editando.id,upd);
     }else{
       const id=uid();
       const token=form.crearPass?null:generarToken();
       const password=form.crearPass&&form.password?form.password:null;
-      await save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null,activo:true,token,password,creadoEn:today()});
+      await save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null,sueldo:+form.sueldo||0,activo:true,token,password,creadoEn:today()});
     }
   };
   // Al editar se carga TODO, incluido el rol personalizado (antes se perdía al guardar)
-  const abrirEditar=(u)=>{setForm({nombre:u.nombre||"",dni:u.dni||"",rol:u.rol,rolId:u.rolId||"",password:"",crearPass:true});setEditando(u);setModal(true);};
+  const abrirEditar=(u)=>{setForm({nombre:u.nombre||"",dni:u.dni||"",rol:u.rol,rolId:u.rolId||"",password:"",crearPass:true,sueldo:u.sueldo?String(u.sueldo):""});setEditando(u);setModal(true);};
   const rolesPers=(data.roles||[]).filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)&&r.activo!==false);
   const copiarLink=(u)=>{
     const link=baseUrl+"?registro="+u.token;
@@ -4305,6 +4317,7 @@ function GestionUsuarios({data,save,del}){
                     <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3,flexWrap:"wrap"}}>
                       <span style={{fontSize:11,color:"var(--muted)"}}>DNI: <strong>{u.dni}</strong></span>
                       <span className="badge blue">{u.rol}</span>
+                      <span style={{fontSize:11,color:"var(--muted)"}}>Sueldo: <strong>{u.sueldo>0?fmt(u.sueldo):"sin definir"}</strong></span>
                       {u.rolId&&(()=>{const r=(data.roles||[]).find(x=>x.id===u.rolId);return r
                         ?<span title={(r.modulos||[]).length+" módulos"} style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(124,58,237,.12)",color:"#7c3aed"}}>✨ {r.nombre}</span>
                         :<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(239,68,68,.15)",color:"var(--red)"}}>⚠️ Rol eliminado</span>;})()}
@@ -4343,6 +4356,7 @@ function GestionUsuarios({data,save,del}){
           <div className="form-group"><label>Nombre completo</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Juan Pérez García"/></div>
           <div className="form-group"><label>DNI</label><input value={form.dni} onChange={e=>setForm({...form,dni:e.target.value})} placeholder="12345678" maxLength={8}/></div>
         </div>
+        <div className="form-group"><label>Sueldo mensual (S/)</label><input type="number" step="0.01" min="0" value={form.sueldo} onChange={e=>setForm({...form,sueldo:e.target.value})} placeholder="Ej: 1500.00"/></div>
         <div className="form-group"><label>Rol base</label>
           <select value={form.rol} onChange={e=>{const nb=e.target.value;const r=(data.roles||[]).find(x=>x.id===form.rolId);setForm({...form,rol:nb,rolId:r&&r.rolBase===nb?form.rolId:""});}}>
             <option value="admin">🔐 Administrador</option>
