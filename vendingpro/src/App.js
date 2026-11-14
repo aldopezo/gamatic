@@ -6227,7 +6227,7 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
         espiral:normEsp(r['Cod Sel']||r['cod_sel']||''),
         pago:getMetodo(r['Periferico']||r['periferico']||'',r['Tecnologia']||r['tecnologia']||''),
         tecnologia:(r['Tecnologia']||r['tecnologia']||'').trim(),
-        comercio:comercio,
+        comercio:String(r['Comercio']||r['comercio']||comercio||'').trim(),
         numAtento:r['Num Atento']||r['num_atento']||'',
         num:(/^\d+$/.test(String(r['Num Atento']||'').trim())?parseInt(String(r['Num Atento']).trim(),10):null),
       }));
@@ -6291,6 +6291,20 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
     const numDesde=nums.length?Math.min(...nums):null;
     const numHasta=nums.length?Math.max(...nums):null;
     const ultimoPrevio=previas.length?Math.max(...previas.map(v=>v.numHasta)):null;
+    const previoHasta=previas.map(v=>v.hasta).filter(Boolean).sort().pop()||null; // hasta qué fecha y hora ya había ventas importadas
+    const sinNum=todas.filter(t=>t.num==null).length;
+    // Seguridad: el archivo debe ser de la máquina elegida (comercio Atento) y de una sola máquina
+    const comerciosCsv=[...new Set(todas.map(t=>String(t.comercio||'').trim()).filter(Boolean))];
+    const maqSel=(data.maquinas||[]).find(m=>m.id===mqId);
+    const comercioMaq=String(maqSel?.comercioAtento||'').trim();
+    const comercioErrado=!!comercioMaq&&comerciosCsv.length>0&&comerciosCsv.some(c=>c!==comercioMaq);
+    const otraMaquina=comercioErrado?(data.maquinas||[]).find(m=>comerciosCsv.length===1&&String(m.comercioAtento||'').trim()===comerciosCsv[0]):null;
+    const variasMaquinas=comerciosCsv.length>1;
+    // Por fecha: cuántas ventas trae el archivo y cuántas son realmente nuevas
+    const pfMap={};
+    todas.forEach(t=>{const f=(pfMap[t.fecha]=pfMap[t.fecha]||{fecha:t.fecha,enArchivo:0,nuevas:0});f.enArchivo++;});
+    nuevas.forEach(t=>{pfMap[t.fecha].nuevas++;});
+    const porFecha=Object.values(pfMap).sort((a,b)=>a.fecha.localeCompare(b.fecha));
     const salto=(numDesde!=null&&ultimoPrevio!=null&&numDesde>ultimoPrevio+1)?{desde:ultimoPrevio+1,hasta:numDesde-1}:null;
 
     const ac=nuevas.filter(t=>t.status==='ACEPTADA');
@@ -6375,7 +6389,7 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
     setCruce({
       ventasPorProducto,conProducto,sinProducto,ranking,ciclos,sinVentas,items,nuevas,
       omitidas:todas.length-nuevas.length,nuevasTotal:nuevas.length,totalCsv:todas.length,
-      salto,numDesde,numHasta,desde,hasta,
+      salto,numDesde,numHasta,desde,hasta,previoHasta,sinNum,porFecha,comerciosCsv,comercioErrado,otraMaquina,variasMaquinas,
       totalVentas:ac.length,totalIng,
       totalCanceladas:cans.length,totalErrores:errs.length,
       ef:ef.length,yape:yape.length,tarj:tarj.length,
@@ -6395,7 +6409,8 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
   // ── Guardar en Supabase ───────────────────────────────────────────────────
   const guardarVentas=async()=>{
     if(!cruce||!maqId)return;
-    if(cruce.nuevasTotal===0){alert("Todas las ventas de este CSV ya fueron importadas antes. No hay nada nuevo que guardar.");return;}
+    if(cruce.comercioErrado||cruce.variasMaquinas){alert("Este archivo no corresponde a la máquina elegida. Sube un archivo por máquina y elige la máquina correcta.");return;}
+    if(cruce.nuevasTotal===0){alert("Todas las ventas de este CSV ya fueron importadas antes"+(cruce.previoHasta?" (ya tienes ventas hasta el "+String(cruce.previoHasta).slice(0,16)+")":"")+". No hay nada nuevo que guardar.");return;}
     if(cruce.salto&&!window.confirm("Faltan las ventas #"+cruce.salto.desde+" a #"+cruce.salto.hasta+" de esta máquina (entre lo último importado y este CSV).\n\nLo ideal es subir primero el CSV que las incluya. ¿Guardar de todos modos?"))return;
     if(cruce.fechas.some(f=>f>ahoraLocal().fecha)&&!window.confirm("Hay ventas con fecha futura. Revisa el formato de fecha del CSV (Día/Mes o Mes/Día).\n\n¿Guardar de todos modos?"))return;
     setGuardando(true);
@@ -6635,14 +6650,27 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
                 </select>
                 <span style={{color:"var(--muted)"}}>Si el período no coincide con lo que descargaste, cámbialo aquí.</span>
               </div>
+              {(cruce.comercioErrado||cruce.variasMaquinas)&&(
+                <div style={{background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.4)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,color:"var(--red)"}}>
+                  ⛔ <strong>Este archivo no corresponde a {maq?.nombre}.</strong> {cruce.variasMaquinas?<>Trae ventas de {cruce.comerciosCsv.length} comercios ({cruce.comerciosCsv.join(", ")}): sube un archivo por máquina.</>:<>Es del comercio {cruce.comerciosCsv[0]}{cruce.otraMaquina?<> que corresponde a <strong>{cruce.otraMaquina.nombre}</strong></>:null}. Elige la máquina correcta.</>} No se puede guardar así.
+                </div>
+              )}
               {cruce.nuevasTotal===0&&(
                 <div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,color:"var(--red)"}}>
-                  ⛔ <strong>Todas las ventas de este CSV ya fueron importadas</strong> ({cruce.totalCsv} transacciones). No hay nada nuevo que guardar.
+                  ⛔ <strong>Todas las ventas de este CSV ya fueron importadas</strong> ({cruce.totalCsv} transacciones){cruce.previoHasta&&<> — ya tienes ventas de esta máquina hasta el <strong>{String(cruce.previoHasta).slice(0,16)}</strong></>}. No hay nada nuevo que guardar.
                 </div>
               )}
               {cruce.omitidas>0&&cruce.nuevasTotal>0&&(
-                <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.25)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12}}>
-                  ℹ️ {cruce.omitidas} de {cruce.totalCsv} transacciones ya estaban importadas y se omitieron. Se guardarán solo las {cruce.nuevasTotal} nuevas (ventas #{cruce.numDesde} a #{cruce.numHasta}).
+                <div style={{background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.4)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12}}>
+                  ⚠️ <strong>Este archivo repite ventas que ya registraste.</strong> {cruce.omitidas} de {cruce.totalCsv} transacciones ya estaban importadas{cruce.previoHasta&&<> (había ventas hasta el <strong>{String(cruce.previoHasta).slice(0,16)}</strong>)</>} y se omitieron. <strong>Solo se registrarán las {cruce.nuevasTotal} nuevas</strong>, desde el <strong>{String(cruce.desde).slice(0,16)}</strong> hasta el <strong>{String(cruce.hasta).slice(0,16)}</strong> (ventas #{cruce.numDesde} a #{cruce.numHasta}).
+                  <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:2}}>
+                    {cruce.porFecha.map(f=><div key={f.fecha} style={{fontSize:11,color:"var(--muted)"}}>📅 {f.fecha}: {f.nuevas>0?<strong style={{color:"var(--green)"}}>{f.nuevas} nuevas</strong>:<span>ninguna nueva</span>}{f.enArchivo-f.nuevas>0&&<> · {f.enArchivo-f.nuevas} ya estaban</>}</div>)}
+                  </div>
+                </div>
+              )}
+              {cruce.sinNum>0&&(
+                <div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--red)"}}>
+                  ⚠️ {cruce.sinNum} transacciones no traen número de venta de Atento, por eso no se puede comprobar si ya estaban importadas. Revisa que no estés repitiendo un archivo.
                 </div>
               )}
               {cruce.salto&&(
