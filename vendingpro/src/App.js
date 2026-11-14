@@ -524,7 +524,59 @@ function LoginScreen({onLogin,usuarios=[]}){
 }
 
 // ─── DASHBOARD con filtro por máquina ──────────────────────────────────────────
-function Dashboard({data}){
+// ─── Costos de ventas Atento: asigna a cada venta el producto del planograma vigente ───
+const _normEspC=(x)=>{const t=String(x||'').trim();return /^\d+$/.test(t)?String(parseInt(t,10)):t;};
+function ventasAtentoSinCosto(data,maqIds=null){
+  return (data.ventas||[]).filter(v=>v.origen==='atento'&&!v.productoId&&(!maqIds||maqIds.includes(v.maquinaId)));
+}
+// Devuelve [{id,productoId,productoNombre}] de las ventas que se pueden resolver con los planogramas actuales
+function resolverCostosAtento(data){
+  const porMaq={};
+  (data.planogramas||[]).forEach(p=>{(porMaq[p.maquinaId]=porMaq[p.maquinaId]||[]).push(p);});
+  Object.values(porMaq).forEach(l=>l.sort((a,b)=>((a.fecha||'')+(a.hora||'')).localeCompare((b.fecha||'')+(b.hora||''))));
+  const out=[];
+  ventasAtentoSinCosto(data).forEach(v=>{
+    const l=porMaq[v.maquinaId]||[];let plan=null;
+    for(const p of l){if((p.fecha||'')<=(v.fecha||''))plan=p;else break;}
+    if(!plan)return;
+    const it=(plan.espirales||[]).find(e=>_normEspC(e.espiral)===_normEspC(v.espiral));
+    if(!it||!it.productoId)return;
+    if(!(data.productos||[]).some(pr=>pr.id===it.productoId))return;
+    out.push({id:v.id,productoId:it.productoId,productoNombre:it.producto||v.productoNombre});
+  });
+  return out;
+}
+function AvisoCostosAtento({data,maqIds,recargar}){
+  const [busy,setBusy]=useState(false);
+  const [msg,setMsg]=useState("");
+  const sin=ventasAtentoSinCosto(data,maqIds);
+  if(!sin.length&&!msg)return null;
+  const monto=sin.reduce((t,v)=>t+(v.ingreso||0),0);
+  const resolubles=resolverCostosAtento(data).filter(r=>sin.some(v=>v.id===r.id));
+  const recalcular=async()=>{
+    setBusy(true);setMsg("");
+    try{
+      let n=0;
+      for(const r of resolubles){
+        const {error}=await supabase.from("ventas").update({producto_id:r.productoId,producto_nombre:r.productoNombre}).eq("id",r.id);
+        if(error)throw error;n++;
+      }
+      if(recargar)await recargar();
+      setMsg("✅ Se asignó el producto a "+n+" ventas.");
+    }catch(e){setMsg("No se pudo recalcular: "+(e.message||""));}
+    setBusy(false);
+  };
+  return(
+    <div style={{background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.35)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,color:"var(--amber)"}}>
+      {sin.length>0&&<div>⚠️ <strong>{sin.length}</strong> ventas de Atento (S/ {monto.toFixed(2)}) no tienen producto identificado: su costo no entra en la utilidad. Se identifican con la foto/planograma de la máquina vigente en esa fecha.</div>}
+      {sin.length>0&&resolubles.length>0&&recargar&&<button className="btn btn-secondary btn-sm" style={{marginTop:6}} disabled={busy} onClick={recalcular}>{busy?"⏳ Recalculando...":"Recalcular costos ("+resolubles.length+" ventas se pueden resolver)"}</button>}
+      {sin.length>0&&resolubles.length===0&&<div style={{marginTop:4,color:"var(--muted)"}}>Aún no hay planograma que cubra esas fechas.</div>}
+      {msg&&<div style={{marginTop:4}}>{msg}</div>}
+    </div>
+  );
+}
+
+function Dashboard({data,recargar=null}){
   const [mes,setMes]=useState(mesActual());
   const [maqFiltro,setMaqFiltro]=useState("todas");
   const maqActivas=data.maquinas.filter(m=>m.activa);
@@ -538,7 +590,12 @@ function Dashboard({data}){
   const ta=maqList.reduce((s,m)=>s+(m.alquiler||0),0);
   const tg=gastosMes.reduce((s,g)=>s+(g.monto||0),0);
   const cp=ventasMes.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
-  const util=tv-cp-ta-tg;
+  const [movRep,setMovRep]=useState([]);
+  useEffect(()=>{(async()=>{const [y,m]=mes.split("-").map(Number);const fin=mes+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0");
+    const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",mes+"-01").lte("fecha",fin);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[mes,data.repuestos]);
+  const movRepSel=movRep.filter(r=>maqFiltro==="todas"||!r.maquinaId||r.maquinaId===maqFiltro);
+  const tr=movRepSel.reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
+  const util=tv-cp-ta-tg-tr;
   const stockBajo=data.stock.filter(s=>s.cantidad<=s.minimo);
   const dias=[...new Set(ventasMes.map(v=>v.fecha))].sort();
   const acum=dias.map(d=>({fecha:d,total:ventasMes.filter(v=>v.fecha<=d).reduce((s,v)=>s+(v.ingreso||0),0)}));
@@ -546,6 +603,7 @@ function Dashboard({data}){
     <div>
       {stockBajo.length>0&&<div className="alert-box"><Icon name="alert" size={14}/>{stockBajo.length} producto(s) con stock bajo mínimo</div>}
       <MesNav mes={mes} setMes={setMes}/>
+      <AvisoCostosAtento data={data} maqIds={maqIds} recargar={recargar}/>
       {/* Filtro por máquina */}
       <div className="filtro-bar">
         <span className="filtro-label"><Icon name="filter" size={13}/> Máquina:</span>
@@ -555,7 +613,7 @@ function Dashboard({data}){
         </select>
       </div>
       <div className="cards">
-        {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg),"red",`${gastosMes.length} reg.`],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
+        {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg+tr),"red",`${gastosMes.length} reg.${tr>0?" + repuestos "+fmt(tr):""}`],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
           <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{s}</div></div>
         ))}
       </div>
@@ -576,8 +634,9 @@ function Dashboard({data}){
             const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
             const cost=vm.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
             const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
-            const rent=ing-cost-(m.alquiler||0)-gm;
-            return(<tr key={m.id}><td><strong>{m.nombre}</strong></td><td style={{color:"var(--muted)",fontSize:11}}>{m.ubicacion}</td><td>{fmt(ing)}</td><td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td><td style={{color:"var(--red)"}}>{gm>0?fmt(gm):"—"}</td><td><span className={`badge ${rent>=0?"green":"red"}`}>{fmt(rent)}</span></td></tr>);
+            const gr=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
+            const rent=ing-cost-(m.alquiler||0)-gm-gr;
+            return(<tr key={m.id}><td><strong>{m.nombre}</strong></td><td style={{color:"var(--muted)",fontSize:11}}>{m.ubicacion}</td><td>{fmt(ing)}</td><td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td><td style={{color:"var(--red)"}}>{gm+gr>0?fmt(gm+gr):"—"}</td><td><span className={`badge ${rent>=0?"green":"red"}`}>{fmt(rent)}</span></td></tr>);
           })}</tbody>
         </table></div>
       </div>
@@ -585,15 +644,94 @@ function Dashboard({data}){
   );
 }
 
+// ─── HISTORIAL DE PLANOGRAMAS: cada foto abre un ciclo; se relaciona con sus ventas ───
+function HistorialPlanogramas({data}){
+  const [maqF,setMaqF]=useState("todas");
+  const [det,setDet]=useState(null);
+  const [zoom,setZoom]=useState(null);
+  const ini=(p)=>(p.fecha||"")+" "+(p.hora||"00:00:00");
+  const maqs=(data.maquinas||[]).filter(m=>m.activa);
+  const ciclos=[];
+  maqs.filter(m=>maqF==="todas"||m.id===maqF).forEach(m=>{
+    const plans=(data.planogramas||[]).filter(p=>p.maquinaId===m.id).sort((a,b)=>ini(a).localeCompare(ini(b)));
+    plans.forEach((p,k)=>{
+      const sig=plans[k+1]||null;
+      const vs=(data.ventas||[]).filter(v=>v.maquinaId===m.id&&v.origen==="atento"&&(v.fecha||"")>=p.fecha&&(!sig||(v.fecha||"")<sig.fecha||((v.fecha||"")===sig.fecha&&sig.fecha===p.fecha)));
+      const ing=vs.reduce((t,v)=>t+(v.ingreso||0),0);
+      const cant=vs.reduce((t,v)=>t+(v.cantidad||0),0);
+      const costo=vs.reduce((t,v)=>{const pr=(data.productos||[]).find(x=>x.id===v.productoId);return t+(pr?(pr.costo||0)*(v.cantidad||0):0);},0);
+      const foto=(data.fotosMaquina||[]).find(f=>f.planogramaId===p.id);
+      const esp=p.espirales||[];
+      const conProd=esp.filter(e=>e.producto&&!/^(vac[ií]o|no visible)$/i.test(String(e.producto).trim())).length;
+      ciclos.push({m,p,sig,vs,ing,cant,costo,foto,conProd,total:esp.length});
+    });
+  });
+  ciclos.sort((a,b)=>ini(b.p).localeCompare(ini(a.p)));
+  const fmtH=(p)=>p.fecha+(p.hora?" · "+p.hora.slice(0,5):"");
+  return(
+    <div>
+      <div className="filtro-bar">
+        <span className="filtro-label"><Icon name="filter" size={13}/> Máquina:</span>
+        <select value={maqF} onChange={e=>setMaqF(e.target.value)}>
+          <option value="todas">Todas</option>
+          {maqs.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+        </select>
+      </div>
+      <div style={{fontSize:12,color:"var(--muted)",marginBottom:10}}>Cada foto de abastecimiento abre un ciclo que dura hasta la siguiente foto. Las ventas de Atento se asignan al ciclo por fecha.</div>
+      <div className="section">
+        <div className="section-header"><h3>Historial de planogramas ({ciclos.length})</h3></div>
+        <div className="table-wrap"><table>
+          <thead><tr><th>Máquina</th><th>Inicio</th><th>Fin</th><th>Registrado por</th><th>Espirales</th><th>Ventas</th><th>Ingreso</th><th>Costo</th><th></th></tr></thead>
+          <tbody>
+            {ciclos.length===0?<tr><td colSpan={9} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Aún no hay planogramas registrados</td></tr>
+            :ciclos.map(c=>(
+              <tr key={c.p.id}>
+                <td><strong>{c.m.nombre}</strong></td>
+                <td>{fmtH(c.p)}</td>
+                <td>{c.sig?fmtH(c.sig):<span className="badge green">Vigente</span>}</td>
+                <td style={{color:"var(--muted)"}}>{c.p.usuarioNombre||"—"}</td>
+                <td>{c.conProd}/{c.total}</td>
+                <td>{c.cant}</td>
+                <td>{fmt(c.ing)}</td>
+                <td style={{color:"var(--red)"}}>{c.costo>0?fmt(c.costo):"—"}</td>
+                <td><div style={{display:"flex",gap:5}}>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>setDet(c)}>Detalle</button>
+                  {c.foto?.url&&<button className="btn btn-secondary btn-sm" onClick={()=>setZoom(c.foto.url)}>📷</button>}
+                </div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      </div>
+      {det&&<div className="modal-overlay"><div className="modal" style={{maxWidth:560}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}><h3 style={{margin:0}}>{det.m.nombre} · {fmtH(det.p)}</h3><CloseBtn onClick={()=>setDet(null)}/></div>
+        <div style={{fontSize:12,color:"var(--muted)",marginBottom:8}}>{det.sig?"Hasta "+fmtH(det.sig):"Planograma vigente"} · {det.cant} ventas · {fmt(det.ing)}</div>
+        <div style={{maxHeight:380,overflow:"auto"}}><table>
+          <thead><tr><th>Espiral</th><th>Producto</th><th>Ventas</th><th>Ingreso</th></tr></thead>
+          <tbody>{(det.p.espirales||[]).map((e,i)=>{
+            const vs=det.vs.filter(v=>String(parseInt(v.espiral,10))===String(parseInt(e.espiral,10)));
+            return(<tr key={i}><td>{e.espiral}</td><td>{e.producto||"—"}</td><td>{vs.reduce((t,v)=>t+(v.cantidad||0),0)}</td><td>{fmt(vs.reduce((t,v)=>t+(v.ingreso||0),0))}</td></tr>);
+          })}</tbody>
+        </table></div>
+      </div></div>}
+      {zoom&&<div className="modal-overlay" onClick={()=>setZoom(null)} style={{cursor:"zoom-out"}}><img src={zoom} alt="Foto" style={{maxWidth:"95vw",maxHeight:"92vh",borderRadius:10}}/></div>}
+    </div>
+  );
+}
+
 // ─── RENTABILIDAD ────────────────────────────────────────────────────────────────
-function Rentabilidad({data,maqsFiltro=null}){
+function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const [mes,setMes]=useState(mesActual());
   const maqActivas=data.maquinas.filter(m=>m.activa);
   const ventasMes=data.ventas.filter(v=>v.fecha?.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
   const gastosMes=data.gastos.filter(g=>g.fecha?.startsWith(mes));
+  const [movRep,setMovRep]=useState([]);
+  useEffect(()=>{(async()=>{const [y,m]=mes.split("-").map(Number);const fin=mes+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0");
+    const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",mes+"-01").lte("fecha",fin);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[mes,data.repuestos]);
   return(
     <div>
       <MesNav mes={mes} setMes={setMes}/>
+      <AvisoCostosAtento data={data} maqIds={maqActivas.map(m=>m.id)} recargar={recargar}/>
       {maqsFiltro&&maqsFiltro.length>0&&<div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"9px 14px",marginBottom:12,fontSize:12,color:"var(--green)"}}>
         📅 Solo mostrando tus <strong>{maqsFiltro.length} máquina(s) asignadas hoy</strong>.
       </div>}
@@ -602,7 +740,8 @@ function Rentabilidad({data,maqsFiltro=null}){
         const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
         const cost=vm.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
         const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
-        const util=ing-cost-(m.alquiler||0)-gm;
+        const rep=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
+        const util=ing-cost-(m.alquiler||0)-gm-rep;
         const roi=ing>0?((util/ing)*100).toFixed(1):0;
         const tipo=util>50?"positive":util>=0?"neutral":"negative";
         return(
@@ -612,7 +751,7 @@ function Rentabilidad({data,maqsFiltro=null}){
               <span className={`badge ${tipo==="positive"?"green":tipo==="negative"?"red":"amber"}`}>ROI: {roi}%</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
-              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod.",fmt(cost),"var(--muted)"],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
+              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod.",fmt(cost),"var(--muted)"],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Repuestos",fmt(rep),"var(--red)"],["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
                 <div key={l} style={{background:"rgba(0,0,0,.2)",padding:"7px 10px",borderRadius:8}}>
                   <div style={{fontSize:9,color:"var(--muted)",marginBottom:2,textTransform:"uppercase"}}>{l}</div>
                   <div style={{fontSize:13,fontWeight:700,color:c}}>{v}</div>
@@ -2425,7 +2564,7 @@ function StockMaquina({data,save,del,soloLectura=false,maqsFiltro=null,sesionUsu
     }
     // Guardar ventas calculadas automáticamente
     for(const reg of registros){
-      if(reg.ventasCalculadas>0){
+      if(reg.ventasCalculadas>0&&!(data.maquinas.find(m=>m.id===maqGuardada)?.comercioAtento)){
         const prod=data.productos.find(p=>p.id===reg.productoId);
         const precio=prod?(prod.precioVenta||(prod.costo*(1+prod.margen/100))):0;
         const vId=uid();
@@ -7490,6 +7629,7 @@ const ADMIN_NAV=[
   {id:"maquinas",label:"Máquinas",icon:"machine"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
   {id:"planograma",label:"Foto de la máquina",icon:"camera"},
+  {id:"historialPlanogramas",label:"Historial de planogramas",icon:"layers"},
   {id:"fotosPorLeer",label:"Fotos por leer",icon:"camera"},
   {id:"ventas",label:"Ventas",icon:"chart"},
   {id:"cobranzas",label:"Cobranzas",icon:"money"},
@@ -7541,7 +7681,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos y stock",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de la máquina recargada",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  historialPlanogramas:"Historial de planogramas",devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de la máquina recargada",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -7644,7 +7784,7 @@ export default function App(){
     const saveWrapped=async(col,id,val)=>{pausePolling();try{await save(col,id,val);}finally{setTimeout(resumePolling,2000);}};
     const delWrapped=async(col,id)=>{pausePolling();try{await del(col,id);}finally{setTimeout(resumePolling,2000);}};
     switch(tab){
-    case "dashboard":    return <Dashboard data={data}/>;
+    case "dashboard":    return <Dashboard data={data} recargar={()=>loadAll(true)}/>;
     case "cierreDia":    return <CierreDia data={data}/>;
     case "personal":     return <Personal data={data} save={saveWrapped} del={delWrapped}/>;
     case "gestionUsuarios": return <GestionUsuarios data={data} save={saveWrapped} del={delWrapped}/>;
@@ -7653,11 +7793,12 @@ export default function App(){
     case "cafeteras":    return <Cafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin}/>;
     case "ventasCafeteras": return <VentasCafeteras data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy}/>;
     case "planograma": return <Planograma data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} maqsFiltro={maqsAsignadasHoy} maqInicial={maqFotoPre} onMaqInicialUsada={()=>setMaqFotoPre(null)} recargar={()=>loadAll(true)}/>;
+    case "historialPlanogramas": return <HistorialPlanogramas data={data}/>;
     case "repuestos": return <Repuestos data={data} sesionUsuario={sesionUsuario} esAdmin={esAdmin} recargar={()=>loadAll(true)}/>;
     case "fotosPorLeer": return <FotosPorLeer data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "ventasAtento": return <VentasAtento data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
-    case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy}/>;
+    case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy} recargar={()=>loadAll(true)}/>;
     case "horario":      return <HorarioAdmin data={data} save={saveWrapped}/>;
     case "mihorario":    return <MiHorario data={data} save={saveWrapped} puedeComentarMaq={esAbastecedor||esAdmin} sesionUsuario={sesionUsuario}/>;
     case "gastos":       return <GastosAdicionales data={data} save={saveWrapped} del={delWrapped}/>;
