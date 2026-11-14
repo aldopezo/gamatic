@@ -576,6 +576,31 @@ function useComisionesPOS(data,ini,fin){
 }
 const rangoDeMes=(m)=>{const [y,mm]=m.split("-").map(Number);return [m+"-01",m+"-"+String(new Date(y,mm,0).getDate()).padStart(2,"0")];};
 
+// ─── Costo real vs estimado ────────────────────────────────────────────────────
+// Real: ventas con producto identificado (planograma). Estimado: ventas de Atento sin planograma.
+function ratioGlobalCosto(data){
+  let ing=0,cos=0;
+  (data.ventas||[]).forEach(v=>{const p=(data.productos||[]).find(x=>x.id===v.productoId);if(p&&p.costo>0){ing+=(v.ingreso||0);cos+=p.costo*(v.cantidad||0);}});
+  if(ing>=100&&cos>0)return{ratio:cos/ing,metodo:"ventas con planograma"};
+  const l=(data.productos||[]).filter(p=>p.costo>0&&p.precioVenta>0);
+  if(l.length)return{ratio:l.reduce((t,p)=>t+p.costo/p.precioVenta,0)/l.length,metodo:"promedio costo/precio del catálogo"};
+  return{ratio:0.6,metodo:"valor por defecto (60%)"};
+}
+function costoDeVentas(data,vs,m){
+  let ingC=0,costoR=0,ingS=0;
+  (vs||[]).forEach(v=>{
+    const p=(data.productos||[]).find(x=>x.id===v.productoId);
+    if(p){ingC+=(v.ingreso||0);costoR+=(p.costo||0)*(v.cantidad||0);}else ingS+=(v.ingreso||0);
+  });
+  // Sin planograma: costo = venta / (1 + % de ganancia de la máquina). Ej.: 40% de ganancia sobre el costo → costo = 71.4% de la venta
+  const mg=m&&m.margenGanancia!=null&&m.margenGanancia!==""?+m.margenGanancia:40;
+  const ratio=1/(1+mg/100);
+  const metodo="ganancia de "+mg+"% de la máquina";
+  const costoE=ingS*ratio;
+  const tot=ingC+ingS;
+  return{ingC,costoR,ingS,costoE,costo:costoR+costoE,ratio,metodo,pctEst:tot>0?ingS/tot:0};
+}
+
 // ─── Costos de ventas Atento: asigna a cada venta el producto del planograma vigente ───
 const _normEspC=(x)=>{const t=String(x||'').trim();return /^\d+$/.test(t)?String(parseInt(t,10)):t;};
 function ventasAtentoSinCosto(data,maqIds=null){
@@ -620,7 +645,7 @@ function AvisoCostosAtento({data,maqIds,recargar}){
   };
   return(
     <div style={{background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.35)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,color:"var(--amber)"}}>
-      {sin.length>0&&<div>⚠️ <strong>{sin.length}</strong> ventas de Atento (S/ {monto.toFixed(2)}) no tienen producto identificado: su costo no entra en la utilidad. Se identifican con la foto/planograma de la máquina vigente en esa fecha.</div>}
+      {sin.length>0&&<div>⚠️ <strong>{sin.length}</strong> ventas de Atento (S/ {monto.toFixed(2)}) no tienen producto identificado: su costo se calcula como estimado. Se vuelve costo real al identificarlas con la foto/planograma de la máquina vigente en esa fecha.</div>}
       {sin.length>0&&resolubles.length>0&&recargar&&<button className="btn btn-secondary btn-sm" style={{marginTop:6}} disabled={busy} onClick={recalcular}>{busy?"⏳ Recalculando...":"Recalcular costos ("+resolubles.length+" ventas se pueden resolver)"}</button>}
       {sin.length>0&&resolubles.length===0&&<div style={{marginTop:4,color:"var(--muted)"}}>Aún no hay planograma que cubra esas fechas.</div>}
       {msg&&<div style={{marginTop:4}}>{msg}</div>}
@@ -641,7 +666,9 @@ function Dashboard({data,recargar=null}){
   const tc=cobranzasMes.reduce((s,c)=>s+(c.monto||0),0);
   const ta=maqList.reduce((s,m)=>s+(m.alquiler||0),0);
   const tg=gastosMes.reduce((s,g)=>s+(g.monto||0),0);
-  const cp=ventasMes.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
+  const rg=ratioGlobalCosto(data);
+  const cp=maqList.reduce((s,m)=>s+costoDeVentas(data,ventasMes.filter(v=>v.maquinaId===m.id),m).costo,0);
+  const ingSinPlano=maqList.reduce((s,m)=>s+costoDeVentas(data,ventasMes.filter(v=>v.maquinaId===m.id),m).ingS,0);
   const [movRep,setMovRep]=useState([]);
   useEffect(()=>{(async()=>{const [y,m]=mes.split("-").map(Number);const fin=mes+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0");
     const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",mes+"-01").lte("fecha",fin);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[mes,data.repuestos]);
@@ -672,6 +699,7 @@ function Dashboard({data,recargar=null}){
           <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{s}</div></div>
         ))}
       </div>
+      {ingSinPlano>0&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>ℹ️ El costo incluye una <strong>estimación</strong> para S/ {ingSinPlano.toFixed(2)} de ventas de Atento sin planograma (se calcula con el % de ganancia de cada máquina). Con la foto de la máquina pasa a costo real.</div>}
       {acum.length>0&&(
         <div className="section" style={{marginBottom:14}}>
           <div className="section-header"><h3>Avance de ventas — {nombreMes(mes)}{maqFiltro!=="todas"&&` · ${maqActivas.find(m=>m.id===maqFiltro)?.nombre}`}</h3></div>
@@ -687,7 +715,7 @@ function Dashboard({data,recargar=null}){
           <tbody>{maqList.map(m=>{
             const vm=ventasMes.filter(v=>v.maquinaId===m.id);
             const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
-            const cost=vm.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
+            const ce=costoDeVentas(data,vm,m);const cost=ce.costo;
             const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
             const gr=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
             const rent=ing-cost-(m.alquiler||0)-gm-gr-(comPOS[m.id]?.comision||0);
@@ -1068,6 +1096,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const maqActivas=data.maquinas.filter(m=>m.activa);
   const ventasMes=data.ventas.filter(v=>v.fecha?.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
   const gastosMes=data.gastos.filter(g=>g.fecha?.startsWith(mes));
+  const rg=ratioGlobalCosto(data);
   const [movRep,setMovRep]=useState([]);
   useEffect(()=>{(async()=>{const [y,m]=mes.split("-").map(Number);const fin=mes+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0");
     const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",mes+"-01").lte("fecha",fin);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[mes,data.repuestos]);
@@ -1083,7 +1112,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
       {maqActivas.map(m=>{
         const vm=ventasMes.filter(v=>v.maquinaId===m.id);
         const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
-        const cost=vm.reduce((s,v)=>{const p=data.productos.find(p=>p.id===v.productoId);return s+(p?p.costo*v.cantidad:0);},0);
+        const ce=costoDeVentas(data,vm,m);const cost=ce.costo;
         const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
         const rep=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
         const com=comPOS[m.id]?.comision||0;
@@ -1097,13 +1126,18 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
               <span className={`badge ${tipo==="positive"?"green":tipo==="negative"?"red":"amber"}`}>ROI: {roi}%</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
-              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod.",fmt(cost),"var(--muted)"],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Repuestos",fmt(rep),"var(--red)"],...(m.conPos?[["Comisión POS ("+(+m.comisionPos||0)+"%)",fmt(com),"var(--red)"]]:[]),["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c])=>(
+              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod."+(ce.ingS>0?" (estimado)":""),fmt(cost),"var(--muted)",ce.ingS>0?"real "+fmt(ce.costoR)+" + estimado "+fmt(ce.costoE):""],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Repuestos",fmt(rep),"var(--red)"],...(m.conPos?[["Comisión POS ("+(+m.comisionPos||0)+"%)",fmt(com),"var(--red)"]]:[]),["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c,sub])=>(
                 <div key={l} style={{background:"rgba(0,0,0,.2)",padding:"7px 10px",borderRadius:8}}>
                   <div style={{fontSize:9,color:"var(--muted)",marginBottom:2,textTransform:"uppercase"}}>{l}</div>
                   <div style={{fontSize:13,fontWeight:700,color:c}}>{v}</div>
+                  {sub&&<div style={{fontSize:9,color:"var(--muted)",marginTop:2}}>{sub}</div>}
                 </div>
               ))}
             </div>
+            {ce.ingS>0&&<div style={{padding:"7px 10px",background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,fontSize:11,color:"var(--amber)",marginBottom:8}}>
+              ⚠️ {(ce.pctEst*100).toFixed(0)}% de las ventas ({fmt(ce.ingS)}) no tiene planograma: su costo está <strong>estimado al {(ce.ratio*100).toFixed(0)}%</strong> de la venta ({ce.metodo}). Sube la foto de la máquina para tener el costo real.
+            </div>}
+            {!(+m.alquiler>0)&&<div style={{padding:"7px 10px",background:"rgba(100,116,139,.12)",borderRadius:8,fontSize:11,color:"var(--muted)",marginBottom:8}}>ℹ️ Esta máquina tiene alquiler S/ 0: revisa si falta registrarlo en Máquinas.</div>}
             <div style={{padding:"7px 10px",background:"rgba(0,0,0,.2)",borderRadius:8,fontSize:12}}>
               {util>=100&&"✅ Muy rentable"}{util>=0&&util<100&&"⚠️ Rentable con margen ajustado"}{util<0&&"❌ No rentable — revisar alquiler o gastos"}
             </div>
@@ -1474,12 +1508,12 @@ function Proveedores({data,save,del,soloEditar=false}){
 // ─── MÁQUINAS ─────────────────────────────────────────────────────────────────
 function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
-  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO)};const [form,setForm]=useState(EF);
+  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO),margenGanancia:"40"};const [form,setForm]=useState(EF);
   const doSave=async()=>{
     if(!form.nombre||!form.ubicacion)return;
     setModal(false);setForm(EF);setEditando(null);
-    if(editando)await save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0});
-    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,activa:true});}
+    if(editando)await save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia});
+    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,activa:true});}
   };
   const toggleActiva=async(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
   const puedeVerAlquiler=esAdmin||soloEditar;
@@ -1503,15 +1537,16 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
       <div className="section">
         <div className="section-header"><h3>Máquinas registradas</h3><button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Máquina</th><th>Ubicación</th>{puedeVerAlquiler&&<th>Alquiler/mes</th>}<th>POS</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Máquina</th><th>Ubicación</th>{puedeVerAlquiler&&<th>Alquiler/mes</th>}<th>Ganancia</th><th>POS</th><th>Estado</th><th>Acciones</th></tr></thead>
           <tbody>{data.maquinas.map(m=>(<tr key={m.id}>
             <td><strong>{m.nombre}</strong></td>
             <td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}</td>
             {puedeVerAlquiler&&<td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>}
+            <td>{m.margenGanancia!=null?m.margenGanancia:40}%</td>
             <td><div onClick={()=>save("maquinas",m.id,{...m,conPos:!m.conPos,comisionPos:!m.conPos?(+m.comisionPos||COMISION_POS_DEFECTO):(+m.comisionPos||0)})} title="Toca para cambiar entre Con POS y Sin POS" style={{cursor:"pointer",display:"inline-block"}}>{m.conPos?<span className="badge blue">POS {+m.comisionPos||0}%</span>:<span className="badge" style={{opacity:.7}}>Sin POS</span>}</div></td>
             <td><div onClick={()=>toggleActiva(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Activa":"Inactiva"}</div></td>
             <td><div style={{display:"flex",gap:5}}>
-              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO)});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO),margenGanancia:String(m.margenGanancia!=null?m.margenGanancia:40)});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
               {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(m)}><Icon name="trash" size={12}/></button>}
             </div></td>
           </tr>))}</tbody>
@@ -1523,6 +1558,10 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
         <div className="form-group"><label>Nombre / Código</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Máquina D4"/></div>
         <div className="form-group"><label>Ubicación</label><input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: CC Real Plaza - Piso 2"/></div>
         <div className="form-group"><label>Alquiler mensual (S/)</label><input type="number" step="0.01" value={form.alquiler} onChange={e=>setForm({...form,alquiler:e.target.value})}/></div>
+        <div className="form-group"><label>% de ganancia que se aplica a los productos</label>
+          <input type="number" step="0.1" min="0" value={form.margenGanancia} onChange={e=>setForm({...form,margenGanancia:e.target.value})}/>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Normalmente 40% (en algunas máquinas 30%). Se suma al costo para el precio de venta y se usa para estimar el costo cuando todavía no hay planograma.</div>
+        </div>
         <div className="form-group"><label>Medio de cobro</label>
           <div style={{display:"flex",gap:8}}>
             {[[true,"Con POS"],[false,"Sin POS"]].map(([v,l])=>(
@@ -4262,26 +4301,30 @@ function GestionUsuarios({data,save,del}){
   const [confirmDel,setConfirmDel]=useState(null);
   const [busqueda,setBusqueda]=useState("");
   const [linkCopiado,setLinkCopiado]=useState(null);
-  const EF={nombre:"",dni:"",rol:"abastecedor",rolId:"",password:"",crearPass:true,sueldo:""};
+  const EF={nombre:"",dni:"",rol:"abastecedor",rolId:"",password:"",crearPass:true,sueldo:"",tieneAcceso:true,telefono:"",turno:TURNOS[0],fechaIngreso:today(),notas:""};
   const [form,setForm]=useState(EF);
   const generarToken=()=>Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
   const baseUrl=window.location.origin+window.location.pathname;
   const doSave=async()=>{
     if(!form.nombre||!form.dni)return;
     setModal(false);setForm(EF);setEditando(null);
+    const extra={sueldo:+form.sueldo||0,telefono:form.telefono||"",turno:form.turno||"",fechaIngreso:form.fechaIngreso||null,notas:form.notas||"",tieneAcceso:!!form.tieneAcceso};
     if(editando){
-      const upd={...editando,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null,sueldo:+form.sueldo||0};
-      if(form.password)upd.password=form.password;
+      const upd={...editando,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.tieneAcceso?(form.rolId||null):null,...extra};
+      if(form.tieneAcceso&&form.password)upd.password=form.password;
+      // Si ahora entra al sistema y todavía no tiene cómo ingresar, se genera su link de registro
+      if(form.tieneAcceso&&!upd.password&&!upd.token)upd.token=generarToken();
+      if(!form.tieneAcceso){upd.password=null;upd.token=null;}
       await save("usuarios",editando.id,upd);
     }else{
       const id=uid();
-      const token=form.crearPass?null:generarToken();
-      const password=form.crearPass&&form.password?form.password:null;
-      await save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.rolId||null,sueldo:+form.sueldo||0,activo:true,token,password,creadoEn:today()});
+      const token=form.tieneAcceso&&!form.crearPass?generarToken():null;
+      const password=form.tieneAcceso&&form.crearPass&&form.password?form.password:null;
+      await save("usuarios",id,{id,nombre:form.nombre,dni:form.dni,rol:form.rol,rolId:form.tieneAcceso?(form.rolId||null):null,...extra,activo:true,token,password,creadoEn:today()});
     }
   };
   // Al editar se carga TODO, incluido el rol personalizado (antes se perdía al guardar)
-  const abrirEditar=(u)=>{setForm({nombre:u.nombre||"",dni:u.dni||"",rol:u.rol,rolId:u.rolId||"",password:"",crearPass:true,sueldo:u.sueldo?String(u.sueldo):""});setEditando(u);setModal(true);};
+  const abrirEditar=(u)=>{setForm({nombre:u.nombre||"",dni:u.dni||"",rol:u.rol,rolId:u.rolId||"",password:"",crearPass:true,sueldo:u.sueldo?String(u.sueldo):"",tieneAcceso:u.tieneAcceso!==false,telefono:u.telefono||"",turno:u.turno||TURNOS[0],fechaIngreso:u.fechaIngreso||today(),notas:u.notas||""});setEditando(u);setModal(true);};
   const rolesPers=(data.roles||[]).filter(r=>!['rol_admin','rol_abastecedor','rol_almacenero'].includes(r.id)&&r.activo!==false);
   const copiarLink=(u)=>{
     const link=baseUrl+"?registro="+u.token;
@@ -4297,6 +4340,10 @@ function GestionUsuarios({data,save,del}){
         <span style={{color:"var(--muted)",fontSize:12}}>
           Todos los usuarios ingresan con <strong>DNI + contraseña</strong>. Puedes crear la contraseña tú mismo al crear el usuario, o enviar el link para que el usuario la cree. Acceso inicial del sistema: DNI <strong>00000000</strong> / contraseña <strong>gamatic2024</strong>.
         </span>
+      </div>
+      <div className="cards">
+        <div className="card"><div className="card-label">Personal activo</div><div className="card-value blue">{data.usuarios.filter(u=>u.activo!==false).length}</div><div className="card-sub">{data.usuarios.filter(u=>u.tieneAcceso===false).length} sin acceso al sistema</div></div>
+        <div className="card"><div className="card-label">Planilla mensual</div><div className="card-value amber">{fmt(data.usuarios.filter(u=>u.activo!==false).reduce((t,u)=>t+(+u.sueldo||0),0))}</div><div className="card-sub">Solo activos</div></div>
       </div>
       <SearchBar value={busqueda} onChange={setBusqueda} placeholder="Buscar por nombre o DNI..." total={data.usuarios.length} filtrado={usuariosFiltrados.length}/>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
@@ -4318,24 +4365,26 @@ function GestionUsuarios({data,save,del}){
                       <span style={{fontSize:11,color:"var(--muted)"}}>DNI: <strong>{u.dni}</strong></span>
                       <span className="badge blue">{u.rol}</span>
                       <span style={{fontSize:11,color:"var(--muted)"}}>Sueldo: <strong>{u.sueldo>0?fmt(u.sueldo):"sin definir"}</strong></span>
+                      {u.telefono&&<span style={{fontSize:11,color:"var(--muted)"}}>📞 {u.telefono}</span>}
+                      {u.turno&&<span style={{fontSize:11,color:"var(--muted)"}}>{u.turno}</span>}
                       {u.rolId&&(()=>{const r=(data.roles||[]).find(x=>x.id===u.rolId);return r
                         ?<span title={(r.modulos||[]).length+" módulos"} style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(124,58,237,.12)",color:"#7c3aed"}}>✨ {r.nombre}</span>
                         :<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(239,68,68,.15)",color:"var(--red)"}}>⚠️ Rol eliminado</span>;})()}
-                      <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:u.password?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:u.password?"var(--green)":"var(--accent)"}}>
-                        {u.password?"✅ Con acceso":"⏳ Pendiente registro"}
+                      <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:u.tieneAcceso===false?"rgba(100,116,139,.15)":u.password?"rgba(16,185,129,.15)":"rgba(245,158,11,.15)",color:u.tieneAcceso===false?"var(--muted)":u.password?"var(--green)":"var(--accent)"}}>
+                        {u.tieneAcceso===false?"👤 Sin acceso al sistema":u.password?"✅ Con acceso":"⏳ Pendiente registro"}
                       </span>
                       {!u.activo&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(239,68,68,.15)",color:"var(--red)"}}>Inactivo</span>}
                     </div>
                   </div>
                 </div>
                 <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                  {!u.password&&u.token&&(
+                  {u.tieneAcceso!==false&&!u.password&&u.token&&(
                     <button onClick={()=>copiarLink(u)}
                       style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:8,border:"1px solid var(--accent)",background:"rgba(245,158,11,.08)",color:"var(--accent)",cursor:"pointer",fontSize:12,fontWeight:600}}>
                       {linkCopiado===u.id?"✅ ¡Copiado!":"🔗 Copiar link registro"}
                     </button>
                   )}
-                  {u.password&&(
+                  {u.tieneAcceso!==false&&u.password&&(
                     <button onClick={()=>{if(window.confirm("¿Reiniciar contraseña?"))save("usuarios",u.id,{...u,password:null,token:generarToken()});}}
                       style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--surface2)",color:"var(--muted)",cursor:"pointer",fontSize:12}}>
                       🔄 Reiniciar contraseña
@@ -4356,6 +4405,19 @@ function GestionUsuarios({data,save,del}){
           <div className="form-group"><label>Nombre completo</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Juan Pérez García"/></div>
           <div className="form-group"><label>DNI</label><input value={form.dni} onChange={e=>setForm({...form,dni:e.target.value})} placeholder="12345678" maxLength={8}/></div>
         </div>
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          {[[true,"🔑 Entra al sistema"],[false,"👤 Sin acceso al sistema"]].map(([v,l])=>(
+            <button key={l} type="button" className={`btn btn-sm ${form.tieneAcceso===v?"btn-primary":"btn-secondary"}`} onClick={()=>setForm({...form,tieneAcceso:v})}>{l}</button>
+          ))}
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Teléfono</label><input value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})} placeholder="999-888-777"/></div>
+          <div className="form-group"><label>Turno</label><select value={form.turno} onChange={e=>setForm({...form,turno:e.target.value})}>{TURNOS.map(t=><option key={t}>{t}</option>)}</select></div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Fecha de ingreso</label><input type="date" value={form.fechaIngreso} onChange={e=>setForm({...form,fechaIngreso:e.target.value})}/></div>
+          <div className="form-group"><label>Notas (opcional)</label><input value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})}/></div>
+        </div>
         <div className="form-group"><label>Sueldo mensual (S/)</label><input type="number" step="0.01" min="0" value={form.sueldo} onChange={e=>setForm({...form,sueldo:e.target.value})} placeholder="Ej: 1500.00"/></div>
         <div className="form-group"><label>Rol base</label>
           <select value={form.rol} onChange={e=>{const nb=e.target.value;const r=(data.roles||[]).find(x=>x.id===form.rolId);setForm({...form,rol:nb,rolId:r&&r.rolBase===nb?form.rolId:""});}}>
@@ -4364,7 +4426,7 @@ function GestionUsuarios({data,save,del}){
             <option value="almacenero">🏭 Almacenero</option>
           </select>
         </div>
-        <div className="form-group"><label>Rol personalizado (opcional)</label>
+        {form.tieneAcceso&&<div className="form-group"><label>Rol personalizado (opcional)</label>
           <select value={form.rolId||""} onChange={e=>{const r=(data.roles||[]).find(x=>x.id===e.target.value);setForm({...form,rolId:e.target.value,rol:r?r.rolBase:form.rol});}}>
             <option value="">Sin rol personalizado</option>
             {rolesPers.map(r=><option key={r.id} value={r.id}>✨ {r.nombre} (base: {r.rolBase})</option>)}
@@ -4374,8 +4436,8 @@ function GestionUsuarios({data,save,del}){
               ?"Aún no hay roles personalizados. Créalos en Administración → Roles y permisos."
               :"Con un rol personalizado el usuario solo ve los módulos de ese rol. El rol base se ajusta solo."}
           </div>
-        </div>
-        {!editando&&(
+        </div>}
+        {!editando&&form.tieneAcceso&&(
           <div style={{background:"var(--surface2)",borderRadius:9,padding:"12px 14px",marginBottom:14,border:"1px solid var(--border)"}}>
             <div style={{fontSize:12,fontWeight:700,marginBottom:10,color:"var(--text)"}}>Método de acceso</div>
             <div style={{display:"flex",gap:8,marginBottom:form.crearPass?10:0}}>
@@ -4397,7 +4459,7 @@ function GestionUsuarios({data,save,del}){
             )}
           </div>
         )}
-        {editando&&(
+        {editando&&form.tieneAcceso&&(
           <div className="form-group">
             <label>Nueva contraseña (dejar vacío para no cambiar)</label>
             <input type="text" value={form.password||""} onChange={e=>setForm({...form,password:e.target.value})}
@@ -5433,6 +5495,30 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
   const [guardandoFoto,setGuardandoFoto]=useState(false);
   const [errorFoto,setErrorFoto]=useState("");
   const [fotoGuardada,setFotoGuardada]=useState(null);
+  // Foto pasada: permite registrar un abastecimiento de otro día (para ponerse al día)
+  const [fotoPasada,setFotoPasada]=useState(false);
+  const [fechaPasada,setFechaPasada]=useState("");
+  const [horaPasada,setHoraPasada]=useState("12:00");
+  const momentoFoto=()=>{
+    if(!modoLeer&&fotoPasada&&fechaPasada)return{fecha:fechaPasada,hora:(horaPasada||"12:00").slice(0,5)+":00"};
+    return ahoraLocal();
+  };
+  const fechaPasadaInvalida=!modoLeer&&fotoPasada&&(!fechaPasada||fechaPasada>ahoraLocal().fecha);
+  const selectorFotoPasada=!modoLeer?(
+    <div style={{textAlign:"left",marginBottom:12,background:"rgba(59,130,246,.06)",border:"1px solid rgba(59,130,246,.25)",borderRadius:10,padding:"10px 14px"}}>
+      <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+        <input type="checkbox" checked={fotoPasada} onChange={e=>{setFotoPasada(e.target.checked);if(!e.target.checked){setFechaPasada("");}}}/>
+        Es una foto pasada (de otro día)
+      </label>
+      {fotoPasada&&<div style={{marginTop:8}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div><div style={{fontSize:10,color:"var(--muted)",marginBottom:2}}>Fecha del abastecimiento</div><input type="date" value={fechaPasada} max={ahoraLocal().fecha} onChange={e=>setFechaPasada(e.target.value)}/></div>
+          <div><div style={{fontSize:10,color:"var(--muted)",marginBottom:2}}>Hora aproximada</div><input type="time" value={horaPasada} onChange={e=>setHoraPasada(e.target.value)}/></div>
+        </div>
+        <div style={{fontSize:11,color:fechaPasadaInvalida?"var(--red)":"var(--muted)",marginTop:6}}>{fechaPasadaInvalida?"Elige una fecha que no sea futura.":"Las ventas desde esa fecha y hora se asignarán a estos productos. Si no recuerdas la hora, pon la de la mañana."}</div>
+      </div>}
+    </div>
+  ):null;
   const [cargandoFoto,setCargandoFoto]=useState(false);
   const modoLeer=!!fotoInicial;                                       // viene de «Fotos por leer»: la foto ya está guardada
   const soloGuardar=!modoLeer&&sesionUsuario?.rol==="abastecedor";    // el abastecedor solo guarda la foto; otro usuario la lee después
@@ -5542,11 +5628,11 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
 
   // Guarda la foto en el almacenamiento y la deja registrada para que otro usuario la lea
   const guardarFoto=async()=>{
-    if(!imagenUrl||guardandoFoto)return;
+    if(!imagenUrl||guardandoFoto||fechaPasadaInvalida)return;
     setGuardandoFoto(true);setErrorFoto("");
     let ruta=null,subida=false,insertada=false;
     try{
-      const ahora=ahoraLocal();
+      const ahora=momentoFoto();
       const id=uid();
       const blob=await (await fetch(imagenUrl)).blob();
       ruta=(maqId||"sin-maquina")+"/"+ahora.fecha+"_"+ahora.hora.replace(/:/g,"")+"_"+String(id).slice(0,8)+".jpg";
@@ -5559,6 +5645,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
       if(eIns)throw eIns;
       insertada=true;
       setFotoGuardada(fila);
+      setFotoPasada(false);setFechaPasada("");
       setPaso(5);
       if(recargar){try{await recargar();}catch(_){/* la foto ya quedó guardada */}}
     }catch(err){
@@ -5571,7 +5658,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
   };
 
   const guardarPlanograma=async()=>{
-    if(!maqId)return;
+    if(!maqId||fechaPasadaInvalida){if(fechaPasadaInvalida)alert("Elige la fecha de la foto pasada.");return;}
     const validas=mapa
       .filter(m=>String(m.espiral).trim()&&String(m.producto).trim())
       .map(m=>{const p=buscarCatalogo(m.producto);return{...m,espiral:String(m.espiral).trim(),producto:String(m.producto).trim(),productoId:p?.id||null};});
@@ -5579,7 +5666,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
     const omitidas=mapa.length-validas.length;
     if(omitidas>0&&!window.confirm(omitidas+" espiral(es) sin producto no se guardarán. ¿Continuar?"))return;
     // Si se lee una foto guardada, el abastecimiento es de CUANDO el abastecedor la subió (no de cuando se leyó)
-    const ahora=modoLeer?{fecha:fotoInicial.fecha,hora:fotoInicial.hora||"00:00:00"}:ahoraLocal();
+    const ahora=modoLeer?{fecha:fotoInicial.fecha,hora:fotoInicial.hora||"00:00:00"}:momentoFoto();
     const id=uid();
     const fila={
       id,
@@ -5610,6 +5697,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
       await save("planogramas",id,fila);
     }
     setMapa(validas);
+    setFotoPasada(false);setFechaPasada("");
     setPaso(4);
   };
 
@@ -5809,6 +5897,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
                 </select>
               </div>
             )}
+            {selectorFotoPasada}
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
               {!modoLeer&&(
                 <label className="btn btn-secondary" style={{flex:1,justifyContent:"center",cursor:"pointer",minWidth:140}}>
@@ -5817,15 +5906,15 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
                 </label>
               )}
               {soloGuardar
-                ?<button className="btn btn-primary" onClick={guardarFoto} disabled={guardandoFoto} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>{guardandoFoto?"⏳ Guardando...":"💾 Guardar foto"}</button>
+                ?<button className="btn btn-primary" onClick={guardarFoto} disabled={guardandoFoto||fechaPasadaInvalida} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>{guardandoFoto?"⏳ Guardando...":"💾 Guardar foto"}</button>
                 :<>
                   {tieneLectura
                     ?<>
                       <button className="btn btn-primary" onClick={()=>{setMapa(fotoInicial.lectura);setPaso(3);}} disabled={!maqId} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>📖 Ver la lectura ({fotoInicial.lectura.length} selecciones)</button>
                       <button className="btn btn-secondary" onClick={analizarFoto} disabled={!maqId} style={{flex:1,justifyContent:"center",minWidth:140}}>🔄 Leer de nuevo</button>
                     </>
-                    :<button className="btn btn-primary" onClick={analizarFoto} disabled={!maqId} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>✅ Se ve bien — Analizar</button>}
-                  {!modoLeer&&<button className="btn btn-secondary" onClick={guardarFoto} disabled={guardandoFoto} style={{flex:1,justifyContent:"center",minWidth:160}}>{guardandoFoto?"⏳ Guardando...":"💾 Guardar para leer después"}</button>}
+                    :<button className="btn btn-primary" onClick={analizarFoto} disabled={!maqId||fechaPasadaInvalida} style={{flex:2,justifyContent:"center",padding:12,fontSize:14,minWidth:200}}>✅ Se ve bien — Analizar</button>}
+                  {!modoLeer&&<button className="btn btn-secondary" onClick={guardarFoto} disabled={guardandoFoto||fechaPasadaInvalida} style={{flex:1,justifyContent:"center",minWidth:160}}>{guardandoFoto?"⏳ Guardando...":"💾 Guardar para leer después"}</button>}
                 </>}
             </div>
             {!soloGuardar&&!maqId&&<div style={{fontSize:11,color:"var(--muted)",marginTop:8}}>{tieneLectura?"Elige la máquina para ver la lectura.":"Elige la máquina para poder analizar la foto."}</div>}
@@ -5854,6 +5943,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
       {/* PASO 3: Confirmar mapa */}
       {paso===3&&(
         <div>
+          {selectorFotoPasada}
           <datalist id="prod-catalogo">{(data.productos||[]).map(p=><option key={p.id} value={p.nombre}/>)}</datalist>
           {imagenUrl&&(
             <div className="section" style={{marginBottom:12}}>
@@ -8062,6 +8152,7 @@ const ADMIN_NAV=[
   {id:"depositoPos",label:"Depósito POS",icon:"money"},
   {id:"ventas",label:"Ventas",icon:"chart"},
   {id:"cobranzas",label:"Cobranzas",icon:"money"},
+  {id:"traslados",label:"Traslados",icon:"transfer"},
   {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
   {id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
@@ -8075,8 +8166,7 @@ const ADMIN_NAV=[
   {id:"ventasAtento",label:"Ventas Atento",icon:"chart"},
   {id:"reportes",label:"Reportes",icon:"trophy"},
   {section:"Administración"},
-  {id:"personal",label:"Personal",icon:"personal"},
-  {id:"gestionUsuarios",label:"Gestión de usuarios",icon:"users"},{id:"gestionRoles",label:"Roles y permisos",icon:"lock"},
+  {id:"gestionUsuarios",label:"Personal y usuarios",icon:"users"},{id:"gestionRoles",label:"Roles y permisos",icon:"lock"},
 ];
 const ABASTECEDOR_NAV=[
   {section:"Mi día"},
@@ -8118,6 +8208,46 @@ const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Al
 
 // ─── APP ──────────────────────────────────────────────────────────────────────────
 // Módulos que puede ver un usuario: los de su rol base, o los de su rol personalizado si tiene uno
+// ─── Menú agrupado (admin y almacenero): cada grupo reúne módulos relacionados como pestañas ───
+const GRUPOS=[
+  {id:"g_maquinas",label:"Máquinas",icon:"machine",hijos:[["maquinas","Lista"],["stockMaquina","Stock por máquina"],["planograma","Foto de la máquina"],["fotosPorLeer","Fotos por leer"],["historialPlanogramas","Historial de planogramas"]]},
+  {id:"g_mantenimiento",label:"Mantenimiento",icon:"wrench",hijos:[["tickets","Tickets"],["prekit","Pre-Kit reposición"]]},
+  {id:"g_productos",label:"Productos",icon:"product",hijos:[["productos","Productos y stock"],["lotes","Lotes y proveedores"],["proveedores","Proveedores"],["adminListasPrecios","Listas de precios"]]},
+  {id:"g_movimientos",label:"Movimientos",icon:"transfer",hijos:[["traslados","Traslados"],["devoluciones","Devoluciones"]]},
+  {id:"g_ventas",label:"Ventas",icon:"chart",hijos:[["ventas","Ventas"],["ventasAtento","Importar Atento"],["reportes","Reportes"]]},
+  {id:"g_cobranzas",label:"Cobranzas",icon:"money",hijos:[["cobranzas","Cobranzas"],["sencillo","Control de sencillo"],["depositoPos","Depósito POS"]]},
+  {id:"g_cafeteras",label:"Cafeteras",icon:"coffee",hijos:[["cafeteras","Control"],["ventasCafeteras","Ventas"]]},
+  {id:"g_equipo",label:"Equipo",icon:"users",hijos:[["gestionUsuarios","Personal y usuarios"],["gestionRoles","Roles y permisos"],["horario","Horario semanal"]]},
+];
+const MENU_AGRUPADO=[
+  {section:"Resumen",items:["mihorario","dashboard","rentabilidad","cierreDia"]},
+  {section:"Operaciones",items:["g_maquinas","g_mantenimiento"]},
+  {section:"Almacén",items:["g_productos","g_movimientos","repuestos"]},
+  {section:"Ventas y cobros",items:["g_ventas","g_cobranzas","gastos"]},
+  {section:"Cafeteras",items:["g_cafeteras"]},
+  {section:"Administración",items:["g_equipo"]},
+];
+function construirMenuAgrupado(navBase,idsOk){
+  const hoja=(id)=>navBase.find(x=>x.id===id);
+  const usados=new Set();const out=[];
+  MENU_AGRUPADO.forEach(sec=>{
+    const items=[];
+    sec.items.forEach(it=>{
+      const g=GRUPOS.find(x=>x.id===it);
+      if(g){
+        const hs=g.hijos.filter(([id])=>idsOk.includes(id)&&hoja(id));
+        hs.forEach(([id])=>usados.add(id));
+        if(hs.length>=2)items.push({grupo:g,hijos:hs});
+        else if(hs.length===1)items.push({hoja:hoja(hs[0][0])});
+      }else if(idsOk.includes(it)&&hoja(it)){usados.add(it);items.push({hoja:hoja(it)});}
+    });
+    if(items.length){out.push({section:sec.section});items.forEach(i=>out.push(i));}
+  });
+  const resto=navBase.filter(i=>i.id&&idsOk.includes(i.id)&&!usados.has(i.id));
+  if(resto.length){out.push({section:"Otros"});resto.forEach(h=>out.push({hoja:h}));}
+  return out;
+}
+
 const idsPermitidos=(rol,rolId,roles)=>{
   const base=rol==="admin"?ADMIN_NAV:rol==="almacenero"?ALMACENERO_NAV:ABASTECEDOR_NAV;
   const ids=base.filter(i=>i.id).map(i=>i.id);
@@ -8206,6 +8336,9 @@ export default function App(){
     if(!yaFoto)setFotoPendiente(mid);
   };
   const nFotosPend=(data.fotosMaquina||[]).filter(f=>f.estado==="pendiente").length;
+  const menu=(esAdmin||esAlmacenero)?construirMenuAgrupado(navBase,idsOk):nav.map(i=>i.section?{section:i.section}:{hoja:i});
+  const grupoActual=(menu.find(i=>i.grupo&&i.hijos.some(([id])=>id===tab))||{}).grupo||null;
+  const hijosActual=grupoActual?(menu.find(i=>i.grupo===grupoActual).hijos):[];
   const nombreUsuario=sesionUsuario?.nombre||ROL_NOMBRE[usuario]||usuario;
   const rolUsuario=sesionUsuario?.rol||usuario;
   const dateStr=new Date().toLocaleDateString("es-PE",{weekday:"short",day:"numeric",month:"short"});
@@ -8263,9 +8396,11 @@ export default function App(){
         </div>
         <div className="sidebar-role">{ROL_ICONO[rolUsuario]||ROL_ICONO[usuario]} <span style={{display:"flex",flexDirection:"column",gap:1}}><strong style={{color:"#e2e8f0",fontSize:12}}>{nombreUsuario}</strong><span style={{color:"#64748b",fontSize:10,textTransform:"capitalize"}}>{rolUsuario}</span></span></div>
         <nav className="nav">
-          {nav.map((item,i)=>item.section
-            ?<div key={i} className="nav-section">{item.section}</div>
-            :<div key={item.id} className={`nav-item ${tab===item.id?"active":""}`} onClick={()=>navegar(item.id)}><Icon name={item.icon} size={15}/>{item.label}{item.id==="fotosPorLeer"&&nFotosPend>0&&<span style={{marginLeft:8,background:"var(--accent)",color:"#000",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{nFotosPend}</span>}</div>
+          {menu.map((item,i)=>item.section
+            ?<div key={"s"+i} className="nav-section">{item.section}</div>
+            :item.grupo
+            ?<div key={item.grupo.id} className={`nav-item ${grupoActual===item.grupo?"active":""}`} onClick={()=>navegar(grupoActual===item.grupo?tab:item.hijos[0][0])}><Icon name={item.grupo.icon} size={15}/>{item.grupo.label}{item.hijos.some(([id])=>id==="fotosPorLeer")&&nFotosPend>0&&<span style={{marginLeft:8,background:"var(--accent)",color:"#000",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{nFotosPend}</span>}</div>
+            :<div key={item.hoja.id} className={`nav-item ${tab===item.hoja.id?"active":""}`} onClick={()=>navegar(item.hoja.id)}><Icon name={item.hoja.icon} size={15}/>{item.hoja.label}{item.hoja.id==="fotosPorLeer"&&nFotosPend>0&&<span style={{marginLeft:8,background:"var(--accent)",color:"#000",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{nFotosPend}</span>}</div>
           )}
         </nav>
         <div className="logout-btn" onClick={()=>{setUsuario(null);setSesionUsuario(null);}}><Icon name="logout" size={15}/> Cerrar sesión</div>
@@ -8273,10 +8408,17 @@ export default function App(){
       <main className="main">
         <div className="topbar">
           <button className="hamburger" onClick={()=>setSidebarOpen(true)}><Icon name="menu" size={22}/></button>
-          <h1>{TITLES[tab]}</h1>
+          <h1>{grupoActual?grupoActual.label:TITLES[tab]}</h1>
           <span className="topbar-date">{dateStr}</span>
         </div>
-        <div className="content"><RC/></div>
+        <div className="content">
+          {grupoActual&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+            {hijosActual.map(([id,lbl])=>(
+              <button key={id} className={`btn btn-sm ${tab===id?"btn-primary":"btn-secondary"}`} onClick={()=>setTab(id)}>{lbl}{id==="fotosPorLeer"&&nFotosPend>0&&<span style={{marginLeft:6,background:"var(--accent)",color:"#000",borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:800}}>{nFotosPend}</span>}</button>
+            ))}
+          </div>}
+          <RC/>
+        </div>
       </main>
     </div>
     {fotoPendiente&&(()=>{
