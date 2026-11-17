@@ -1725,12 +1725,19 @@ function Proveedores({data,save,del,soloEditar=false}){
 // ─── MÁQUINAS ─────────────────────────────────────────────────────────────────
 function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
-  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO),margenGanancia:"40",costoInversion:""};const [form,setForm]=useState(EF);
+  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO),margenGanancia:"40",costoInversion:"",esCafetera:false,activa:true};const [form,setForm]=useState(EF);
   const doSave=async()=>{
-    if(!form.nombre||!form.ubicacion)return;
+    if(!form.nombre||(form.activa&&!form.ubicacion))return;
+    const quiereCafetera=!!form.esCafetera;const maqExistente=editando;
     setModal(false);setForm(EF);setEditando(null);
-    if(editando)await save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0});
-    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0,activa:true});}
+    // Si es cafetera, se crea su ficha en Control de cafeteras (los insumos se llenan después, desde esa lista)
+    const crearCafetera=async(maqId)=>{
+      if((data.cafeteras||[]).some(c=>c.maquinaId===maqId))return;
+      const cid=uid();await save("cafeteras",cid,{id:cid,nombre:String(form.nombre).trim(),ubicacion:form.ubicacion,maquinaId:maqId,insumosPendientes:true,margenGanancia:100,creadoEn:today()});
+    };
+    if(editando)await save("maquinas",editando.id,{...editando,activa:!!form.activa,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0});
+    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0,activa:!!form.activa});if(quiereCafetera)await crearCafetera(id);}
+    if(maqExistente&&quiereCafetera)await crearCafetera(maqExistente.id);
   };
   const toggleActiva=async(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
   const puedeVerAlquiler=esAdmin||soloEditar;
@@ -1743,7 +1750,7 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
           <div className="section-header"><h3>Mis máquinas</h3></div>
           <div className="table-wrap"><table>
             <thead><tr><th>Máquina</th><th>Ubicación</th><th>Estado</th></tr></thead>
-            <tbody>{data.maquinas.map(m=>(<tr key={m.id}><td><strong>{m.nombre}</strong></td><td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}{m.comercioAtento&&<div style={{fontSize:10,color:"var(--accent)",marginTop:2}}>🔗 {m.comercioAtento}</div>}</td><td><span className={`badge ${m.activa?"green":"red"}`}>{m.activa?"Activa":"Inactiva"}</span></td></tr>))}</tbody>
+            <tbody>{data.maquinas.map(m=>(<tr key={m.id}><td><strong>{m.nombre}</strong></td><td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}{m.comercioAtento&&<div style={{fontSize:10,color:"var(--accent)",marginTop:2}}>🔗 {m.comercioAtento}</div>}</td><td><span className={`badge ${m.activa?"green":"red"}`}>{m.activa?"Trabajando":"Parada"}</span></td></tr>))}</tbody>
           </table></div>
         </div>
       </div>
@@ -1751,19 +1758,32 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   }
   return(
     <div>
+      {(()=>{
+        const tot=data.maquinas.length,trab=data.maquinas.filter(m=>m.activa).length,par=tot-trab;
+        const conPos=data.maquinas.filter(m=>m.conPos),sinPos=data.maquinas.filter(m=>!m.conPos);
+        const tr=(l)=>l.filter(m=>m.activa).length;
+        return(<div className="cards">
+          <div className="card"><div className="card-label">Total registradas</div><div className="card-value blue">{tot}</div><div className="card-sub">máquinas</div></div>
+          <div className="card"><div className="card-label">✅ Trabajando</div><div className="card-value green">{trab}</div><div className="card-sub">instaladas y vendiendo</div></div>
+          <div className="card"><div className="card-label">⏸️ Paradas</div><div className="card-value amber">{par}</div><div className="card-sub">sin lugar / sin operar</div></div>
+          <div className="card"><div className="card-label">💳 Con POS</div><div className="card-value blue">{conPos.length}</div><div className="card-sub">{tr(conPos)} trabajando</div></div>
+          <div className="card"><div className="card-label">💵 Sin POS</div><div className="card-value">{sinPos.length}</div><div className="card-sub">{tr(sinPos)} trabajando</div></div>
+        </div>);
+      })()}
       <div className="section">
         <div className="section-header"><h3>Máquinas registradas</h3><button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Agregar</button></div>
         <div className="table-wrap"><table>
-          <thead><tr><th>Máquina</th><th>Ubicación</th>{puedeVerAlquiler&&<th>Alquiler/mes</th>}<th>Ganancia</th><th>POS</th><th>Estado</th><th>Acciones</th></tr></thead>
-          <tbody>{data.maquinas.map(m=>(<tr key={m.id}>
+          <thead><tr><th>#</th><th>Máquina</th><th>Ubicación</th>{puedeVerAlquiler&&<th>Alquiler/mes</th>}<th>Ganancia</th><th>POS</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody>{[...data.maquinas].sort((a,b)=>(b.activa?1:0)-(a.activa?1:0)).map((m,i)=>(<tr key={m.id} style={m.activa?undefined:{opacity:.75}}>
+            <td style={{color:"var(--muted)",fontWeight:700}}>{i+1}</td>
             <td><strong>{m.nombre}</strong></td>
-            <td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion}</td>
+            <td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion||"Por definir"}</td>
             {puedeVerAlquiler&&<td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>}
             <td>{m.margenGanancia!=null?m.margenGanancia:40}%</td>
             <td><div onClick={()=>save("maquinas",m.id,{...m,conPos:!m.conPos,comisionPos:!m.conPos?(+m.comisionPos||COMISION_POS_DEFECTO):(+m.comisionPos||0)})} title="Toca para cambiar entre Con POS y Sin POS" style={{cursor:"pointer",display:"inline-block"}}>{m.conPos?<span className="badge blue">POS {+m.comisionPos||0}%</span>:<span className="badge" style={{opacity:.7}}>Sin POS</span>}</div></td>
-            <td><div onClick={()=>toggleActiva(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Activa":"Inactiva"}</div></td>
+            <td><div onClick={()=>toggleActiva(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Trabajando":"Parada"}</div></td>
             <td><div style={{display:"flex",gap:5}}>
-              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO),margenGanancia:String(m.margenGanancia!=null?m.margenGanancia:40),costoInversion:m.costoInversion?String(m.costoInversion):""});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO),margenGanancia:String(m.margenGanancia!=null?m.margenGanancia:40),costoInversion:m.costoInversion?String(m.costoInversion):"",activa:m.activa!==false});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
               {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(m)}><Icon name="trash" size={12}/></button>}
             </div></td>
           </tr>))}</tbody>
@@ -1773,10 +1793,26 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
         <h3>{editando?"Editar máquina":"Nueva máquina"}</h3>
         {editando&&<div className="edit-banner">✏️ Editando: <strong>{editando.nombre}</strong></div>}
         <div className="form-group"><label>Nombre / Código</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Máquina D4"/></div>
-        <div className="form-group"><label>Ubicación</label><input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: CC Real Plaza - Piso 2"/></div>
+        <div className="form-group"><label>Estado de la máquina</label>
+          <div style={{display:"flex",gap:8}}>
+            {[[true,"✅ Trabajando"],[false,"⏸️ Parada"]].map(([v,l])=>(
+              <button key={l} type="button" className={`btn btn-sm ${!!form.activa===v?"btn-primary":"btn-secondary"}`} onClick={()=>setForm({...form,activa:v})}>{l}</button>
+            ))}
+          </div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>{form.activa?"La máquina está instalada y vendiendo.":"Parada: queda registrada sin ubicación obligatoria y no cuenta en Dashboard, rentabilidad ni alquiler. Cuando encuentres lugar, edítala y cámbiala a Trabajando."}</div>
+        </div>
+        <div className="form-group"><label>Ubicación{!form.activa&&" (opcional mientras esté parada)"}</label><input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder={form.activa?"Ej: CC Real Plaza - Piso 2":"Por definir"}/></div>
         <div className="form-group"><label>Alquiler mensual (S/)</label><input type="number" step="0.01" value={form.alquiler} onChange={e=>setForm({...form,alquiler:e.target.value})}/></div>
         <div className="form-group"><label>Costo de la máquina / inversión (S/)</label><input type="number" step="0.01" min="0" value={form.costoInversion} onChange={e=>setForm({...form,costoInversion:e.target.value})} placeholder="Lo que costó comprar e instalar la máquina"/>
           <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Sirve para calcular en cuántos meses se recupera la inversión (se ve en Rentabilidad).</div></div>
+        {!(editando&&(data.cafeteras||[]).some(c=>c.maquinaId===editando.id))&&(
+          <div className="form-group"><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={!!form.esCafetera} onChange={e=>setForm({...form,esCafetera:e.target.checked})} style={{width:"auto"}}/>
+            ☕ Esta máquina es una cafetera
+          </label>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Se crea sola en Control de cafeteras con el aviso «Falta cargar insumos»; ahí la eliges y llenas los costos de los insumos.</div></div>
+        )}
+        {editando&&(data.cafeteras||[]).some(c=>c.maquinaId===editando.id)&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:12}}>☕ Esta máquina ya tiene su cafetera en Control de cafeteras.</div>}
         <div className="form-group"><label>% de ganancia que se aplica a los productos</label>
           <input type="number" step="0.1" min="0" value={form.margenGanancia} onChange={e=>setForm({...form,margenGanancia:e.target.value})}/>
           <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Normalmente 40% (en algunas máquinas 30%). Se suma al costo para el precio de venta y se usa para estimar el costo cuando todavía no hay planograma.</div>
@@ -2759,7 +2795,7 @@ function MiHorario({data,save,puedeComentarMaq=false,sesionUsuario=null}){
                         <div style={{fontWeight:700,fontSize:15}}>{m?.nombre||maqId}</div>
                         {m?.ubicacion&&<div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>📍 {m.ubicacion}</div>}
                       </div>
-                      <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:m?.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m?.activa?"var(--green)":"var(--red)",flexShrink:0}}>{m?.activa?"Activa":"Inactiva"}</span>
+                      <span style={{fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,background:m?.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m?.activa?"var(--green)":"var(--red)",flexShrink:0}}>{m?.activa?"Trabajando":"Parada"}</span>
                     </div>
                     {puedeComentarMaq&&<button onClick={()=>{setComModal({dia:da,maqId});setComTexto("");}}
                       style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:8,border:"1px dashed var(--border)",background:"transparent",color:"var(--muted)",cursor:"pointer",fontSize:11,fontWeight:600,width:"100%",justifyContent:"center"}}>
@@ -5146,7 +5182,7 @@ function Cafeteras({data,save,del,esAdmin=false}){
 
   const doSave=async()=>{
     if(!form.nombre)return;
-    const obj={...form,recetas:receta};
+    const obj={...form,recetas:receta,insumosPendientes:false};
     if(editando)await save("cafeteras",editando.id,{...editando,...obj});
     else{const id=uid();await save("cafeteras",id,{id,...obj,creadoEn:today()});}
     setModal(false);setForm(EF);setReceta(EF.recetas);setEditando(null);
@@ -5186,7 +5222,7 @@ function Cafeteras({data,save,del,esAdmin=false}){
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
                   <div style={{width:44,height:44,borderRadius:12,background:"rgba(245,158,11,.1)",border:"2px solid rgba(245,158,11,.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>☕</div>
                   <div>
-                    <div style={{fontSize:15,fontWeight:800}}>{caf.nombre}</div>
+                    <div style={{fontSize:15,fontWeight:800}}>{caf.nombre}{caf.insumosPendientes&&<span className="badge amber" style={{marginLeft:8,fontSize:10}}>⚠️ Falta cargar insumos</span>}</div>
                     {caf.ubicacion&&<div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>📍 {caf.ubicacion}</div>}
                   </div>
                 </div>
@@ -5205,7 +5241,7 @@ function Cafeteras({data,save,del,esAdmin=false}){
                     );
                   })}
                   {esAdmin&&<div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
-                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(caf)}><Icon name="edit" size={12}/></button>
+                    <button className={`btn btn-sm ${caf.insumosPendientes?"btn-primary":"btn-secondary"}`} onClick={()=>abrirEditar(caf)}><Icon name="edit" size={12}/>{caf.insumosPendientes&&" Cargar insumos"}</button>
                     <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(caf)}><Icon name="trash" size={12}/></button>
                   </div>}
                   <span style={{fontSize:18,color:"var(--muted)",transform:isOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
