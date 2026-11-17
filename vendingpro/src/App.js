@@ -1248,6 +1248,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const [mes,setMes]=useState(mesActual());
   const [umbrales,setUmbrales]=useState(leerUmbralesRent);
   const [ordenRent,setOrdenRent]=useState("util");
+  const [filtroRent,setFiltroRent]=useState("todas");
   const cambiarUmbral=(k2,v)=>{const n={...umbrales,[k2]:v===""?"":+v};setUmbrales(n);try{if(n.minimo!==""&&n.rent!==""&&n.muy!=="")localStorage.setItem("gamatic_umbrales_rent2",JSON.stringify(n));}catch(e){}};
   const uOk={minimo:+umbrales.minimo||0,rent:+umbrales.rent||0,muy:+umbrales.muy||0};
   // Si el mes aún no termina, la utilidad mínima se prorratea por los días transcurridos
@@ -1264,6 +1265,16 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
     const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",mes+"-01").lte("fecha",fin);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[mes,data.repuestos]);
   const [iniR,finR]=rangoDeMes(mes);
   const comPOS=useComisionesPOS(data,iniR,finR);
+  // Utilidad, margen y calificación de cada máquina (sirve para ordenar y filtrar)
+  const baseRent=maqActivas.map(m=>{
+    const vm=ventasMes.filter(v=>v.maquinaId===m.id);
+    const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
+    const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
+    const rp=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
+    const u=ing-costoDeVentas(data,vm,m).costo-(m.alquiler||0)-gm-rp-(comPOS[m.id]?.comision||0);
+    const nivel=calificarRentabilidad(u,ing,uOk,minimoEf,new Set(vm.map(v=>v.fecha)).size).nivel;
+    return{m,u,mg:ing>0?u/ing:-Infinity,nivel};
+  });
   return(
     <div>
       <MesNav mes={mes} setMes={setMes}/>
@@ -1299,14 +1310,14 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
           <button key={k} className={`btn btn-sm ${ordenRent===k?"btn-primary":"btn-secondary"}`} onClick={()=>setOrdenRent(k)}>{l}</button>
         ))}
       </div>
-      {[...maqActivas].map(m=>{
-        const vm=ventasMes.filter(v=>v.maquinaId===m.id);
-        const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
-        const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
-        const rep=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
-        const u=ing-costoDeVentas(data,vm,m).costo-(m.alquiler||0)-gm-rep-(comPOS[m.id]?.comision||0);
-        return{m,u,mg:ing>0?u/ing:-Infinity};
-      }).sort((a,b)=>ordenRent==="margen"?b.mg-a.mg:b.u-a.u).map(({m},posicion)=>{
+      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:14,fontSize:12,color:"var(--muted)"}}>
+        Mostrar:
+        {[["todas","Todas"],["muy","🌟 Muy rentables"],["ok","✅ Rentables"],["poco","🟠 Poco rentables"],["neg","❌ No rentables"],...(baseRent.some(x=>x.nivel==="sin")?[["sin","Sin ventas"]]:[])].map(([k,l])=>(
+          <button key={k} className={`btn btn-sm ${filtroRent===k?"btn-primary":"btn-secondary"}`} onClick={()=>setFiltroRent(k)}>{l} ({k==="todas"?baseRent.length:baseRent.filter(x=>x.nivel===k).length})</button>
+        ))}
+      </div>
+      {baseRent.length>0&&baseRent.filter(x=>filtroRent==="todas"||x.nivel===filtroRent).length===0&&<div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Ninguna máquina en esta categoría este mes.</div>}
+      {baseRent.filter(x=>filtroRent==="todas"||x.nivel===filtroRent).sort((a,b)=>ordenRent==="margen"?b.mg-a.mg:b.u-a.u).map(({m},posicion)=>{
         const vm=ventasMes.filter(v=>v.maquinaId===m.id);
         const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
         const ce=costoDeVentas(data,vm,m);const cost=ce.costo;
@@ -1739,22 +1750,28 @@ function Proveedores({data,save,del,soloEditar=false}){
 // ─── MÁQUINAS ─────────────────────────────────────────────────────────────────
 function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
-  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO),margenGanancia:"40",costoInversion:"",esCafetera:false,activa:true};const [form,setForm]=useState(EF);
+  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO),margenGanancia:"40",costoInversion:"",tipo:"expendedora",activa:true};const [form,setForm]=useState(EF);
   const doSave=async()=>{
     if(!form.nombre||(form.activa&&!form.ubicacion))return;
     if(editando&&!!editando.activa!==!!form.activa&&!window.confirm("¿Estás seguro de que deseas cambiar la actividad de esta máquina de "+(editando.activa?"Trabajando":"Parada")+" a "+(form.activa?"Trabajando":"Parada")+"?"))return;
-    const quiereCafetera=!!form.esCafetera;const maqExistente=editando;
+    const quiereCafetera=form.tipo==="cafetera";const maqExistente=editando;
     setModal(false);setForm(EF);setEditando(null);
     // Si es cafetera, se crea su ficha en Control de cafeteras (los insumos se llenan después, desde esa lista)
     const crearCafetera=async(maqId)=>{
       if((data.cafeteras||[]).some(c=>c.maquinaId===maqId))return;
       const cid=uid();await save("cafeteras",cid,{id:cid,nombre:String(form.nombre).trim(),ubicacion:form.ubicacion,maquinaId:maqId,insumosPendientes:true,margenGanancia:100,creadoEn:today()});
     };
-    if(editando)await save("maquinas",editando.id,{...editando,activa:!!form.activa,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0});
-    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0,activa:!!form.activa});if(quiereCafetera)await crearCafetera(id);}
-    if(maqExistente&&quiereCafetera)await crearCafetera(maqExistente.id);
+    if(editando)await save("maquinas",editando.id,{...editando,tipo:form.tipo||"expendedora",activa:!!form.activa,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0});
+    else{const id=uid();await save("maquinas",id,{id,tipo:form.tipo||"expendedora",nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0,activa:!!form.activa});if(quiereCafetera)await crearCafetera(id);}
+    if(maqExistente&&quiereCafetera){
+      const cafV=(data.cafeteras||[]).find(c=>c.maquinaId===maqExistente.id);
+      if(cafV)await save("cafeteras",cafV.id,{...cafV,nombre:String(form.nombre).trim(),ubicacion:form.ubicacion});
+      else await crearCafetera(maqExistente.id);
+    }
   };
   const [confirmEstado,setConfirmEstado]=useState(null);
+  const [filtroTipo,setFiltroTipo]=useState("todas");
+  const esCaf=(m)=>m.tipo==="cafetera"||(data.cafeteras||[]).some(c=>c.maquinaId===m.id);
   const toggleActiva=async(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
   const puedeVerAlquiler=esAdmin||soloEditar;
   // Abastecedor solo visualiza
@@ -1788,18 +1805,25 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
       })()}
       <div className="section">
         <div className="section-header"><h3>Máquinas registradas</h3><button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Agregar</button></div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"0 14px 10px",alignItems:"center",fontSize:12,color:"var(--muted)"}}>
+          Mostrar:
+          {[["todas","Todas",data.maquinas.length],["expendedoras","🥤 Expendedoras",data.maquinas.filter(m=>!esCaf(m)).length],["cafeteras","☕ Cafeteras",data.maquinas.filter(esCaf).length]].map(([k,l,n])=>(
+            <button key={k} className={`btn btn-sm ${filtroTipo===k?"btn-primary":"btn-secondary"}`} onClick={()=>setFiltroTipo(k)}>{l} ({n})</button>
+          ))}
+        </div>
         <div className="table-wrap"><table>
-          <thead><tr><th>#</th><th>Máquina</th><th>Ubicación</th>{puedeVerAlquiler&&<th>Alquiler/mes</th>}<th>Ganancia</th><th>POS</th><th>Estado</th><th>Acciones</th></tr></thead>
-          <tbody>{[...data.maquinas].sort((a,b)=>(b.activa?1:0)-(a.activa?1:0)).map((m,i)=>(<tr key={m.id} style={m.activa?undefined:{opacity:.75}}>
+          <thead><tr><th>#</th><th>Máquina</th><th>Tipo</th><th>Ubicación</th>{puedeVerAlquiler&&<th>Alquiler/mes</th>}<th>Ganancia</th><th>POS</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody>{[...data.maquinas].filter(m=>filtroTipo==="todas"||(filtroTipo==="cafeteras"?esCaf(m):!esCaf(m))).sort((a,b)=>(b.activa?1:0)-(a.activa?1:0)).map((m,i)=>(<tr key={m.id} style={m.activa?undefined:{opacity:.75}}>
             <td style={{color:"var(--muted)",fontWeight:700}}>{i+1}</td>
             <td><strong>{m.nombre}</strong></td>
+            <td>{(m.tipo==="cafetera"||(data.cafeteras||[]).some(c=>c.maquinaId===m.id))?<span className="badge amber">☕ Cafetera</span>:<span className="badge">🥤 Expendedora</span>}</td>
             <td style={{fontSize:11,color:"var(--muted)"}}>{m.ubicacion||"Por definir"}</td>
             {puedeVerAlquiler&&<td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>}
             <td>{m.margenGanancia!=null?m.margenGanancia:40}%</td>
             <td><div onClick={()=>save("maquinas",m.id,{...m,conPos:!m.conPos,comisionPos:!m.conPos?(+m.comisionPos||COMISION_POS_DEFECTO):(+m.comisionPos||0)})} title="Toca para cambiar entre Con POS y Sin POS" style={{cursor:"pointer",display:"inline-block"}}>{m.conPos?<span className="badge blue">POS {+m.comisionPos||0}%</span>:<span className="badge" style={{opacity:.7}}>Sin POS</span>}</div></td>
             <td><div onClick={()=>setConfirmEstado(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Trabajando":"Parada"}</div></td>
             <td><div style={{display:"flex",gap:5}}>
-              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO),margenGanancia:String(m.margenGanancia!=null?m.margenGanancia:40),costoInversion:m.costoInversion?String(m.costoInversion):"",activa:m.activa!==false});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO),margenGanancia:String(m.margenGanancia!=null?m.margenGanancia:40),costoInversion:m.costoInversion?String(m.costoInversion):"",tipo:m.tipo||((data.cafeteras||[]).some(c=>c.maquinaId===m.id)?"cafetera":"expendedora"),activa:m.activa!==false});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
               {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(m)}><Icon name="trash" size={12}/></button>}
             </div></td>
           </tr>))}</tbody>
@@ -1821,14 +1845,16 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
         <div className="form-group"><label>Alquiler mensual (S/)</label><input type="number" step="0.01" value={form.alquiler} onChange={e=>setForm({...form,alquiler:e.target.value})}/></div>
         <div className="form-group"><label>Costo de la máquina / inversión (S/)</label><input type="number" step="0.01" min="0" value={form.costoInversion} onChange={e=>setForm({...form,costoInversion:e.target.value})} placeholder="Lo que costó comprar e instalar la máquina"/>
           <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Sirve para calcular en cuántos meses se recupera la inversión (se ve en Rentabilidad).</div></div>
-        {!(editando&&(data.cafeteras||[]).some(c=>c.maquinaId===editando.id))&&(
-          <div className="form-group"><label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
-            <input type="checkbox" checked={!!form.esCafetera} onChange={e=>setForm({...form,esCafetera:e.target.checked})} style={{width:"auto"}}/>
-            ☕ Esta máquina es una cafetera
-          </label>
-          <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Se crea sola en Control de cafeteras con el aviso «Falta cargar insumos»; ahí la eliges y llenas los costos de los insumos.</div></div>
-        )}
-        {editando&&(data.cafeteras||[]).some(c=>c.maquinaId===editando.id)&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:12}}>☕ Esta máquina ya tiene su cafetera en Control de cafeteras.</div>}
+        <div className="form-group"><label>Tipo de máquina</label>
+          {(()=>{const bloq=!!(editando&&(data.cafeteras||[]).some(c=>c.maquinaId===editando.id));return(<>
+            <div style={{display:"flex",gap:8}}>
+              {[["expendedora","🥤 Expendedora"],["cafetera","☕ Cafetera"]].map(([v,l])=>(
+                <button key={v} type="button" disabled={bloq&&v!=="cafetera"} className={`btn btn-sm ${form.tipo===v?"btn-primary":"btn-secondary"}`} onClick={()=>setForm({...form,tipo:v})}>{l}</button>
+              ))}
+            </div>
+            <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>{bloq?"Esta cafetera ya tiene su ficha de insumos en Control de cafeteras, por eso no se puede cambiar a expendedora.":form.tipo==="cafetera"?"Al guardar se crea su ficha en Control de cafeteras con el aviso «Falta cargar insumos»; ahí la eliges y llenas los costos de los insumos.":"Las cafeteras también se registran aquí; elige «Cafetera» para que se cree su control de insumos."}</div>
+          </>);})()}
+        </div>
         <div className="form-group"><label>% de ganancia que se aplica a los productos</label>
           <input type="number" step="0.1" min="0" value={form.margenGanancia} onChange={e=>setForm({...form,margenGanancia:e.target.value})}/>
           <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Normalmente 40% (en algunas máquinas 30%). Se suma al costo para el precio de venta y se usa para estimar el costo cuando todavía no hay planograma.</div>
@@ -5225,17 +5251,15 @@ function Cafeteras({data,save,del,esAdmin=false}){
   return(
     <div>
       <div style={{background:"#fffbf0",border:"1px solid rgba(245,158,11,.3)",borderRadius:10,padding:"11px 14px",fontSize:12,marginBottom:16,color:"var(--muted)"}}>
-        <strong style={{color:"var(--accent)"}}>☕ Control de cafeteras</strong> — Registra los insumos y costos de cada cafetera. El sistema calcula automáticamente el costo real y el precio sugerido de venta por cada bebida.
+        <strong style={{color:"var(--accent)"}}>☕ Control de cafeteras</strong> — Las cafeteras se registran en Máquinas (tipo Cafetera); aquí cargas los insumos y costos de cada una. El sistema calcula automáticamente el costo real y el precio sugerido de venta por cada bebida.
       </div>
 
-      {esAdmin&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:14}}>
-        <button className="btn btn-primary" onClick={()=>{setForm(EF);setReceta(EF.recetas);setEditando(null);setModal(true);}}><Icon name="plus" size={14}/> Nueva cafetera</button>
-      </div>}
 
       {cafeteras.length===0
         ?<div className="section"><div style={{padding:32,textAlign:"center",color:"var(--muted)"}}>
             <div style={{fontSize:40,marginBottom:12}}>☕</div>
             <div style={{fontSize:14,fontWeight:700}}>Sin cafeteras registradas</div>
+            <div style={{fontSize:12,marginTop:6}}>Las cafeteras se crean en <strong>Máquinas</strong> eligiendo el tipo <strong>Cafetera</strong>.</div>
           </div></div>
         :cafeteras.map(caf=>{
           const isOpen=tab===caf.id;
@@ -5267,7 +5291,7 @@ function Cafeteras({data,save,del,esAdmin=false}){
                   })}
                   {esAdmin&&<div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
                     <button className={`btn btn-sm ${caf.insumosPendientes?"btn-primary":"btn-secondary"}`} onClick={()=>abrirEditar(caf)}><Icon name="edit" size={12}/>{caf.insumosPendientes&&" Cargar insumos"}</button>
-                    <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(caf)}><Icon name="trash" size={12}/></button>
+                    {!caf.maquinaId&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(caf)}><Icon name="trash" size={12}/></button>}
                   </div>}
                   <span style={{fontSize:18,color:"var(--muted)",transform:isOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                 </div>
@@ -8694,7 +8718,8 @@ export default function App(){
     if(act.length===todas.length)return dataBruta;
     const lista=[...act];
     lista.find=(fn,t)=>Array.prototype.find.call(act,fn,t)||Array.prototype.find.call(todas,fn,t);
-    return{...dataBruta,maquinas:lista};
+    const ids=new Set(act.map(m=>m.id));
+    return{...dataBruta,maquinas:lista,cafeteras:(dataBruta.cafeteras||[]).filter(c=>!c.maquinaId||ids.has(c.maquinaId))};
   },[dataBruta]);
   const [usuario,setUsuario]=useState(null);
   const [tab,setTab]=useState("dashboard");
