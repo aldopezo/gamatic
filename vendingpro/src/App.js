@@ -131,6 +131,14 @@ const css=`
   .btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}.btn-secondary:hover{background:var(--border)}
   .btn-danger{background:rgba(239,68,68,.15);color:var(--red)}.btn-danger:hover{background:rgba(239,68,68,.28)}
   .btn-sm{padding:3px 9px;font-size:11px}
+  .tabbar{display:flex;gap:4px;padding:4px;background:#fff7e6;border:1px solid rgba(245,158,11,.3);border-radius:14px;overflow-x:auto;max-width:100%;width:fit-content;margin-bottom:16px;scrollbar-width:none}
+  .tabbar::-webkit-scrollbar{display:none}
+  .tab-pill{border:none;background:transparent;padding:9px 16px;border-radius:10px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:13px;color:#6b7280;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;transition:background .15s,color .15s,box-shadow .15s}
+  .tab-pill:hover{background:rgba(245,158,11,.16);color:#1a1a1a}
+  .tab-pill.active{background:var(--accent);color:#111827;font-weight:700;box-shadow:0 2px 8px rgba(245,158,11,.45)}
+  .tab-badge{background:#111827;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:800;line-height:1.5}
+  .tab-pill.active .tab-badge{background:#fff;color:#111827}
+  @media(max-width:640px){.tabbar{width:100%}.tab-pill{padding:8px 13px;font-size:12px}}
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:flex-end;justify-content:center;z-index:100;backdrop-filter:blur(4px)}
   .modal{background:#ffffff;border:1px solid rgba(245,158,11,.3);border-radius:16px 16px 0 0;padding:22px 20px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto}
   .modal h3{font-size:16px;font-weight:700;margin-bottom:16px}
@@ -945,9 +953,9 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
           <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{sb}</div></div>
         ))}
       </div>
-      <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+      <div className="tabbar">
         {[["lotes","📦 Lotes"],["vencer","⏰ Por vencer"],["proveedores","🏷️ Comparar proveedores"]].map(([k,l])=>(
-          <button key={k} className={`btn btn-sm ${vista===k?"btn-primary":"btn-secondary"}`} onClick={()=>setVista(k)}>{l}</button>
+          <button key={k} className={`tab-pill${vista===k?" active":""}`} onClick={()=>setVista(k)}>{l}</button>
         ))}
       </div>
       {error&&<div className="alert-box">{error}</div>}
@@ -7292,9 +7300,9 @@ function Reportes({data}){
   const [tab,setTab]=useState("atento");
   return(
     <div>
-      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+      <div className="tabbar">
         {[["atento","📡 Atento detallado"],["ranking","📦 Ranking general"]].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{padding:"9px 18px",borderRadius:10,border:"2px solid "+(tab===id?"var(--accent)":"var(--border)"),background:tab===id?"var(--accent)":"#fff",color:tab===id?"#000":"var(--muted)",fontWeight:700,fontSize:13,cursor:"pointer"}}>{lbl}</button>
+          <button key={id} className={`tab-pill${tab===id?" active":""}`} onClick={()=>setTab(id)}>{lbl}</button>
         ))}
       </div>
       {tab==="atento"?<ReporteAtento data={data}/>:<ReportesRanking data={data}/>}
@@ -7787,9 +7795,11 @@ function FotosPorLeer({data,save,del,sesionUsuario=null,recargar=null}){
       </div>
 
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
+        <div className="tabbar" style={{marginBottom:0}}>
         {[["pendientes","Pendientes ("+pend.length+")"],["leidas","Leídas ("+fotos.filter(f=>f.estado==="leida").length+")"]].map(([id,l])=>(
-          <button key={id} onClick={()=>setVista(id)} style={{padding:"7px 16px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",border:"2px solid "+(vista===id?"var(--accent)":"var(--border)"),background:vista===id?"var(--accent)":"#fff",color:vista===id?"#000":"var(--muted)"}}>{l}</button>
+          <button key={id} className={`tab-pill${vista===id?" active":""}`} onClick={()=>setVista(id)}>{l}</button>
         ))}
+        </div>
         {recargar&&<button className="btn btn-secondary btn-sm" onClick={actualizar} disabled={actualizando} style={{marginLeft:"auto"}}>{actualizando?"⏳ Actualizando...":"⟳ Actualizar"}</button>}
       </div>
 
@@ -8515,9 +8525,9 @@ export default function App(){
           <span className="topbar-date">{dateStr}</span>
         </div>
         <div className="content">
-          {grupoActual&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+          {grupoActual&&<div className="tabbar">
             {hijosActual.map(([id,lbl])=>(
-              <button key={id} className={`btn btn-sm ${tab===id?"btn-primary":"btn-secondary"}`} onClick={()=>setTab(id)}>{lbl}{id==="fotosPorLeer"&&nFotosPend>0&&<span style={{marginLeft:6,background:"var(--accent)",color:"#000",borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:800}}>{nFotosPend}</span>}</button>
+              <button key={id} className={`tab-pill${tab===id?" active":""}`} onClick={()=>setTab(id)}>{lbl}{id==="fotosPorLeer"&&nFotosPend>0&&<span className="tab-badge">{nFotosPend}</span>}</button>
             ))}
           </div>}
           {(esAdmin||esAlmacenero)&&idsOk.includes("lotes")&&!bannerVencOculto&&(()=>{
