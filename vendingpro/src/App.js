@@ -5768,7 +5768,7 @@ function VentasCafeteras({data,save,del,esAdmin=false,sesionUsuario=null,maqsFil
 // El abastecedor sube foto → Claude interpreta espirales → confirma → guarda
 // ═══════════════════════════════════════════════════════════════════════════════
 // @@lectura-ia
-// ── Lectura de fotos con IA (compartida por «Foto de la máquina» y «Fotos por leer») ──
+// ── Lectura de fotos con IA (compartida por «Foto de recarga» y «Fotos por leer») ──
 // Llama a la función del servidor. Devuelve {espirales, modelo} o lanza un Error con el motivo claro.
 async function llamarLecturaIA(imagenBase64,signal){
   const res=await fetch(`${SUPABASE_URL}/functions/v1/analizar-planograma`,{
@@ -6097,7 +6097,7 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
     <div>
       {/* HEADER con pasos */}
       <div style={{background:"linear-gradient(135deg,#111827,#1a2235)",borderRadius:12,padding:"16px 20px",marginBottom:16,border:"1px solid rgba(245,158,11,.3)"}}>
-        <div style={{fontSize:13,fontWeight:800,color:"#f59e0b",marginBottom:10}}>📸 Foto de la máquina recargada</div>
+        <div style={{fontSize:13,fontWeight:800,color:"#f59e0b",marginBottom:10}}>📸 Foto de recarga de máquina</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {["Seleccionar máquina","Subir foto","Confirmar mapa","Guardado"].map((lbl,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
@@ -8551,7 +8551,7 @@ const ADMIN_NAV=[
   {section:"Operaciones"},
   {id:"maquinas",label:"Máquinas",icon:"machine"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
-  {id:"planograma",label:"Foto de la máquina",icon:"camera"},
+  {id:"planograma",label:"Foto de recarga de máquina",icon:"camera"},
   {id:"historialPlanogramas",label:"Historial de planogramas",icon:"layers"},
   {id:"fotosPorLeer",label:"Fotos por leer",icon:"camera"},
   {id:"lotes",label:"Lotes y proveedores",icon:"stock"},
@@ -8577,7 +8577,7 @@ const ADMIN_NAV=[
 const ABASTECEDOR_NAV=[
   {section:"Mi día"},
   {id:"mihorario",label:"Mi horario",icon:"calendar"},
-  {id:"planograma",label:"Foto de la máquina",icon:"camera"},
+  {id:"planograma",label:"Foto de recarga de máquina",icon:"camera"},
   {section:"Operaciones"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
   {id:"cobranzas",label:"Cobranza",icon:"money"},
@@ -8607,7 +8607,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos y stock",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  historialPlanogramas:"Historial de planogramas",lotes:"Lotes y proveedores",depositoPos:"Depósito POS",devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de la máquina recargada",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  historialPlanogramas:"Historial de planogramas",lotes:"Lotes y proveedores",depositoPos:"Depósito POS",devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de recarga de máquina",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -8616,7 +8616,7 @@ const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Al
 // Módulos que puede ver un usuario: los de su rol base, o los de su rol personalizado si tiene uno
 // ─── Menú agrupado (admin y almacenero): cada grupo reúne módulos relacionados como pestañas ───
 const GRUPOS=[
-  {id:"g_maquinas",label:"Máquinas",icon:"machine",hijos:[["maquinas","Lista"],["stockMaquina","Stock por máquina"],["planograma","Foto de la máquina"],["fotosPorLeer","Fotos por leer"],["historialPlanogramas","Historial de planogramas"]]},
+  {id:"g_maquinas",label:"Máquinas",icon:"machine",hijos:[["maquinas","Lista"],["stockMaquina","Stock por máquina"],["planograma","Foto de recarga"],["fotosPorLeer","Fotos por leer"],["historialPlanogramas","Historial de planogramas"]]},
   {id:"g_mantenimiento",label:"Mantenimiento",icon:"wrench",hijos:[["tickets","Tickets"],["prekit","Pre-Kit reposición"]]},
   {id:"g_productos",label:"Productos",icon:"product",hijos:[["productos","Productos y stock"],["lotes","Lotes y proveedores"],["proveedores","Proveedores"],["adminListasPrecios","Listas de precios"]]},
   {id:"g_movimientos",label:"Movimientos",icon:"transfer",hijos:[["traslados","Traslados"],["devoluciones","Devoluciones"]]},
@@ -8693,7 +8693,7 @@ export default function App(){
   const [bannerVentasOculto,setBannerVentasOculto]=useState(false);
   useEffect(()=>{if(tab!=="lotes")setVistaLotes(null);},[tab]);
   const [fotoPendiente,setFotoPendiente]=useState(null); // máquina recién recargada: se ofrece subir su foto
-  const [maqFotoPre,setMaqFotoPre]=useState(null);       // máquina ya elegida al abrir "Foto de la máquina"
+  const [maqFotoPre,setMaqFotoPre]=useState(null);       // máquina ya elegida al abrir "Foto de recarga"
 
   // Máquinas asignadas hoy — calculado siempre (antes de cualquier return)
   const maqsAsignadasHoy=(()=>{
