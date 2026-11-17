@@ -931,6 +931,7 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
     setGuardando(true);
     try{
       await moverLoteRPC({loteId:modal.lote.id,tipo:modal.tipo,cantidad:n,motivo:modal.motivo,usuario,nota:modal.nota});
+      notificar("Baja registrada: "+n+" unidades ("+modal.motivo+")");
       setModal(null);
       if(recargar)await recargar();
     }catch(e){alert("No se pudo registrar: "+(e.message||""));}
@@ -1276,6 +1277,29 @@ function GastosAdicionales({data,save,del}){
   );
 }
 
+// ─── Mensajes de confirmación (siempre visibles, aunque la pantalla se recargue) ──────────
+let _toastFn=null;
+function notificar(texto,tipo="ok"){if(_toastFn)_toastFn({texto,tipo,id:Date.now()+Math.random()});}
+function ToastHost(){
+  const [lista,setLista]=useState([]);
+  useEffect(()=>{
+    _toastFn=(t)=>{setLista(l=>[...l.slice(-2),t]);setTimeout(()=>setLista(l=>l.filter(x=>x.id!==t.id)),9000);};
+    return()=>{_toastFn=null;};
+  },[]);
+  if(!lista.length)return null;
+  return(
+    <div style={{position:"fixed",top:16,right:16,zIndex:9999,display:"flex",flexDirection:"column",gap:8,maxWidth:"min(420px,calc(100vw - 32px))"}}>
+      {lista.map(t=>(
+        <div key={t.id} style={{background:t.tipo==="error"?"#fef2f2":"#ecfdf5",border:"1px solid "+(t.tipo==="error"?"#fca5a5":"#6ee7b7"),color:"#111827",borderRadius:12,padding:"12px 14px",boxShadow:"0 8px 24px rgba(0,0,0,.18)",display:"flex",gap:10,alignItems:"flex-start",fontSize:13}}>
+          <span style={{fontSize:18,lineHeight:1}}>{t.tipo==="error"?"⚠️":"✅"}</span>
+          <div style={{flex:1,whiteSpace:"pre-line"}}>{t.texto}</div>
+          <button onClick={()=>setLista(l=>l.filter(x=>x.id!==t.id))} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:16,color:"#6b7280",lineHeight:1}}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── LOTES: helpers compartidos ───────────────────────────────────────────────
 const lotesDe=(data,productoId,soloConStock=true)=>(data.lotes||[])
   .filter(l=>l.productoId===productoId&&(!soloConStock||(l.cantidadActual||0)>0))
@@ -1375,6 +1399,7 @@ function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre="
       const u=ls.reduce((t,l)=>t+l.cantidadActual,0);
       const prom=u>0?ls.reduce((t,l)=>t+l.cantidadActual*(+l.costoUnitario||0),0)/u:p.costo;
       if(prom>0&&Math.abs(prom-(p.costo||0))>0.004)await save("productos",p.id,{...p,costo:+prom.toFixed(2)});
+      notificar("Lote registrado: "+n+" unidades de "+p.nombre);
       if(recargar)await recargar();
     }catch(err){alert("No se pudo registrar el ingreso: "+(err.message||""));}
   };
@@ -1780,6 +1805,7 @@ function Traslados({data,save,saveMulti,del,usuario,esAdmin=false,soloLectura=fa
         }
       }
       await saveMulti(ops);
+      notificar("Traslado registrado");
       if(recargar)await recargar();
     }catch(err){alert("No se pudo registrar el traslado: "+(err.message||""));return;}
     setModal(false);setMaquinasSelec([]);setFechaReg(today());setItems([{productoId:"",cantidad:"",loteId:""}]);
@@ -6485,6 +6511,8 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
         const {error:e2}=await supabase.from('ventas').insert(filas.map(f=>toSnake(f)));
         if(e2){await supabase.from('ventas_atento').delete().eq('id',id);throw e2;}
       }
+      const resumen=cruce.nuevasTotal+" ventas nuevas de "+(maq?.nombre||"la máquina")+" · "+fmtS(cruce.totalIng)+"\n"+String(cruce.desde).slice(0,16)+" → "+String(cruce.hasta).slice(0,16)+(cruce.omitidas>0?"\n"+cruce.omitidas+" repetidas se omitieron":"");
+      notificar("Ventas guardadas\n"+resumen);
       if(recargar)await recargar();
       setPaso(3);
     }catch(err){
@@ -8501,6 +8529,7 @@ export default function App(){
   return(
     <><style>{css}</style>
     <div className="app">
+      <ToastHost/>
       <div className={`sidebar-overlay ${sidebarOpen?"open":""}`} onClick={cerrar}/>
       <aside className={`sidebar ${sidebarOpen?"open":""}`}>
         <div className="sidebar-logo">
