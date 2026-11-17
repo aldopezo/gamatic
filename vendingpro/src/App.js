@@ -1728,6 +1728,7 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO),margenGanancia:"40",costoInversion:"",esCafetera:false,activa:true};const [form,setForm]=useState(EF);
   const doSave=async()=>{
     if(!form.nombre||(form.activa&&!form.ubicacion))return;
+    if(editando&&!!editando.activa!==!!form.activa&&!window.confirm("¿Estás seguro de que deseas cambiar la actividad de esta máquina de "+(editando.activa?"Trabajando":"Parada")+" a "+(form.activa?"Trabajando":"Parada")+"?"))return;
     const quiereCafetera=!!form.esCafetera;const maqExistente=editando;
     setModal(false);setForm(EF);setEditando(null);
     // Si es cafetera, se crea su ficha en Control de cafeteras (los insumos se llenan después, desde esa lista)
@@ -1739,6 +1740,7 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
     else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0,activa:!!form.activa});if(quiereCafetera)await crearCafetera(id);}
     if(maqExistente&&quiereCafetera)await crearCafetera(maqExistente.id);
   };
+  const [confirmEstado,setConfirmEstado]=useState(null);
   const toggleActiva=async(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
   const puedeVerAlquiler=esAdmin||soloEditar;
   // Abastecedor solo visualiza
@@ -1781,7 +1783,7 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
             {puedeVerAlquiler&&<td style={{color:"var(--red)"}}>{fmt(m.alquiler)}</td>}
             <td>{m.margenGanancia!=null?m.margenGanancia:40}%</td>
             <td><div onClick={()=>save("maquinas",m.id,{...m,conPos:!m.conPos,comisionPos:!m.conPos?(+m.comisionPos||COMISION_POS_DEFECTO):(+m.comisionPos||0)})} title="Toca para cambiar entre Con POS y Sin POS" style={{cursor:"pointer",display:"inline-block"}}>{m.conPos?<span className="badge blue">POS {+m.comisionPos||0}%</span>:<span className="badge" style={{opacity:.7}}>Sin POS</span>}</div></td>
-            <td><div onClick={()=>toggleActiva(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Trabajando":"Parada"}</div></td>
+            <td><div onClick={()=>setConfirmEstado(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Trabajando":"Parada"}</div></td>
             <td><div style={{display:"flex",gap:5}}>
               <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO),margenGanancia:String(m.margenGanancia!=null?m.margenGanancia:40),costoInversion:m.costoInversion?String(m.costoInversion):"",activa:m.activa!==false});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
               {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(m)}><Icon name="trash" size={12}/></button>}
@@ -1836,6 +1838,15 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
         </div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear"}</button></div>
       </div></div>}
+      {confirmEstado&&(()=>{
+        const m=confirmEstado,aParada=!!m.activa;
+        return(<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+          <h3 style={{margin:"0 0 8px"}}>{aParada?"⏸️ Pasar a Parada":"✅ Pasar a Trabajando"}</h3>
+          <p style={{fontSize:14,margin:"0 0 10px"}}>¿Estás seguro de que deseas cambiar la actividad de <strong>{String(m.nombre).trim()}</strong> de <strong>{aParada?"Trabajando":"Parada"}</strong> a <strong>{aParada?"Parada":"Trabajando"}</strong>?</p>
+          <p style={{fontSize:12,color:"var(--muted)",margin:"0 0 14px"}}>{aParada?"Una máquina parada deja de aparecer en listas, Dashboard, rentabilidad y reportes. Sus datos no se borran.":"La máquina volverá a aparecer en todas las listas y reportes."}</p>
+          <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setConfirmEstado(null)}>Cancelar</button><button className="btn btn-primary" onClick={async()=>{await toggleActiva(m);setConfirmEstado(null);}}>Sí, cambiar</button></div>
+        </div></div>);
+      })()}
       {confirmDel&&<ConfirmDelete texto={`¿Eliminar la máquina "${confirmDel.nombre}"?`} onConfirm={()=>{del("maquinas",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
@@ -8660,7 +8671,17 @@ const idsPermitidos=(rol,rolId,roles)=>{
 };
 
 export default function App(){
-  const{data,save,saveMulti,del,syncing,pausePolling,resumePolling,loadAll}=useFirebase();
+  const{data:dataBruta,save,saveMulti,del,syncing,pausePolling,resumePolling,loadAll}=useFirebase();
+  // Las máquinas paradas no aparecen en ninguna lista salvo en la pantalla Máquinas. Los registros históricos aún pueden resolver su nombre (find cae a la lista completa).
+  const data=useMemo(()=>{
+    if(!dataBruta||!Array.isArray(dataBruta.maquinas))return dataBruta;
+    const todas=dataBruta.maquinas;
+    const act=todas.filter(m=>m.activa!==false);
+    if(act.length===todas.length)return dataBruta;
+    const lista=[...act];
+    lista.find=(fn,t)=>Array.prototype.find.call(act,fn,t)||Array.prototype.find.call(todas,fn,t);
+    return{...dataBruta,maquinas:lista};
+  },[dataBruta]);
   const [usuario,setUsuario]=useState(null);
   const [tab,setTab]=useState("dashboard");
   const [sidebarOpen,setSidebarOpen]=useState(false);
@@ -8769,7 +8790,7 @@ export default function App(){
     case "productos":    return <Productos data={data} save={saveWrapped} del={delWrapped} soloEditar={esAlmacenero} recargar={()=>loadAll(true)} usuarioNombre={sesionUsuario?.nombre||""}/>;
     case "precios":      return <ListaPrecios data={data}/>;
     case "proveedores":  return <Proveedores data={data} save={saveWrapped} del={delWrapped} soloEditar={esAlmacenero}/>;
-    case "maquinas":     return <Maquinas data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} esAbastecedor={esAbastecedor} soloEditar={esAlmacenero}/>;
+    case "maquinas":     return <Maquinas data={dataBruta} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} esAbastecedor={esAbastecedor} soloEditar={esAlmacenero}/>;
     case "stock":        return <Stock data={data} save={saveWrapped} del={delWrapped} soloLectura={esAbastecedor} esAdmin={esAdmin}/>;
     case "traslados":    return <Traslados data={data} save={saveWrapped} saveMulti={async(...args)=>{pausePolling();try{await saveMulti(...args);}finally{setTimeout(resumePolling,2000);}}} del={delWrapped} usuario={nombreUsuario} esAdmin={esAdmin} soloLectura={false} recargar={()=>loadAll(true)}/>;
     case "ventas":       return <Ventas data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} soloLectura={esAbastecedor}/>;
