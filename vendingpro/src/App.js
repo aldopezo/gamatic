@@ -3743,111 +3743,182 @@ function ControlSencillo({data,save,del,esAdmin=false,sesionUsuario=null}){
   );
 }
 
+// ─── Pre-Kit: qué se vendió en la máquina + qué llevar (y qué más se puede llevar) ───
+// Cada venta toma su producto: el que trae la venta, o el de la foto (planograma) vigente en esa fecha.
+function ventasPorProductoMaq(data,maqId,desde){
+  const planes=(data.planogramas||[]).filter(p=>p.maquinaId===maqId)
+    .sort((a,b)=>((a.fecha||"")+(a.hora||"")).localeCompare((b.fecha||"")+(b.hora||"")));
+  const prods=data.productos||[];
+  const porNombre={};prods.forEach(p=>{porNombre[String(p.nombre||"").trim().toLowerCase()]=p;});
+  const res={};let sinId=0,sinIdMonto=0,primera=null;
+  (data.ventas||[]).filter(v=>v.maquinaId===maqId&&(v.fecha||"")>=desde).forEach(v=>{
+    if(!primera||v.fecha<primera)primera=v.fecha;
+    let prodId=v.productoId||null,nombre=null;
+    if(!prodId){
+      let plan=null;for(const p of planes){if((p.fecha||"")<=(v.fecha||""))plan=p;else break;}
+      const it=plan?(plan.espirales||[]).find(e=>_normEspC(e.espiral)===_normEspC(v.espiral)):null;
+      if(it&&!esVacioTxt(it.producto)){
+        prodId=it.productoId||(porNombre[String(it.producto).trim().toLowerCase()]||{}).id||null;
+        nombre=String(it.producto).trim();
+      }
+    }
+    if(prodId){const p=prods.find(x=>x.id===prodId);if(p)nombre=p.nombre;}
+    const key=prodId?"p"+prodId:(nombre?"n"+nombre.toLowerCase():"e"+_normEspC(v.espiral));
+    if(!prodId&&!nombre){sinId+=(v.cantidad||1);sinIdMonto+=(v.ingreso||0);nombre="Sin identificar (Cod. "+(v.espiral||"?")+")";}
+    if(!res[key])res[key]={key,productoId:prodId,nombre,qty:0,ingreso:0,espirales:new Set(),identificado:!!(prodId||!nombre.startsWith("Sin identificar"))};
+    const r=res[key];r.qty+=(v.cantidad||1);r.ingreso+=(v.ingreso||0);if(v.espiral)r.espirales.add(_normEspC(v.espiral));
+  });
+  return{lista:Object.values(res).sort((a,b)=>b.qty-a.qty),sinId,sinIdMonto,primera};
+}
+
 function PreKit({data,maqsFiltro=null}){
   const [maqId,setMaqId]=useState("");
+  const [periodo,setPeriodo]=useState(30);
+  const [cobertura,setCobertura]=useState(7);
   const maqActivas=data.maquinas.filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
-
-  // Calcular pre-kit para una máquina:
-  // Stock actual en máquina = último registro de StockMaquina (stockFinal)
-  // Necesita = capacidad estimada - stock actual (usamos el último stockFinal como referencia)
-  // Si no hay registro de StockMaquina, asumimos que está vacía
-
-  const calcularPreKit=(maqId)=>{
-    if(!maqId)return[];
-    // Obtener último registro de stock por máquina para esta máquina
-    const registros=data.stockMaquina.filter(r=>r.maquinaId===maqId).sort((a,b)=>b.fecha.localeCompare(a.fecha));
-    const ultimoReg=registros[0];
-
-    return data.productos.map(prod=>{
-      let stockActual=0;
-      let ultimaFecha="—";
-      if(ultimoReg){
-        const regProd=ultimoReg.registros?.find(r=>r.productoId===prod.id);
-        if(regProd){stockActual=regProd.stockFinal??0;ultimaFecha=ultimoReg.fecha;}
-      }
-      // Stock en almacén disponible
-      const stockAlm=data.stock.find(s=>s.productoId===prod.id);
-      const disponible=stockAlm?.cantidad||0;
-      // Ventas promedio últimos 30 días en esta máquina
-      const hace30=new Date();hace30.setDate(hace30.getDate()-30);
-      const ventasMaq=data.ventas.filter(v=>v.maquinaId===maqId&&v.productoId===prod.id&&new Date(v.fecha)>=hace30);
-      const totalVentas=ventasMaq.reduce((s,v)=>s+(v.cantidad||0),0);
-      const promDiario=+(totalVentas/30).toFixed(1);
-      // Sugerir llevar para 7 días de ventas menos lo que ya hay en máquina
-      const sugerido=Math.max(0,Math.ceil(promDiario*7)-stockActual);
-      return{prod,stockActual,ultimaFecha,disponible,promDiario,sugerido};
-    }).filter(r=>r.sugerido>0||r.stockActual>0||r.disponible>0);
-  };
-
-  const kit=calcularPreKit(maqId);
   const maq=data.maquinas.find(m=>m.id===maqId);
-  const totalSugerido=kit.reduce((s,r)=>s+r.sugerido,0);
-  const alertaStock=kit.filter(r=>r.sugerido>r.disponible);
+  const hoyISO=ahoraLocal().fecha;
+  const desde=sumarDias(hoyISO,-periodo);
+
+  const calc=useMemo(()=>{
+    if(!maqId)return null;
+    const {lista,sinId,sinIdMonto,primera}=ventasPorProductoMaq(data,maqId,desde);
+    // Días reales con historial (si la máquina tiene menos datos que el periodo, no se subestima la venta diaria)
+    const diasBase=primera?Math.max(1,Math.min(periodo,Math.round((new Date(hoyISO+"T12:00:00")-new Date(primera+"T12:00:00"))/86400000)+1)):periodo;
+    // Stock actual en máquina: último registro de "Stock por máquina"
+    const regs=data.stockMaquina.filter(r=>r.maquinaId===maqId).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+    const ult=regs[0];
+    const stockMaq=(pid)=>{if(!ult)return null;const g=(ult.registros||[]).find(r=>r.productoId===pid);return g?(g.stockFinal??0):0;};
+    const almacen=(pid)=>(data.stock.find(s=>s.productoId===pid)?.cantidad)||0;
+    const vencAlm=(pid)=>{const ls=(data.lotes||[]).filter(l=>l.productoId===pid&&l.cantidadActual>0&&l.fechaVencimiento).map(l=>l.fechaVencimiento).sort();return ls[0]||null;};
+    const filas=lista.map(r=>{
+      const promDia=r.qty/diasBase;
+      const enMaq=r.productoId?stockMaq(r.productoId):null;
+      const necesita=Math.ceil(promDia*cobertura);
+      const llevar=r.productoId?Math.max(0,necesita-(enMaq||0)):null;
+      const alm=r.productoId?almacen(r.productoId):null;
+      return{...r,espirales:[...r.espirales].sort((a,b)=>(parseInt(a,10)||0)-(parseInt(b,10)||0)),promDia,enMaq,necesita,llevar,alm};
+    });
+    const idsMaq=new Set(filas.map(f=>f.productoId).filter(Boolean));
+    // Productos que hoy están en la foto vigente de esta máquina
+    const planVig=(data.planogramas||[]).filter(p=>p.maquinaId===maqId).sort((a,b)=>((b.fecha||"")+(b.hora||"")).localeCompare((a.fecha||"")+(a.hora||"")))[0];
+    const enFoto=new Set((planVig?.espirales||[]).map(e=>e.productoId).filter(Boolean));
+    // Qué se vende en las demás máquinas (para sugerir productos adicionales)
+    const otras={};
+    data.maquinas.filter(m=>m.activa&&m.id!==maqId).forEach(m=>{
+      ventasPorProductoMaq(data,m.id,desde).lista.forEach(r=>{if(r.productoId){otras[r.productoId]=(otras[r.productoId]||0)+r.qty;}});
+    });
+    const adicionales=data.productos.filter(p=>!idsMaq.has(p.id)&&!enFoto.has(p.id)&&almacen(p.id)>0)
+      .map(p=>({prod:p,vendidoOtras:otras[p.id]||0,alm:almacen(p.id),venc:vencAlm(p.id)}))
+      .sort((a,b)=>b.vendidoOtras-a.vendidoOtras||b.alm-a.alm).slice(0,15);
+    const totalLlevar=filas.reduce((s,f)=>s+(f.llevar||0),0);
+    const insuf=filas.filter(f=>f.llevar>0&&f.llevar>f.alm);
+    return{filas,sinId,sinIdMonto,diasBase,ult,adicionales,totalLlevar,insuf,tieneFoto:!!planVig};
+  },[data,maqId,periodo,cobertura,desde,hoyISO]);
+
+  const sel={padding:"8px 10px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13,outline:"none"};
+  const totalUds=calc?calc.filas.reduce((s,f)=>s+f.qty,0):0;
+  const totalIng=calc?calc.filas.reduce((s,f)=>s+f.ingreso,0):0;
 
   return(
     <div>
-      <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"12px 16px",fontSize:13,marginBottom:16}}>
-        <strong style={{color:"var(--accent2)"}}>¿Cómo funciona el Pre-Kit?</strong><br/>
-        <span style={{color:"var(--muted)",fontSize:12}}>
-          Selecciona una máquina y el sistema calcula automáticamente qué productos llevar basándose en el stock actual de la máquina y el promedio de ventas de los últimos 30 días (para 7 días de cobertura).
-        </span>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",marginBottom:16}}>
+        <div className="form-group" style={{flex:"1 1 240px",marginBottom:0}}>
+          <label>Máquina</label>
+          <select value={maqId} onChange={e=>setMaqId(e.target.value)} style={{...sel,width:"100%"}}>
+            <option value="">Seleccionar máquina...</option>
+            {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+          </select>
+        </div>
+        <div className="form-group" style={{marginBottom:0}}>
+          <label>Ventas de los últimos</label>
+          <select value={periodo} onChange={e=>setPeriodo(+e.target.value)} style={sel}>
+            <option value={7}>7 días</option><option value={15}>15 días</option><option value={30}>30 días</option><option value={60}>60 días</option>
+          </select>
+        </div>
+        <div className="form-group" style={{marginBottom:0}}>
+          <label>Cubrir con stock para</label>
+          <select value={cobertura} onChange={e=>setCobertura(+e.target.value)} style={sel}>
+            <option value={3}>3 días</option><option value={7}>7 días</option><option value={10}>10 días</option><option value={15}>15 días</option>
+          </select>
+        </div>
       </div>
 
-      <div className="form-group" style={{marginBottom:16}}>
-        <label>Seleccionar máquina para pre-kit</label>
-        <select value={maqId} onChange={e=>setMaqId(e.target.value)} style={{width:"100%",padding:"9px 12px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:14,outline:"none"}}>
-          <option value="">Seleccionar máquina...</option>
-          {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
-        </select>
-      </div>
+      {!maqId&&<div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,padding:"12px 16px",fontSize:12,color:"var(--muted)"}}>
+        Elige una máquina para ver <strong>qué productos se vendieron</strong> (según las ventas de Atento y la foto de la máquina) y <strong>cuántas unidades llevar</strong>.
+      </div>}
 
-      {maqId&&(
+      {calc&&(
         <>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
-            <div>
-              <div style={{fontSize:16,fontWeight:700}}>📋 Pre-kit para {maq?.nombre}</div>
-              <div style={{fontSize:11,color:"var(--muted)"}}>{maq?.ubicacion} — Cobertura sugerida: 7 días</div>
-            </div>
-            <div style={{display:"flex",gap:10}}>
-              <div className="card" style={{padding:"8px 14px",minWidth:100}}>
-                <div className="card-label">Total a llevar</div>
-                <div className="card-value blue">{totalSugerido} uds</div>
-              </div>
-            </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+            <div className="card" style={{padding:"8px 14px",minWidth:110}}><div className="card-label">Unidades vendidas</div><div className="card-value blue">{totalUds}</div><div className="card-sub">{calc.diasBase} días con datos</div></div>
+            <div className="card" style={{padding:"8px 14px",minWidth:110}}><div className="card-label">Ingreso</div><div className="card-value green">{fmt(totalIng)}</div></div>
+            <div className="card" style={{padding:"8px 14px",minWidth:110}}><div className="card-label">Total a llevar</div><div className="card-value" style={{color:"var(--accent)"}}>{calc.totalLlevar} uds</div><div className="card-sub">para {cobertura} días</div></div>
           </div>
 
-          {alertaStock.length>0&&(
+          {calc.sinId>0&&(
             <div className="alert-box" style={{marginBottom:12}}>
               <Icon name="alert" size={14}/>
-              <span><strong>{alertaStock.length} producto(s)</strong> con stock insuficiente en almacén para cubrir la demanda.</span>
+              <span><strong>{calc.sinId} venta(s) ({fmt(calc.sinIdMonto)})</strong> no tienen producto porque no hay foto de la máquina para esas espirales. Sube la foto (con "foto pasada" si es antigua) para identificarlas.</span>
+            </div>
+          )}
+          {!calc.ult&&calc.filas.some(f=>f.productoId)&&(
+            <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.25)",borderRadius:10,padding:"8px 12px",fontSize:12,color:"var(--muted)",marginBottom:12}}>
+              Esta máquina no tiene registros en <strong>Stock por máquina</strong>, así que "En máquina" se asume en 0 y "Llevar" muestra la necesidad completa.
+            </div>
+          )}
+          {calc.insuf.length>0&&(
+            <div className="alert-box" style={{marginBottom:12}}>
+              <Icon name="alert" size={14}/>
+              <span><strong>{calc.insuf.length} producto(s)</strong> sin stock suficiente en almacén para cubrir lo que se necesita.</span>
             </div>
           )}
 
           <div className="section">
-            <div className="section-header"><h3>Lista de productos a llevar</h3></div>
+            <div className="section-header"><h3>🛒 Productos vendidos en {maq?.nombre} (últimos {periodo} días)</h3></div>
             <div className="table-wrap"><table>
-              <thead><tr><th>Producto</th><th>Stock en máquina</th><th>Última visita</th><th>Venta/día (prom.)</th><th>Disponible almacén</th><th style={{color:"var(--accent)"}}>Llevar</th></tr></thead>
+              <thead><tr><th>#</th><th>Producto</th><th>Espirales</th><th>Vendidas</th><th>Ingreso</th><th>Venta/día</th><th>En máquina</th><th>Almacén</th><th style={{color:"var(--accent)"}}>Llevar</th></tr></thead>
               <tbody>
-                {kit.length===0
-                  ?<tr><td colSpan={6} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin datos suficientes. Registra stock por máquina para obtener sugerencias precisas.</td></tr>
-                  :kit.map(r=>{
-                    const sinStock=r.sugerido>r.disponible;
+                {calc.filas.length===0
+                  ?<tr><td colSpan={9} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin ventas en este periodo. Sube el reporte de Atento de esta máquina.</td></tr>
+                  :calc.filas.map((r,i)=>{
+                    const falta=r.llevar>0&&r.llevar>r.alm;
                     return(
-                      <tr key={r.prod.id}>
-                        <td><strong>{r.prod.nombre}</strong></td>
-                        <td style={{color:r.stockActual<=2?"var(--red)":"var(--text)",fontWeight:700}}>{r.stockActual} uds</td>
-                        <td style={{color:"var(--muted)",fontSize:11}}>{r.ultimaFecha}</td>
-                        <td style={{color:"var(--muted)"}}>{r.promDiario>0?`${r.promDiario} uds`:"Sin datos"}</td>
-                        <td style={{color:sinStock?"var(--red)":"var(--green)",fontWeight:600}}>{r.disponible} uds {sinStock&&"⚠️"}</td>
-                        <td>
-                          <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"4px 14px",borderRadius:8,background:r.sugerido>0?"rgba(245,158,11,.15)":"var(--surface2)",color:r.sugerido>0?"var(--accent)":"var(--muted)",fontWeight:700,fontSize:13}}>
-                            {r.sugerido>0?`${r.sugerido} uds`:"✓ OK"}
-                          </span>
-                        </td>
+                      <tr key={r.key}>
+                        <td style={{color:"var(--muted)"}}>{i+1}</td>
+                        <td><strong>{r.nombre}</strong></td>
+                        <td style={{color:"var(--muted)",fontSize:11}}>{r.espirales.join(", ")||"—"}</td>
+                        <td style={{fontWeight:700}}>{r.qty}</td>
+                        <td>{fmt(r.ingreso)}</td>
+                        <td style={{color:"var(--muted)"}}>{r.promDia.toFixed(1)}</td>
+                        <td>{r.productoId?(r.enMaq==null?"—":r.enMaq):"—"}</td>
+                        <td style={{color:r.productoId?(falta?"var(--red)":"var(--green)"):"var(--muted)",fontWeight:600}}>{r.productoId?<>{r.alm}{falta&&" ⚠️"}</>:"—"}</td>
+                        <td>{r.productoId
+                          ?<span style={{display:"inline-flex",padding:"4px 14px",borderRadius:8,background:r.llevar>0?"rgba(245,158,11,.15)":"var(--surface2)",color:r.llevar>0?"var(--accent)":"var(--muted)",fontWeight:700,fontSize:13}}>{r.llevar>0?r.llevar+" uds":"✓ OK"}</span>
+                          :<span style={{fontSize:11,color:"var(--muted)"}}>Sube la foto</span>}</td>
                       </tr>
                     );
-                  })
-                }
+                  })}
+              </tbody>
+            </table></div>
+          </div>
+
+          <div className="section" style={{marginTop:16}}>
+            <div className="section-header"><h3>➕ Productos adicionales que podemos llevar</h3></div>
+            <div style={{fontSize:11,color:"var(--muted)",marginBottom:8}}>Hay en almacén y no están hoy en esta máquina. Ordenados por lo que más se vende en tus otras máquinas.</div>
+            <div className="table-wrap"><table>
+              <thead><tr><th>Producto</th><th>Vendido en otras máquinas</th><th>Disponible en almacén</th><th>Vence</th></tr></thead>
+              <tbody>
+                {calc.adicionales.length===0
+                  ?<tr><td colSpan={4} style={{textAlign:"center",color:"var(--muted)",padding:20}}>No hay otros productos con stock en almacén.</td></tr>
+                  :calc.adicionales.map(a=>(
+                    <tr key={a.prod.id}>
+                      <td><strong>{a.prod.nombre}</strong></td>
+                      <td style={{fontWeight:700,color:a.vendidoOtras>0?"var(--green)":"var(--muted)"}}>{a.vendidoOtras>0?a.vendidoOtras+" uds":"Sin historial"}</td>
+                      <td>{a.alm} uds</td>
+                      <td style={{fontSize:12}}>{a.venc?badgeDiasVenc(diasHasta(a.venc)):"—"}</td>
+                    </tr>
+                  ))}
               </tbody>
             </table></div>
           </div>
