@@ -8,7 +8,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const CLAVES = { admin:"123", abastecedor:"", almacenero:"" }; // legacy, no usado
 
 
-const fmt=(n)=>`S/ ${Number(n||0).toFixed(2)}`;
+const fmt=(n)=>`S/ ${Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const today=()=>new Date().toISOString().split("T")[0];
 // Fecha y hora LOCAL (today() usa UTC y en Perú cambia de día a las 7pm)
 const ahoraLocal=()=>{const d=new Date();const p=n=>String(n).padStart(2,"0");return{fecha:`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`,hora:`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`};};
@@ -106,10 +106,10 @@ const css=`
   .topbar-date{font-size:11px;color:#64748b;white-space:nowrap;display:none}
   .hamburger{background:none;border:none;color:var(--muted);cursor:pointer;padding:6px;border-radius:8px;flex-shrink:0}
   .content{flex:1;padding:16px;overflow-y:auto}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px;margin-bottom:16px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:11px;margin-bottom:16px}
   .card{background:#ffffff;border:1px solid rgba(245,158,11,.25);border-radius:var(--radius);padding:14px;box-shadow:0 2px 8px rgba(245,158,11,.08)}
   .card-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
-  .card-value{font-size:20px;font-family:'Syne',sans-serif;font-weight:700}
+  .card-value{font-size:19px;font-family:'Syne',sans-serif;font-weight:700;white-space:nowrap;letter-spacing:-.01em}
   .card-value.green{color:var(--green)}.card-value.amber{color:var(--accent)}.card-value.blue{color:var(--accent2)}.card-value.red{color:var(--red)}
   .card-sub{font-size:11px;color:var(--muted);margin-top:3px}
   .section{background:#ffffff;border:1px solid rgba(245,158,11,.25);border-radius:var(--radius);margin-bottom:16px;overflow:hidden;box-shadow:0 2px 8px rgba(245,158,11,.06)}
@@ -743,7 +743,9 @@ function Dashboard({data,recargar=null}){
       </div>
       <div className="cards">
         {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Costo de productos",fmt(cp),"red",cpEst>0?`real ${fmt(cpReal)} + estimado ${fmt(cpEst)}`:"costo real"],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg+tr),"red",`${gastosMes.length} reg.${tr>0?" + repuestos "+fmt(tr):""}`],["Comisión POS",fmt(tcom),"red","tarjeta y QR"],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
-          <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{s}</div></div>
+          l==="Utilidad"
+            ?<div key={l} className="card" style={{gridColumn:"1 / -1",background:"rgba(16,185,129,.06)",display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:8}}><div><div className="card-label" style={{marginBottom:0}}>{l}</div><div className="card-sub">{s}</div></div><div className={`card-value ${c}`} style={{fontSize:26}}>{v}</div></div>
+            :<div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{s}</div></div>
         ))}
       </div>
       {ingSinPlano>0&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>ℹ️ El costo incluye una <strong>estimación</strong> para S/ {ingSinPlano.toFixed(2)} de ventas de Atento sin planograma (se calcula con el % de ganancia de cada máquina). Con la foto de la máquina pasa a costo real.</div>}
@@ -1265,7 +1267,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
     <div>
       <MesNav mes={mes} setMes={setMes}/>
       <AvisoCostosAtento data={data} maqIds={maqActivas.map(m=>m.id)} recargar={recargar}/>
-      <details open style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",marginBottom:14,fontSize:12}}>
+      <details style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",marginBottom:14,fontSize:12}}>
         <summary style={{cursor:"pointer",fontWeight:700,fontSize:13}}>ℹ️ ¿Cómo se calcula la rentabilidad?</summary>
         <div style={{marginTop:10,lineHeight:1.7,color:"var(--muted)"}}>
           <div><strong style={{color:"var(--text)"}}>Utilidad</strong> = Ingresos − Costo del producto − Alquiler − Gastos extras − Repuestos − Comisión POS (solo tarjeta y QR; el efectivo no paga comisión).</div>
