@@ -1247,7 +1247,7 @@ function calificarRentabilidad(util,ing,u,minimoEf,diasConVentas){
 function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const [mes,setMes]=useState(mesActual());
   const [umbrales,setUmbrales]=useState(leerUmbralesRent);
-  const [ordenRent,setOrdenRent]=useState("util");
+  const [ordenRent,setOrdenRent]=useState("ranking");
   const [filtroRent,setFiltroRent]=useState("todas");
   const cambiarUmbral=(k2,v)=>{const n={...umbrales,[k2]:v===""?"":+v};setUmbrales(n);try{if(n.minimo!==""&&n.rent!==""&&n.muy!=="")localStorage.setItem("gamatic_umbrales_rent2",JSON.stringify(n));}catch(e){}};
   const uOk={minimo:+umbrales.minimo||0,rent:+umbrales.rent||0,muy:+umbrales.muy||0};
@@ -1305,8 +1305,8 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
         📅 Solo mostrando tus <strong>{maqsFiltro.length} máquina(s) asignadas hoy</strong>.
       </div>}
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:12,color:"var(--muted)"}}>
-        Ordenar de más a menos rentable por:
-        {[["util","Utilidad (S/)"],["margen","Margen (%)"]].map(([k,l])=>(
+        Ordenar por:
+        {[["ranking","Ranking (recomendado)"],["util","Utilidad (S/)"],["margen","Margen (%)"]].map(([k,l])=>(
           <button key={k} className={`btn btn-sm ${ordenRent===k?"btn-primary":"btn-secondary"}`} onClick={()=>setOrdenRent(k)}>{l}</button>
         ))}
       </div>
@@ -1317,7 +1317,11 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
         ))}
       </div>
       {baseRent.length>0&&baseRent.filter(x=>filtroRent==="todas"||x.nivel===filtroRent).length===0&&<div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Ninguna máquina en esta categoría este mes.</div>}
-      {baseRent.filter(x=>filtroRent==="todas"||x.nivel===filtroRent).sort((a,b)=>ordenRent==="margen"?b.mg-a.mg:b.u-a.u).map(({m},posicion)=>{
+      {baseRent.filter(x=>filtroRent==="todas"||x.nivel===filtroRent).sort((a,b)=>{
+        if(ordenRent==="margen"){const ka=isFinite(a.mg)?Math.round(a.mg*100):-1e9,kb=isFinite(b.mg)?Math.round(b.mg*100):-1e9;return (kb-ka)||(b.u-a.u);}
+        if(ordenRent==="ranking"){const R={muy:0,ok:1,poco:2,neg:3,sin:4};return (R[a.nivel]-R[b.nivel])||(b.u-a.u);}
+        return b.u-a.u;
+      }).map(({m},posicion)=>{
         const vm=ventasMes.filter(v=>v.maquinaId===m.id);
         const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
         const ce=costoDeVentas(data,vm,m);const cost=ce.costo;
