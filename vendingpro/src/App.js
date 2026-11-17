@@ -6152,6 +6152,14 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
 // MÓDULO: VENTAS ATENTO (Admin)
 // Admin sube CSV → cruza con planograma del abastecedor → registra ventas
 // ═══════════════════════════════════════════════════════════════════════════════
+// Comercios (columna "Comercio" del CSV de Atento) que ya se importaron para cada máquina. Ojo: no es el mismo código que "Comercio Atento" de Máquinas.
+function comerciosImportados(data,maquinaId){
+  return new Set((data.ventasAtento||[]).filter(v=>v.maquinaId===maquinaId&&v.comercio).map(v=>String(v.comercio).trim()));
+}
+function maquinaDeComercio(data,comercio,exceptoId=null){
+  const c=String(comercio||'').trim();if(!c)return null;
+  return (data.maquinas||[]).find(m=>m.id!==exceptoId&&(comerciosImportados(data,m.id).has(c)||String(m.comercioAtento||'').trim()===c))||null;
+}
 function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
   const [paso,setPaso]=useState(1); // 1=config, 2=preview, 3=guardado
   const [maqId,setMaqId]=useState("");
@@ -6214,7 +6222,7 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
       // Auto-detectar máquina por comercio
       let maqUsar=maqId;
       if(comercio&&!maqUsar){
-        const maqDetectada=(data.maquinas||[]).find(m=>String(m.comercioAtento||'').trim()===String(comercio).trim()||m.nombre?.includes(comercio));
+        const maqDetectada=maquinaDeComercio(data,comercio)||(data.maquinas||[]).find(m=>m.nombre?.includes(comercio));
         if(maqDetectada){maqUsar=maqDetectada.id;setMaqId(maqDetectada.id);}
       }
 
@@ -6298,9 +6306,12 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
     // Seguridad: el archivo debe ser de la máquina elegida (comercio Atento) y de una sola máquina
     const comerciosCsv=[...new Set(todas.map(t=>String(t.comercio||'').trim()).filter(Boolean))];
     const maqSel=(data.maquinas||[]).find(m=>m.id===mqId);
-    const comercioMaq=String(maqSel?.comercioAtento||'').trim();
-    const comercioErrado=!!comercioMaq&&comerciosCsv.length>0&&comerciosCsv.some(c=>c!==comercioMaq);
-    const otraMaquina=comercioErrado?(data.maquinas||[]).find(m=>comerciosCsv.length===1&&String(m.comercioAtento||'').trim()===comerciosCsv[0]):null;
+    const propios=new Set([...comerciosImportados(data,mqId),String(maqSel?.comercioAtento||'').trim()].filter(Boolean));
+    // Solo se bloquea si el archivo es de OTRA máquina conocida; si es un comercio nuevo se avisa pero se permite
+    const otraMaquina=comerciosCsv.length===1&&!propios.has(comerciosCsv[0])?maquinaDeComercio(data,comerciosCsv[0],mqId):null;
+    const comercioErrado=!!otraMaquina;
+    const impPropios=comerciosImportados(data,mqId);
+    const comercioNuevo=!comercioErrado&&comerciosCsv.length===1&&impPropios.size>0&&!impPropios.has(comerciosCsv[0]);
     const variasMaquinas=comerciosCsv.length>1;
     // Por fecha: cuántas ventas trae el archivo y cuántas son realmente nuevas
     const pfMap={};
@@ -6391,7 +6402,7 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
     setCruce({
       ventasPorProducto,conProducto,sinProducto,ranking,ciclos,sinVentas,items,nuevas,
       omitidas:todas.length-nuevas.length,nuevasTotal:nuevas.length,totalCsv:todas.length,
-      salto,numDesde,numHasta,desde,hasta,previoHasta,sinNum,porFecha,comerciosCsv,comercioErrado,otraMaquina,variasMaquinas,
+      salto,numDesde,numHasta,desde,hasta,previoHasta,sinNum,porFecha,comerciosCsv,comercioErrado,otraMaquina,variasMaquinas,comercioNuevo,
       totalVentas:ac.length,totalIng,
       totalCanceladas:cans.length,totalErrores:errs.length,
       ef:ef.length,yape:yape.length,tarj:tarj.length,
@@ -6654,7 +6665,12 @@ function VentasAtento({data,save,del,sesionUsuario=null,recargar=null}){
               </div>
               {(cruce.comercioErrado||cruce.variasMaquinas)&&(
                 <div style={{background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.4)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,color:"var(--red)"}}>
-                  ⛔ <strong>Este archivo no corresponde a {maq?.nombre}.</strong> {cruce.variasMaquinas?<>Trae ventas de {cruce.comerciosCsv.length} comercios ({cruce.comerciosCsv.join(", ")}): sube un archivo por máquina.</>:<>Es del comercio {cruce.comerciosCsv[0]}{cruce.otraMaquina?<> que corresponde a <strong>{cruce.otraMaquina.nombre}</strong></>:null}. Elige la máquina correcta.</>} No se puede guardar así.
+                  ⛔ <strong>Este archivo no corresponde a {maq?.nombre}.</strong> {cruce.variasMaquinas?<>Trae ventas de {cruce.comerciosCsv.length} comercios ({cruce.comerciosCsv.join(", ")}): sube un archivo por máquina.</>:<>Es del comercio {cruce.comerciosCsv[0]}, que ya se importó como <strong>{cruce.otraMaquina?.nombre}</strong>. Elige la máquina correcta.</>} No se puede guardar así.
+                </div>
+              )}
+              {cruce.comercioNuevo&&(
+                <div style={{background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.4)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--accent)"}}>
+                  ⚠️ El comercio de este archivo ({cruce.comerciosCsv[0]}) es distinto al de las importaciones anteriores de {maq?.nombre}. Si es la misma máquina (por ejemplo cambió el POS) puedes continuar; si no, elige la máquina correcta.
                 </div>
               )}
               {cruce.nuevasTotal===0&&(
