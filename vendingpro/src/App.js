@@ -311,6 +311,8 @@ const TABLE_MAP={
   gastos:'gastos',
   sugerencias:'sugerencias',
   devoluciones:'devoluciones',
+  devolucionesClientes:'devoluciones_clientes',
+  recargas:'recargas',
   stockMaquina:'stock_maquina',
   sencillo:'sencillo',
   tickets:'tickets',
@@ -377,7 +379,7 @@ function useFirebase(){
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
-        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos','lotes'];
+        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos','lotes','devoluciones_clientes','recargas'];
       // Supabase devuelve máx. 1000 filas por consulta: se pide por páginas para no perder ventas
       const traerTodo=async(t)=>{
         const cols=t==='ventas_atento'?COLS_ATENTO:'*';
@@ -406,14 +408,14 @@ function useFirebase(){
       const [productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,stockMaquina,sencillo,
         tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
-        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes]=results.map(r=>toCamel(r.data||[]));
+        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas]=results.map(r=>toCamel(r.data||[]));
 
       if(!mountedRef.current)return;
       const newData={
         productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,
         stockMaquina,sencillo,tickets,productosEco,personal,
-        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,
+        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas,
         horario:horarioObj,
       };
       // Solo actualiza si los datos cambiaron — evita re-renders innecesarios que cierran modales
@@ -679,6 +681,8 @@ function Dashboard({data,recargar=null}){
   const tc=cobranzasMes.reduce((s,c)=>s+(c.monto||0),0);
   const ta=maqList.reduce((s,m)=>s+(m.alquiler||0),0);
   const tg=gastosMes.reduce((s,g)=>s+(g.monto||0),0);
+  const devMes=(data.devolucionesClientes||[]).filter(d=>d.fecha?.startsWith(mes)&&(maqFiltro==="todas"||d.maquinaId===maqFiltro));
+  const td=devMes.reduce((s,d)=>s+(d.monto||0),0);
   const rg=ratioGlobalCosto(data);
   const cp=maqList.reduce((s,m)=>s+costoDeVentas(data,ventasMes.filter(v=>v.maquinaId===m.id),m).costo,0);
   const ingSinPlano=maqList.reduce((s,m)=>s+costoDeVentas(data,ventasMes.filter(v=>v.maquinaId===m.id),m).ingS,0);
@@ -712,7 +716,7 @@ function Dashboard({data,recargar=null}){
     const lista=Object.values(filas).sort((a,b)=>b.costo-a.costo);
     return{lista,total:lista.reduce((t,f)=>t+f.costo,0),hayEst:lista.some(f=>f.est)};
   },[data,mes,maqFiltro]);
-  const util=tv-cp-ta-tg-tr-tcom;
+  const util=tv-cp-ta-tg-tr-tcom-td;
   // Ganancia por medio de pago: efectivo (sin comisión) vs POS (tarjeta/QR, menos comisión). Costo repartido según el peso de cada medio en las ventas de la máquina.
   const filasPago=maqList.map(m=>{
     const vm=ventasMes.filter(v=>v.maquinaId===m.id);
@@ -742,7 +746,7 @@ function Dashboard({data,recargar=null}){
         </select>
       </div>
       <div className="cards">
-        {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Costo de productos",fmt(cp),"red",cpEst>0?`real ${fmt(cpReal)} + estimado ${fmt(cpEst)}`:"costo real"],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg+tr),"red",`${gastosMes.length} reg.${tr>0?" + repuestos "+fmt(tr):""}`],["Comisión POS",fmt(tcom),"red","tarjeta y QR"],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
+        {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Costo de productos",fmt(cp),"red",cpEst>0?`real ${fmt(cpReal)} + estimado ${fmt(cpEst)}`:"costo real"],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg+tr),"red",`${gastosMes.length} reg.${tr>0?" + repuestos "+fmt(tr):""}`],["Comisión POS",fmt(tcom),"red","tarjeta y QR"],["Devoluciones a clientes",fmt(td),"red",`${devMes.length} devolución(es)`],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
           l==="Utilidad"
             ?<div key={l} className="card" style={{gridColumn:"1 / -1",background:"rgba(16,185,129,.06)",display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:8}}><div><div className="card-label" style={{marginBottom:0}}>{l}</div><div className="card-sub">{s}</div></div><div className={`card-value ${c}`} style={{fontSize:26}}>{v}</div></div>
             :<div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{s}</div></div>
@@ -1259,6 +1263,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const maqActivas=data.maquinas.filter(m=>m.activa);
   const ventasMes=data.ventas.filter(v=>v.fecha?.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
   const gastosMes=data.gastos.filter(g=>g.fecha?.startsWith(mes));
+  const devMesR=(data.devolucionesClientes||[]).filter(d=>d.fecha?.startsWith(mes));
   const rg=ratioGlobalCosto(data);
   const [movRep,setMovRep]=useState([]);
   useEffect(()=>{(async()=>{const [y,m]=mes.split("-").map(Number);const fin=mes+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0");
@@ -1271,7 +1276,8 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
     const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
     const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
     const rp=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
-    const u=ing-costoDeVentas(data,vm,m).costo-(m.alquiler||0)-gm-rp-(comPOS[m.id]?.comision||0);
+    const dvm=devMesR.filter(d=>d.maquinaId===m.id).reduce((t,d)=>t+(d.monto||0),0);
+    const u=ing-costoDeVentas(data,vm,m).costo-(m.alquiler||0)-gm-rp-dvm-(comPOS[m.id]?.comision||0);
     const nivel=calificarRentabilidad(u,ing,uOk,minimoEf,new Set(vm.map(v=>v.fecha)).size).nivel;
     return{m,u,mg:ing>0?u/ing:-Infinity,nivel};
   });
@@ -1282,7 +1288,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
       <details style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",marginBottom:14,fontSize:12}}>
         <summary style={{cursor:"pointer",fontWeight:700,fontSize:13}}>ℹ️ ¿Cómo se calcula la rentabilidad?</summary>
         <div style={{marginTop:10,lineHeight:1.7,color:"var(--muted)"}}>
-          <div><strong style={{color:"var(--text)"}}>Utilidad</strong> = Ingresos − Costo del producto − Alquiler − Gastos extras − Repuestos − Comisión POS (solo tarjeta y QR; el efectivo no paga comisión).</div>
+          <div><strong style={{color:"var(--text)"}}>Utilidad</strong> = Ingresos − Costo del producto − Alquiler − Gastos extras − Repuestos − Devoluciones a clientes − Comisión POS (solo tarjeta y QR; el efectivo no paga comisión).</div>
           <div><strong style={{color:"var(--text)"}}>Margen</strong> = Utilidad ÷ Ingresos × 100.</div>
           <div><strong style={{color:"var(--text)"}}>Costo del producto</strong>: real cuando la venta tiene producto (por la foto de la máquina); si no, se estima con el % de ganancia de la máquina.</div>
           <div><strong style={{color:"var(--text)"}}>Recuperación de la inversión</strong> (si registras el costo de la máquina en Máquinas): Inversión ÷ utilidad mensual = meses para recuperarla. En el mes en curso se usa una proyección al mes completo.</div>
@@ -1328,12 +1334,13 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
         const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
         const rep=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
         const com=comPOS[m.id]?.comision||0;
-        const util=ing-cost-(m.alquiler||0)-gm-rep-com;
+        const dv=devMesR.filter(d=>d.maquinaId===m.id).reduce((t,d)=>t+(d.monto||0),0);
+        const util=ing-cost-(m.alquiler||0)-gm-rep-dv-com;
         const diasVentas=new Set(vm.map(v=>v.fecha)).size;
         const cal=calificarRentabilidad(util,ing,uOk,minimoEf,diasVentas);
         const roi=cal.margen.toFixed(1);
         const inv=+m.costoInversion||0;
-        const utilMes=factorMes<1?((ing-cost-com)/factorMes)-(m.alquiler||0)-(gm+rep)/factorMes:util;
+        const utilMes=factorMes<1?((ing-cost-com)/factorMes)-(m.alquiler||0)-(gm+rep+dv)/factorMes:util;
         const mesesRec=inv>0&&utilMes>0?inv/utilMes:null;
         const tipo=cal.css==="positive"?"positive":cal.css==="negative"?"negative":"neutral";
         return(
@@ -1343,7 +1350,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
               <span className={`badge ${cal.badge}`}>Margen: {roi}%</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
-              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod."+(ce.ingS>0?" (estimado)":""),fmt(cost),"var(--muted)",ce.ingS>0?"real "+fmt(ce.costoR)+" + estimado "+fmt(ce.costoE):""],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Repuestos",fmt(rep),"var(--red)"],...(m.conPos?[["Comisión POS ("+(+m.comisionPos||0)+"%)",fmt(com),"var(--red)"]]:[]),["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c,sub])=>(
+              {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod."+(ce.ingS>0?" (estimado)":""),fmt(cost),"var(--muted)",ce.ingS>0?"real "+fmt(ce.costoR)+" + estimado "+fmt(ce.costoE):""],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Repuestos",fmt(rep),"var(--red)"],...(dv>0?[["Devoluciones a clientes",fmt(dv),"var(--red)"]]:[]),...(m.conPos?[["Comisión POS ("+(+m.comisionPos||0)+"%)",fmt(com),"var(--red)"]]:[]),["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c,sub])=>(
                 <div key={l} style={{background:"rgba(0,0,0,.2)",padding:"7px 10px",borderRadius:8}}>
                   <div style={{fontSize:9,color:"var(--muted)",marginBottom:2,textTransform:"uppercase"}}>{l}</div>
                   <div style={{fontSize:13,fontWeight:700,color:c}}>{v}</div>
@@ -1432,6 +1439,324 @@ function GastosAdicionales({data,save,del}){
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button></div>
       </div></div>}
       {confirmDel&&<ConfirmDelete texto={`¿Eliminar el gasto "${confirmDel.descripcion}"?`} onConfirm={()=>{del("gastos",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+// ─── Devoluciones a clientes: dinero que le devolvemos al cliente por fallas, atascos o productos con problemas ───
+const MOTIVOS_REEMBOLSO=["Producto atascado","La máquina no entregó el producto","Cobro doble / error de pago","Falla de la máquina","Producto vencido o en mal estado","Producto equivocado","Otro"];
+const MEDIOS_REEMBOLSO=["Efectivo","Yape","Plin","Otro"];
+function descargarCSV(nombre,filas){
+  try{
+    const esc=(v)=>{const t=String(v==null?"":v);return /[",\n;]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t;};
+    const txt="﻿"+filas.map(f=>f.map(esc).join(",")).join("\n");
+    const url=URL.createObjectURL(new Blob([txt],{type:"text/csv;charset=utf-8"}));
+    const a=document.createElement("a");a.href=url;a.download=nombre;document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(e){notificar("No se pudo descargar el archivo","error");}
+}
+function RepTablaDev({titulo,filas,total,colExtra=null,vacio="Sin datos"}){
+  return(
+    <div className="section" style={{marginBottom:14}}>
+      <div className="section-header"><h3>{titulo}</h3></div>
+      <div className="table-wrap"><table>
+        <thead><tr><th>#</th><th>Detalle</th><th>Veces</th><th>Monto</th><th style={{minWidth:110}}>% del total</th>{colExtra&&<th>{colExtra.titulo}</th>}</tr></thead>
+        <tbody>
+          {filas.length===0?<tr><td colSpan={colExtra?6:5} style={{textAlign:"center",color:"var(--muted)",padding:16}}>{vacio}</td></tr>
+          :filas.map((f,i)=>{const pct=total>0?f.monto/total*100:0;return(
+            <tr key={f.k}>
+              <td style={{color:"var(--muted)"}}>{i+1}</td>
+              <td><strong>{f.label}</strong>{f.sub&&<div style={{fontSize:11,color:"var(--muted)"}}>{f.sub}</div>}</td>
+              <td>{f.n}</td>
+              <td style={{color:"var(--red)",fontWeight:700}}>{fmt(f.monto)}</td>
+              <td><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{flex:1,height:6,background:"var(--surface2)",borderRadius:4}}><div style={{width:Math.min(100,pct)+"%",height:6,background:"var(--accent)",borderRadius:4}}/></div><span style={{fontSize:11,color:"var(--muted)",minWidth:34}}>{pct.toFixed(0)}%</span></div></td>
+              {colExtra&&<td>{colExtra.render(f)}</td>}
+            </tr>);})}
+        </tbody>
+      </table></div>
+    </div>
+  );
+}
+function DevolucionesClientes({data,save,del,esAdmin=false,maqsFiltro=null,sesionUsuario=null}){
+  const [vista,setVista]=useState("registros");
+  const [modal,setModal]=useState(false);
+  const [editando,setEditando]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [mes,setMes]=useState(ahoraLocal().fecha.slice(0,7));
+  const maqActivas=data.maquinas.filter(m=>m.activa&&(!maqsFiltro||maqsFiltro.includes(m.id)));
+  const nuevoForm=()=>{const a=ahoraLocal();return{fecha:a.fecha,hora:a.hora.slice(0,5),cliente:"",telefono:"",maquinaId:"",sede:"",espiral:"",productoNombre:"",motivo:MOTIVOS_REEMBOLSO[0],monto:"",medio:"Efectivo",observacion:""};};
+  const [form,setForm]=useState(nuevoForm);
+  const todas=data.devolucionesClientes||[];
+  const miNombre=sesionUsuario?.nombre||"";
+  // El administrador ve todo; el abastecedor solo lo que él registró
+  const visibles=esAdmin?todas:todas.filter(d=>d.registradoPor===miNombre);
+  const delMes=visibles.filter(d=>d.fecha?.startsWith(mes)).sort((a,b)=>((b.fecha||"")+(b.hora||"")).localeCompare((a.fecha||"")+(a.hora||"")));
+  const totalMes=delMes.reduce((s,d)=>s+(d.monto||0),0);
+  const maqDe=(id)=>data.maquinas.find(m=>m.id===id);
+  const ventasMes=data.ventas.filter(v=>v.fecha?.startsWith(mes));
+  const ingMes=ventasMes.reduce((s,v)=>s+(v.ingreso||0),0);
+
+  const abrirNuevo=()=>{setForm(nuevoForm());setEditando(null);setModal(true);};
+  const abrirEditar=(d)=>{setForm({fecha:d.fecha,hora:d.hora||"",cliente:d.cliente||"",telefono:d.telefono||"",maquinaId:d.maquinaId||"",sede:d.sede||"",espiral:d.espiral||"",productoNombre:d.productoNombre||"",motivo:d.motivo||MOTIVOS_REEMBOLSO[0],monto:String(d.monto??""),medio:d.medio||"Efectivo",observacion:d.observacion||""});setEditando(d);setModal(true);};
+  const elegirMaquina=(id)=>{const m=maqDe(id);setForm(f=>({...f,maquinaId:id,sede:m?(m.ubicacion||""):""}));};
+  const doSave=async()=>{
+    if(!form.cliente.trim()){notificar("Falta el nombre del cliente","error");return;}
+    if(!form.telefono.trim()){notificar("Falta el número de Yape o celular del cliente","error");return;}
+    if(!form.maquinaId){notificar("Elige la máquina","error");return;}
+    if(!(+form.monto>0)){notificar("Pon el monto devuelto","error");return;}
+    const prod=form.productoNombre.trim()?data.productos.find(p=>String(p.nombre).trim().toLowerCase()===form.productoNombre.trim().toLowerCase()):null;
+    const base={fecha:form.fecha,hora:form.hora,cliente:form.cliente.trim(),telefono:form.telefono.trim(),sede:form.sede.trim(),maquinaId:form.maquinaId,espiral:form.espiral.trim(),productoId:prod?prod.id:null,productoNombre:form.productoNombre.trim(),motivo:form.motivo,monto:+(+form.monto).toFixed(2),medio:form.medio,observacion:form.observacion.trim()};
+    if(editando)await save("devolucionesClientes",editando.id,{...editando,...base});
+    else{const id=uid();await save("devolucionesClientes",id,{id,...base,registradoPor:miNombre});}
+    notificar("Devolución a cliente registrada: "+fmt(base.monto));
+    setModal(false);setEditando(null);setForm(nuevoForm());
+  };
+
+  // ── Reportes ──
+  const agrupa=(rows,keyFn,labelFn,subFn=null)=>{const o={};rows.forEach(d=>{const k=keyFn(d)||"—";if(!o[k])o[k]={k,label:labelFn(d),sub:subFn?subFn(d):null,n:0,monto:0};o[k].n++;o[k].monto+=d.monto||0;});return Object.values(o).sort((a,b)=>b.monto-a.monto||b.n-a.n);};
+  const rep=(()=>{
+    const rows=delMes;
+    const porMaq=agrupa(rows,d=>d.maquinaId,d=>(maqDe(d.maquinaId)?.nombre||"Máquina eliminada"),d=>d.sede||maqDe(d.maquinaId)?.ubicacion||"");
+    const porMotivo=agrupa(rows,d=>d.motivo,d=>d.motivo||"Sin motivo");
+    const porSede=agrupa(rows,d=>(d.sede||"").trim().toLowerCase(),d=>d.sede||"Sin sede");
+    const porProd=agrupa(rows,d=>(d.productoNombre||"").trim().toLowerCase(),d=>d.productoNombre||"No especificado");
+    const porCli=agrupa(rows,d=>(d.telefono||d.cliente||"").trim().toLowerCase(),d=>d.cliente||"—",d=>d.telefono||"");
+    const porPers=agrupa(rows,d=>d.registradoPor,d=>d.registradoPor||"Sin registrar");
+    const meses=[];const hoy=ahoraLocal().fecha;let [y,m]=hoy.slice(0,7).split("-").map(Number);
+    for(let i=0;i<6;i++){const ym=y+"-"+String(m).padStart(2,"0");const rr=todas.filter(d=>d.fecha?.startsWith(ym));meses.push({ym,n:rr.length,monto:rr.reduce((s,d)=>s+(d.monto||0),0)});m--;if(m===0){m=12;y--;}}
+    return{porMaq,porMotivo,porSede,porProd,porCli,porPers,meses:meses.reverse()};
+  })();
+  const maxMes=Math.max(1,...rep.meses.map(x=>x.monto));
+  const ventasDeMaq=(id)=>ventasMes.filter(v=>v.maquinaId===id).reduce((s,v)=>s+(v.ingreso||0),0);
+  const exportar=()=>{
+    const cab=["Fecha","Hora","Cliente","Yape/Celular","Sede","Máquina","Espiral","Producto","Motivo","Monto (S/)","Medio","Registrado por","Observación"];
+    descargarCSV("devoluciones-a-clientes-"+mes+".csv",[cab,...[...delMes].reverse().map(d=>[d.fecha,d.hora,d.cliente,d.telefono,d.sede,maqDe(d.maquinaId)?.nombre||"",d.espiral,d.productoNombre,d.motivo,(d.monto||0).toFixed(2),d.medio,d.registradoPor,d.observacion])]);
+  };
+
+  return(
+    <div>
+      <MesNav mes={mes} setMes={setMes}/>
+      {esAdmin&&<div className="tabbar" style={{marginBottom:14}}>
+        {[["registros","📋 Registros"],["reportes","📊 Reportes"]].map(([k,l])=>(
+          <button key={k} className={`tab-pill ${vista===k?"active":""}`} onClick={()=>setVista(k)}>{l}</button>
+        ))}
+      </div>}
+      <div className="cards">
+        <div className="card"><div className="card-label">Devuelto a clientes</div><div className="card-value red">{fmt(totalMes)}</div><div className="card-sub">{nombreMes(mes)}</div></div>
+        <div className="card"><div className="card-label">Cantidad</div><div className="card-value blue">{delMes.length}</div><div className="card-sub">devoluciones</div></div>
+        <div className="card"><div className="card-label">Promedio</div><div className="card-value">{fmt(delMes.length?totalMes/delMes.length:0)}</div><div className="card-sub">por devolución</div></div>
+        {esAdmin&&<div className="card"><div className="card-label">% de las ventas</div><div className="card-value amber">{ingMes>0?(totalMes/ingMes*100).toFixed(2):"0.00"}%</div><div className="card-sub">de {fmt(ingMes)} vendidos</div></div>}
+      </div>
+
+      {vista==="registros"&&(
+        <div className="section">
+          <div className="section-header"><h3>Devoluciones a clientes — {nombreMes(mes)}</h3>
+            <div style={{display:"flex",gap:6}}>
+              {esAdmin&&delMes.length>0&&<button className="btn btn-secondary btn-sm" onClick={exportar}>⬇️ Excel (CSV)</button>}
+              <button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Registrar</button>
+            </div>
+          </div>
+          <div className="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Cliente</th><th>Yape / Cel.</th><th>Sede</th><th>Máquina</th><th>Producto</th><th>Motivo</th><th>Monto</th><th>Medio</th><th>Registró</th>{esAdmin&&<th>Acciones</th>}</tr></thead>
+            <tbody>
+              {delMes.length===0?<tr><td colSpan={esAdmin?11:10} style={{textAlign:"center",color:"var(--muted)",padding:20}}>Sin devoluciones en {nombreMes(mes)}</td></tr>
+              :delMes.map(d=>(
+                <tr key={d.id}>
+                  <td style={{color:"var(--muted)",whiteSpace:"nowrap"}}>{d.fecha}{d.hora&&<div style={{fontSize:11}}>{d.hora}</div>}</td>
+                  <td><strong>{d.cliente}</strong></td>
+                  <td>{d.telefono}</td>
+                  <td style={{fontSize:12,color:"var(--muted)"}}>{d.sede||"—"}</td>
+                  <td>{maqDe(d.maquinaId)?.nombre||"—"}{d.espiral&&<div style={{fontSize:11,color:"var(--muted)"}}>Espiral {d.espiral}</div>}</td>
+                  <td style={{fontSize:12}}>{d.productoNombre||"—"}</td>
+                  <td style={{fontSize:12}}>{d.motivo}{d.observacion&&<div style={{fontSize:11,color:"var(--muted)"}}>{d.observacion}</div>}</td>
+                  <td style={{color:"var(--red)",fontWeight:700,whiteSpace:"nowrap"}}>{fmt(d.monto)}</td>
+                  <td><span className="badge">{d.medio||"Efectivo"}</span></td>
+                  <td style={{fontSize:12,color:"var(--muted)"}}>{d.registradoPor||"—"}</td>
+                  {esAdmin&&<td><div style={{display:"flex",gap:5}}>
+                    <button className="btn btn-secondary btn-sm" onClick={()=>abrirEditar(d)}><Icon name="edit" size={12}/></button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(d)}><Icon name="trash" size={12}/></button>
+                  </div></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+
+      {vista==="reportes"&&esAdmin&&(
+        <>
+          <div className="section" style={{marginBottom:14}}>
+            <div className="section-header"><h3>Últimos 6 meses</h3></div>
+            <div className="table-wrap"><table>
+              <thead><tr><th>Mes</th><th>Devoluciones</th><th>Monto</th><th style={{minWidth:140}}></th></tr></thead>
+              <tbody>{rep.meses.map(x=>(
+                <tr key={x.ym} style={x.ym===mes?{background:"rgba(245,158,11,.08)"}:undefined}>
+                  <td><strong>{nombreMes(x.ym)}</strong></td><td>{x.n}</td><td style={{color:"var(--red)",fontWeight:700}}>{fmt(x.monto)}</td>
+                  <td><div style={{height:6,background:"var(--surface2)",borderRadius:4}}><div style={{width:(x.monto/maxMes*100)+"%",height:6,background:"var(--red)",borderRadius:4}}/></div></td>
+                </tr>))}</tbody>
+            </table></div>
+          </div>
+          <RepTablaDev titulo={"Por máquina — "+nombreMes(mes)} filas={rep.porMaq} total={totalMes} vacio="Sin devoluciones en este mes"
+            colExtra={{titulo:"% de sus ventas",render:(f)=>{const v=ventasDeMaq(f.k);return v>0?<span style={{color:f.monto/v>0.03?"var(--red)":"var(--muted)",fontWeight:600}}>{(f.monto/v*100).toFixed(2)}%</span>:"—";}}}/>
+          <RepTablaDev titulo="Por motivo" filas={rep.porMotivo} total={totalMes}/>
+          <RepTablaDev titulo="Por sede" filas={rep.porSede} total={totalMes}/>
+          <RepTablaDev titulo="Por producto" filas={rep.porProd} total={totalMes}/>
+          <RepTablaDev titulo="Clientes con devoluciones" filas={rep.porCli} total={totalMes}
+            colExtra={{titulo:"Alerta",render:(f)=>f.n>=3?<span className="badge red">⚠️ {f.n} veces</span>:f.n===2?<span className="badge amber">2 veces</span>:"—"}}/>
+          <RepTablaDev titulo="Registradas por" filas={rep.porPers} total={totalMes}/>
+        </>
+      )}
+
+      {modal&&<div className="modal-overlay"><div className="modal">
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>{editando?"Editar devolución":"Registrar devolución a cliente"}</h3><CloseBtn onClick={()=>{setModal(false);setEditando(null);}}/></div>
+        <div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>Dinero que le devolvemos al cliente por fallas, atascos o productos con problemas.</div>
+        <div className="form-row">
+          <div className="form-group"><label>Nombre del cliente</label><input value={form.cliente} onChange={e=>setForm({...form,cliente:e.target.value})} placeholder="Nombre y apellido"/></div>
+          <div className="form-group"><label>Número de Yape / celular</label><input type="tel" inputMode="tel" value={form.telefono} onChange={e=>setForm({...form,telefono:e.target.value})} placeholder="9XX XXX XXX"/></div>
+        </div>
+        <div className="form-group"><label>Máquina</label>
+          <select value={form.maquinaId} onChange={e=>elegirMaquina(e.target.value)}>
+            <option value="">Seleccionar máquina...</option>
+            {maqActivas.map(m=><option key={m.id} value={m.id}>{m.nombre} — {m.ubicacion}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Sede</label><input value={form.sede} onChange={e=>setForm({...form,sede:e.target.value})} placeholder="Se completa al elegir la máquina"/></div>
+          <div className="form-group"><label>Espiral (opcional)</label><input value={form.espiral} onChange={e=>setForm({...form,espiral:e.target.value})} placeholder="Ej: 12"/></div>
+        </div>
+        <div className="form-group"><label>Producto (opcional)</label>
+          <input list="dl-prod-dev" value={form.productoNombre} onChange={e=>setForm({...form,productoNombre:e.target.value})} placeholder="Escribe o elige el producto"/>
+          <datalist id="dl-prod-dev">{data.productos.map(p=><option key={p.id} value={p.nombre}/>)}</datalist>
+        </div>
+        <div className="form-group"><label>Motivo</label>
+          <select value={form.motivo} onChange={e=>setForm({...form,motivo:e.target.value})}>{MOTIVOS_REEMBOLSO.map(mo=><option key={mo}>{mo}</option>)}</select>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Monto devuelto (S/)</label><input type="number" step="0.01" min="0" value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})}/></div>
+          <div className="form-group"><label>Cómo se devolvió</label>
+            <select value={form.medio} onChange={e=>setForm({...form,medio:e.target.value})}>{MEDIOS_REEMBOLSO.map(me=><option key={me}>{me}</option>)}</select>
+          </div>
+        </div>
+        <div className="form-row">
+          <div className="form-group"><label>Fecha</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
+          <div className="form-group"><label>Hora</label><input type="time" value={form.hora} onChange={e=>setForm({...form,hora:e.target.value})}/></div>
+        </div>
+        <div className="form-group"><label>Observación (opcional)</label><textarea rows={2} value={form.observacion} onChange={e=>setForm({...form,observacion:e.target.value})} placeholder="Detalle de lo que pasó"/></div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button></div>
+      </div></div>}
+      {confirmDel&&<ConfirmDelete texto={`¿Eliminar la devolución de ${confirmDel.cliente} por ${fmt(confirmDel.monto)}?`} onConfirm={()=>{del("devolucionesClientes",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+    </div>
+  );
+}
+
+// ─── Abastecimiento: qué máquinas necesitan recarga (estimado con las ventas de Atento, sin usar el almacén) ───
+const CFG_RECARGA_DEF={r1:4,r2:10,r3:5,otras:10,pronto:50,urgente:70};
+function leerCfgRecarga(){try{const j=JSON.parse(localStorage.getItem("gamatic_cfg_recarga")||"null");if(j&&Object.keys(CFG_RECARGA_DEF).every(k=>+j[k]>=0))return j;}catch(e){}return CFG_RECARGA_DEF;}
+// Cuántas unidades entran en cada espiral según su número
+const capEspiral=(n,c)=>(n>=1&&n<=10)?+c.r1:(n>=11&&n<=40)?+c.r2:(n>=41&&n<=60)?+c.r3:+c.otras;
+function estimarRecargas(data,cfg){
+  const hoy=ahoraLocal().fecha;
+  const desde60=sumarDias(hoy,-60);
+  const out=[];
+  (data.maquinas||[]).filter(m=>m.activa&&m.tipo!=="cafetera"&&!(data.cafeteras||[]).some(c=>c.maquinaId===m.id)).forEach(m=>{
+    // Última recarga: el registro manual o la última foto de recarga (planograma), lo que sea más reciente
+    const cand=[];
+    (data.recargas||[]).filter(r=>r.maquinaId===m.id).forEach(r=>cand.push({fecha:r.fecha,hora:r.hora||"12:00:00",origen:"manual"}));
+    (data.planogramas||[]).filter(p=>p.maquinaId===m.id).forEach(p=>cand.push({fecha:p.fecha,hora:p.hora||"12:00:00",origen:"foto"}));
+    cand.sort((a,b)=>(b.fecha+b.hora).localeCompare(a.fecha+a.hora));
+    const u=cand[0]||null;
+    // Espirales que tiene la máquina: las que han vendido en los últimos 60 días
+    const conocidas={};
+    (data.ventas||[]).filter(v=>v.maquinaId===m.id&&v.fecha>=desde60).forEach(v=>{const n=parseInt(v.espiral,10);if(n>=1&&n<=99)conocidas[n]=true;});
+    const nums=Object.keys(conocidas).map(Number);
+    if(!u){out.push({m,u:null,nivel:"sinFecha",pct:0,vendidas:0,cap:0,vacias:[],nEsp:nums.length,dias:null,udsDia:0});return;}
+    if(!nums.length){out.push({m,u,nivel:"sinDatos",pct:0,vendidas:0,cap:0,vacias:[],nEsp:0,dias:null,udsDia:0});return;}
+    const vendEsp={};let vendidas=0;
+    (data.ventas||[]).filter(v=>v.maquinaId===m.id&&(v.fecha>u.fecha||(v.fecha===u.fecha&&u.hora<="12:00:00"))).forEach(v=>{
+      const n=parseInt(v.espiral,10);vendidas+=(v.cantidad||1);
+      if(n>=1&&n<=99)vendEsp[n]=(vendEsp[n]||0)+(v.cantidad||1);
+    });
+    let cap=0,usado=0;const vacias=[];
+    nums.sort((a,b)=>a-b).forEach(n=>{const c=capEspiral(n,cfg);cap+=c;const s=vendEsp[n]||0;usado+=Math.min(s,c);if(s>=c)vacias.push(n);});
+    const pct=cap>0?usado/cap*100:0;
+    const dias=Math.max(0,Math.round((new Date(hoy+"T12:00:00")-new Date(u.fecha+"T12:00:00"))/86400000));
+    const nivel=pct>=+cfg.urgente?"urgente":pct>=+cfg.pronto?"pronto":"ok";
+    out.push({m,u,nivel,pct,vendidas,cap,vacias,nEsp:nums.length,dias,udsDia:vendidas/Math.max(1,dias)});
+  });
+  const orden={urgente:0,pronto:1,sinFecha:2,sinDatos:3,ok:4};
+  return out.sort((a,b)=>(orden[a.nivel]-orden[b.nivel])||(b.pct-a.pct));
+}
+function Abastecimiento({data,save,sesionUsuario=null}){
+  const [cfg,setCfg]=useState(leerCfgRecarga);
+  const cambiar=(k,v)=>{const n={...cfg,[k]:v};setCfg(n);try{if(Object.keys(CFG_RECARGA_DEF).every(x=>n[x]!==""&&+n[x]>=0))localStorage.setItem("gamatic_cfg_recarga",JSON.stringify(n));}catch(e){}};
+  const cfgOk=Object.fromEntries(Object.keys(CFG_RECARGA_DEF).map(k=>[k,+cfg[k]||0]));
+  const filas=estimarRecargas(data,cfgOk);
+  const [modal,setModal]=useState(null);
+  const guardar=async()=>{
+    if(!modal.fecha)return;
+    const id=uid();
+    await save("recargas",id,{id,maquinaId:modal.m.id,fecha:modal.fecha,hora:modal.hora?modal.hora+":00":"12:00:00",registradoPor:sesionUsuario?.nombre||"",nota:(modal.nota||"").trim()});
+    notificar("Recarga registrada en "+String(modal.m.nombre).trim());
+    setModal(null);
+  };
+  const abrir=(m,sinFecha)=>{const a=ahoraLocal();setModal({m,sinFecha,fecha:a.fecha,hora:a.hora.slice(0,5),nota:""});};
+  const cuenta=(n)=>filas.filter(f=>f.nivel===n).length;
+  const badge={urgente:["red","🔴 Urgente"],pronto:["amber","🟠 Pronto"],ok:["green","🟢 Bien"],sinFecha:["","❔ Sin fecha de recarga"],sinDatos:["","Sin ventas recientes"]};
+  return(
+    <div>
+      <div className="cards">
+        <div className="card"><div className="card-label">🔴 Urgentes</div><div className="card-value red">{cuenta("urgente")}</div><div className="card-sub">desde {cfgOk.urgente}% vendido</div></div>
+        <div className="card"><div className="card-label">🟠 Pronto</div><div className="card-value amber">{cuenta("pronto")}</div><div className="card-sub">desde {cfgOk.pronto}% vendido</div></div>
+        <div className="card"><div className="card-label">🟢 Bien</div><div className="card-value green">{cuenta("ok")}</div><div className="card-sub">máquinas</div></div>
+        <div className="card"><div className="card-label">❔ Sin fecha</div><div className="card-value">{cuenta("sinFecha")}</div><div className="card-sub">registra su última recarga</div></div>
+      </div>
+      <div style={{fontSize:12,color:"var(--muted)",marginBottom:12,lineHeight:1.6}}>
+        Es un <strong>estimado</strong>: se cuentan las unidades vendidas (Atento) desde la última recarga y se comparan con lo que cabe en cada espiral. No usa el almacén. Cuando haya planogramas con el stock real de cada espiral, será exacto.
+      </div>
+      <div className="section">
+        <div className="section-header"><h3>🔄 Máquinas por abastecer</h3></div>
+        <div className="table-wrap"><table>
+          <thead><tr><th>Máquina</th><th>Última recarga</th><th>Vendidas desde entonces</th><th style={{minWidth:150}}>Vaciado estimado</th><th>Espirales vacías</th><th>Estado</th><th>Acción</th></tr></thead>
+          <tbody>
+            {filas.length===0?<tr><td colSpan={7} style={{textAlign:"center",color:"var(--muted)",padding:20}}>No hay máquinas trabajando.</td></tr>
+            :filas.map(f=>(
+              <tr key={f.m.id}>
+                <td><strong>{String(f.m.nombre).trim()}</strong><div style={{fontSize:11,color:"var(--muted)"}}>{f.m.ubicacion}</div></td>
+                <td style={{fontSize:12}}>{f.u?<>{f.u.fecha}<div style={{fontSize:11,color:"var(--muted)"}}>hace {f.dias} día{f.dias===1?"":"s"} · {f.u.origen==="foto"?"foto de recarga":"registro manual"}</div></>:<span style={{color:"var(--muted)"}}>Sin registrar</span>}</td>
+                <td>{f.u&&f.nivel!=="sinDatos"?<><strong>{f.vendidas}</strong> uds<div style={{fontSize:11,color:"var(--muted)"}}>{f.udsDia.toFixed(1)} por día</div></>:"—"}</td>
+                <td>{f.cap>0?<div style={{display:"flex",alignItems:"center",gap:6}}><div style={{flex:1,height:8,background:"var(--surface2)",borderRadius:4}}><div style={{width:Math.min(100,f.pct)+"%",height:8,borderRadius:4,background:f.nivel==="urgente"?"var(--red)":f.nivel==="pronto"?"var(--accent)":"var(--green)"}}/></div><strong style={{fontSize:12,minWidth:36}}>{f.pct.toFixed(0)}%</strong></div>:"—"}</td>
+                <td style={{fontSize:12}}>{f.cap>0?<>{f.vacias.length} de {f.nEsp}{f.vacias.length>0&&<div style={{fontSize:11,color:"var(--muted)"}}>Esp. {f.vacias.slice(0,10).join(", ")}{f.vacias.length>10?"…":""}</div>}</>:"—"}</td>
+                <td><span className={`badge ${badge[f.nivel][0]}`}>{badge[f.nivel][1]}</span></td>
+                <td><button className={`btn btn-sm ${f.nivel==="urgente"||f.nivel==="pronto"||f.nivel==="sinFecha"?"btn-primary":"btn-secondary"}`} onClick={()=>abrir(f.m,!f.u)}>{f.u?"✅ Marcar abastecida":"Registrar recarga"}</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      </div>
+      <details style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",marginTop:14,fontSize:12}}>
+        <summary style={{cursor:"pointer",fontWeight:700,fontSize:13}}>⚙️ Capacidad de espirales y avisos</summary>
+        <div style={{marginTop:10,color:"var(--muted)",lineHeight:1.6}}>
+          Cuántas unidades entran por espiral, según su número, y desde qué % vendido se avisa.
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",margin:"10px 0"}}>
+            {[["r1","Espirales 1 al 10"],["r2","Espirales 11 al 40"],["r3","Espirales 41 al 60"],["otras","Otras (61 en adelante)"],["pronto","🟠 Pronto desde (%)"],["urgente","🔴 Urgente desde (%)"]].map(([k,l])=>(
+              <label key={k} style={{display:"flex",flexDirection:"column",gap:3,fontSize:11}}>{l}
+                <input type="number" min="0" value={cfg[k]} onChange={e=>cambiar(k,e.target.value)} style={{width:130,padding:"6px 8px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13}}/>
+              </label>
+            ))}
+          </div>
+          <div style={{fontSize:11}}>Se guarda en este navegador. La última recarga se toma del botón «Marcar abastecida» o de la última foto de recarga que se suba.</div>
+        </div>
+      </details>
+      {modal&&<div className="modal-overlay"><div className="modal" style={{maxWidth:420}}>
+        <h3 style={{margin:"0 0 8px"}}>{modal.sinFecha?"Registrar última recarga":"Marcar como abastecida"}</h3>
+        <p style={{fontSize:13,margin:"0 0 10px"}}><strong>{String(modal.m.nombre).trim()}</strong> — {modal.m.ubicacion}</p>
+        <div className="form-row">
+          <div className="form-group"><label>Fecha</label><input type="date" value={modal.fecha} onChange={e=>setModal({...modal,fecha:e.target.value})}/></div>
+          <div className="form-group"><label>Hora</label><input type="time" value={modal.hora} onChange={e=>setModal({...modal,hora:e.target.value})}/></div>
+        </div>
+        <div className="form-group"><label>Nota (opcional)</label><input value={modal.nota} onChange={e=>setModal({...modal,nota:e.target.value})} placeholder="Ej: recarga completa"/></div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button><button className="btn btn-primary" onClick={guardar}>Guardar</button></div>
+      </div></div>}
     </div>
   );
 }
@@ -3011,7 +3336,7 @@ function Devoluciones({data,save,del,soloLectura=false,esAdmin=false,maqsFiltro=
       <MesNav mes={mes} setMes={setMes}/>
       <div className="section">
         <div className="section-header">
-          <h3>Devoluciones — {nombreMes(mes)}</h3>
+          <h3>Devolución de productos — {nombreMes(mes)}</h3>
           {!soloLectura&&<button className="btn btn-primary btn-sm" onClick={()=>{setFormH(EF_HEADER);setItems([{...EF_ITEM}]);setModal(true);}}><Icon name="plus" size={13}/> Registrar</button>}
         </div>
         {soloLectura&&<div className="view-only-badge" style={{margin:"12px 16px 0"}}><Icon name="lock" size={13}/> Solo visualización</div>}
@@ -8600,9 +8925,11 @@ const ADMIN_NAV=[
   {id:"depositoPos",label:"Depósito POS",icon:"money"},
   {id:"ventas",label:"Ventas",icon:"chart"},
   {id:"cobranzas",label:"Cobranzas",icon:"money"},
+  {id:"devolucionesClientes",label:"Devoluciones a clientes",icon:"money"},
   {id:"traslados",label:"Traslados",icon:"transfer"},
-  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
+  {id:"devoluciones",label:"Devolución de productos",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
+  {id:"abastecimiento",label:"Máquinas por abastecer",icon:"kit"},
   {id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
   {id:"repuestos",label:"Almacén de repuestos",icon:"stock"},
@@ -8623,8 +8950,10 @@ const ABASTECEDOR_NAV=[
   {section:"Operaciones"},
   {id:"stockMaquina",label:"Stock por máquina",icon:"layers"},
   {id:"cobranzas",label:"Cobranza",icon:"money"},
-  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
+  {id:"devolucionesClientes",label:"Devoluciones a clientes",icon:"money"},
+  {id:"devoluciones",label:"Devolución de productos",icon:"devolver"},
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
+  {id:"abastecimiento",label:"Máquinas por abastecer",icon:"kit"},
   {id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
   {id:"traslados",label:"Traslados",icon:"transfer"},
   {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
@@ -8640,7 +8969,7 @@ const ALMACENERO_NAV=[
   {section:"Almacén"},{id:"repuestos",label:"Almacén de repuestos",icon:"stock"},
   {section:"Catálogo"},{id:"productos",label:"Productos y stock",icon:"product"},{id:"proveedores",label:"Proveedores",icon:"supplier"},
   {section:"Operaciones"},{id:"maquinas",label:"Máquinas",icon:"machine"},{id:"traslados",label:"Traslados",icon:"transfer"},
-  {id:"devoluciones",label:"Devoluciones",icon:"devolver"},
+  {id:"devoluciones",label:"Devolución de productos",icon:"devolver"},
   {id:"fotosPorLeer",label:"Fotos por leer",icon:"camera"},
   {id:"lotes",label:"Lotes y proveedores",icon:"stock"},
 ];
@@ -8649,7 +8978,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos y stock",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  historialPlanogramas:"Historial de planogramas",lotes:"Lotes y proveedores",depositoPos:"Depósito POS",devoluciones:"Devoluciones",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de recarga de máquina",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  historialPlanogramas:"Historial de planogramas",lotes:"Lotes y proveedores",depositoPos:"Depósito POS",abastecimiento:"Máquinas por abastecer",devoluciones:"Devolución de productos",devolucionesClientes:"Devoluciones a clientes",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de recarga de máquina",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -8659,11 +8988,11 @@ const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Al
 // ─── Menú agrupado (admin y almacenero): cada grupo reúne módulos relacionados como pestañas ───
 const GRUPOS=[
   {id:"g_maquinas",label:"Máquinas",icon:"machine",hijos:[["maquinas","Lista"],["stockMaquina","Stock por máquina"],["planograma","Foto de recarga"],["fotosPorLeer","Fotos por leer"],["historialPlanogramas","Historial de planogramas"]]},
-  {id:"g_mantenimiento",label:"Mantenimiento",icon:"wrench",hijos:[["tickets","Tickets"],["prekit","Pre-Kit reposición"]]},
+  {id:"g_mantenimiento",label:"Mantenimiento",icon:"wrench",hijos:[["abastecimiento","Máquinas por abastecer"],["prekit","Pre-Kit reposición"],["tickets","Tickets"]]},
   {id:"g_productos",label:"Productos",icon:"product",hijos:[["productos","Productos y stock"],["lotes","Lotes y proveedores"],["proveedores","Proveedores"],["adminListasPrecios","Listas de precios"]]},
-  {id:"g_movimientos",label:"Movimientos",icon:"transfer",hijos:[["traslados","Traslados"],["devoluciones","Devoluciones"]]},
+  {id:"g_movimientos",label:"Movimientos",icon:"transfer",hijos:[["traslados","Traslados"],["devoluciones","Devolución de productos"]]},
   {id:"g_ventas",label:"Ventas",icon:"chart",hijos:[["ventas","Ventas"],["ventasAtento","Importar Atento"],["reportes","Reportes"]]},
-  {id:"g_cobranzas",label:"Cobranzas",icon:"money",hijos:[["cobranzas","Cobranzas"],["sencillo","Control de sencillo"],["depositoPos","Depósito POS"]]},
+  {id:"g_cobranzas",label:"Cobranzas",icon:"money",hijos:[["cobranzas","Cobranzas"],["devolucionesClientes","Devoluciones a clientes"],["sencillo","Control de sencillo"],["depositoPos","Depósito POS"]]},
   {id:"g_cafeteras",label:"Cafeteras",icon:"coffee",hijos:[["cafeteras","Control"],["ventasCafeteras","Ventas"]]},
   {id:"g_equipo",label:"Equipo",icon:"users",hijos:[["gestionUsuarios","Personal y usuarios"],["gestionRoles","Roles y permisos"],["horario","Horario semanal"]]},
 ];
@@ -8734,6 +9063,7 @@ export default function App(){
   const [vistaLotes,setVistaLotes]=useState(null);
   const [bannerVencOculto,setBannerVencOculto]=useState(false);
   const [bannerVentasOculto,setBannerVentasOculto]=useState(false);
+  const [bannerAbastOculto,setBannerAbastOculto]=useState(false);
   useEffect(()=>{if(tab!=="lotes")setVistaLotes(null);},[tab]);
   const [fotoPendiente,setFotoPendiente]=useState(null); // máquina recién recargada: se ofrece subir su foto
   const [maqFotoPre,setMaqFotoPre]=useState(null);       // máquina ya elegida al abrir "Foto de recarga"
@@ -8839,6 +9169,8 @@ export default function App(){
     case "ventas":       return <Ventas data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} soloLectura={esAbastecedor}/>;
     case "cobranzas":    return <Cobranzas data={data} save={saveWrapped} del={delWrapped} usuario={nombreUsuario} esAdmin={esAdmin} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
     case "preciosEco":   return <ListaPreciosEco data={data}/>;
+    case "abastecimiento": return <Abastecimiento data={data} save={saveWrapped} sesionUsuario={sesionUsuario}/>;
+    case "devolucionesClientes": return <DevolucionesClientes data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario}/>;
     case "devoluciones": return <Devoluciones data={data} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario} save={saveWrapped} del={delWrapped} soloLectura={esAlmacenero} esAdmin={esAdmin} puedeEditar={esAdmin||esAbastecedor}/>;
     case "stockMaquina":  return <StockMaquina data={data} save={saveWrapped} del={delWrapped} soloLectura={false} maqsFiltro={maqsAsignadasHoy} sesionUsuario={sesionUsuario} onRecargaGuardada={alRecargar}/>;
     case "sencillo":      return <ControlSencillo data={data} save={saveWrapped} del={delWrapped} esAdmin={esAdmin} sesionUsuario={sesionUsuario}/>;
@@ -8890,6 +9222,24 @@ export default function App(){
                 <span style={{flex:1,minWidth:200}}>⏰ <strong>{al.length}</strong> producto(s) vencen pronto o ya vencieron{venc>0&&<> — <strong style={{color:"var(--red)"}}>{venc} ya vencido(s)</strong></>}. Retíralos.</span>
                 <button className="btn btn-primary btn-sm" onClick={()=>{setVistaLotes("vencer");setTab("lotes");}}>Ver lista</button>
                 <button className="btn btn-secondary btn-sm" onClick={()=>setBannerVencOculto(true)}>Ocultar</button>
+              </div>);
+          })()}
+          {idsOk.includes("abastecimiento")&&!bannerAbastOculto&&(()=>{
+            const rl=estimarRecargas(data,leerCfgRecarga());
+            const ur=rl.filter(r=>r.nivel==="urgente"),pr=rl.filter(r=>r.nivel==="pronto"),sf=rl.filter(r=>r.nivel==="sinFecha");
+            if(!ur.length&&!pr.length&&!sf.length)return null;
+            const need=ur.length+pr.length;
+            return(
+              <div style={{background:ur.length?"rgba(239,68,68,.07)":"rgba(245,158,11,.08)",border:"1px solid "+(ur.length?"rgba(239,68,68,.3)":"rgba(245,158,11,.3)"),borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:220}}>
+                  🔄 {need>0?<><strong>{need} máquina(s) necesitan abastecimiento</strong>{ur.length>0&&<> · 🔴 {ur.length} urgente(s)</>}{pr.length>0&&<> · 🟠 {pr.length} pronto</>}</>:<strong>Registra la última recarga de {sf.length} máquina(s)</strong>}
+                  <div style={{marginTop:4,fontSize:12,color:"var(--muted)"}}>
+                    {[...ur,...pr].slice(0,6).map(r=>String(r.m.nombre).trim()+" ("+r.pct.toFixed(0)+"%)").join(" · ")}
+                    {need>0&&sf.length>0&&<div>Además {sf.length} sin fecha de última recarga.</div>}
+                  </div>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={()=>setTab("abastecimiento")}>Ver máquinas</button>
+                <button className="btn btn-secondary btn-sm" onClick={()=>setBannerAbastOculto(true)}>Ocultar</button>
               </div>);
           })()}
           {(esAdmin||esAlmacenero)&&idsOk.includes("ventasAtento")&&!bannerVentasOculto&&(()=>{
