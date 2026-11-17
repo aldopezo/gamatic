@@ -1247,6 +1247,7 @@ function calificarRentabilidad(util,ing,u,minimoEf,diasConVentas){
 function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const [mes,setMes]=useState(mesActual());
   const [umbrales,setUmbrales]=useState(leerUmbralesRent);
+  const [ordenRent,setOrdenRent]=useState("util");
   const cambiarUmbral=(k2,v)=>{const n={...umbrales,[k2]:v===""?"":+v};setUmbrales(n);try{if(n.minimo!==""&&n.rent!==""&&n.muy!=="")localStorage.setItem("gamatic_umbrales_rent2",JSON.stringify(n));}catch(e){}};
   const uOk={minimo:+umbrales.minimo||0,rent:+umbrales.rent||0,muy:+umbrales.muy||0};
   // Si el mes aún no termina, la utilidad mínima se prorratea por los días transcurridos
@@ -1292,7 +1293,20 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
       {maqsFiltro&&maqsFiltro.length>0&&<div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"9px 14px",marginBottom:12,fontSize:12,color:"var(--green)"}}>
         📅 Solo mostrando tus <strong>{maqsFiltro.length} máquina(s) asignadas hoy</strong>.
       </div>}
-      {maqActivas.map(m=>{
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:12,color:"var(--muted)"}}>
+        Ordenar de más a menos rentable por:
+        {[["util","Utilidad (S/)"],["margen","Margen (%)"]].map(([k,l])=>(
+          <button key={k} className={`btn btn-sm ${ordenRent===k?"btn-primary":"btn-secondary"}`} onClick={()=>setOrdenRent(k)}>{l}</button>
+        ))}
+      </div>
+      {[...maqActivas].map(m=>{
+        const vm=ventasMes.filter(v=>v.maquinaId===m.id);
+        const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
+        const gm=gastosMes.filter(g=>g.maquinaId===m.id).reduce((s,g)=>s+(g.monto||0),0);
+        const rep=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
+        const u=ing-costoDeVentas(data,vm,m).costo-(m.alquiler||0)-gm-rep-(comPOS[m.id]?.comision||0);
+        return{m,u,mg:ing>0?u/ing:-Infinity};
+      }).sort((a,b)=>ordenRent==="margen"?b.mg-a.mg:b.u-a.u).map(({m},posicion)=>{
         const vm=ventasMes.filter(v=>v.maquinaId===m.id);
         const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
         const ce=costoDeVentas(data,vm,m);const cost=ce.costo;
@@ -1310,7 +1324,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
         return(
           <div key={m.id} className={`profit-card profit-${tipo}`}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-              <div><div style={{fontWeight:700,fontSize:14}}>{m.nombre}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{m.ubicacion}</div></div>
+              <div><div style={{fontWeight:700,fontSize:14}}><span style={{color:"var(--muted)",marginRight:6}}>#{posicion+1}</span>{m.nombre}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{m.ubicacion}</div></div>
               <span className={`badge ${cal.badge}`}>Margen: {roi}%</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
