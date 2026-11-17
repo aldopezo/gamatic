@@ -567,16 +567,21 @@ async function cargarPagosAtento(ini,fin){
   });
   return out;
 }
-// Comisión por máquina (solo máquinas con POS y solo ventas electrónicas)
+// Por máquina: separa lo cobrado en efectivo (monedas/billetes, sin comisión) de lo cobrado con tarjeta/QR (aquí sí aplica la comisión del POS)
 function comisionPorMaquina(trans,maquinas){
   const res={};
-  (maquinas||[]).forEach(m=>{if(m.conPos)res[m.id]={bruto:0,comision:0,tasa:+m.comisionPos||0};});
-  (trans||[]).forEach(t=>{const r=res[t.maquinaId];if(r&&esPagoElectronico(t.pago)){r.bruto+=t.valor;r.comision+=t.valor*r.tasa/100;}});
+  (maquinas||[]).forEach(m=>{res[m.id]={bruto:0,comision:0,tasa:m.conPos?(+m.comisionPos||0):0,efectivo:0,qr:0,tarjeta:0};});
+  (trans||[]).forEach(t=>{
+    const r=res[t.maquinaId];if(!r)return;
+    if(!esPagoElectronico(t.pago)){r.efectivo+=t.valor;return;}
+    if(/yape|qr/i.test(String(t.pago)))r.qr+=t.valor;else r.tarjeta+=t.valor;
+    r.bruto+=t.valor;r.comision+=t.valor*r.tasa/100;
+  });
   return res;
 }
 function useComisionesPOS(data,ini,fin){
   const [trans,setTrans]=useState([]);
-  const hayPOS=(data.maquinas||[]).some(m=>m.conPos);
+  const hayPOS=(data.maquinas||[]).length>0;
   useEffect(()=>{let vivo=true;if(!hayPOS){setTrans([]);return;}
     cargarPagosAtento(ini,fin).then(r=>{if(vivo)setTrans(r);}).catch(()=>{if(vivo)setTrans([]);});
     return()=>{vivo=false;};},[ini,fin,hayPOS,(data.ventasAtento||[]).length]);
@@ -686,6 +691,17 @@ function Dashboard({data,recargar=null}){
   const comPOS=useComisionesPOS(data,iniM,finM);
   const tcom=maqList.reduce((s,m)=>s+(comPOS[m.id]?.comision||0),0);
   const util=tv-cp-ta-tg-tr-tcom;
+  // Ganancia por medio de pago: efectivo (sin comisión) vs POS (tarjeta/QR, menos comisión). Costo repartido según el peso de cada medio en las ventas de la máquina.
+  const filasPago=maqList.map(m=>{
+    const vm=ventasMes.filter(v=>v.maquinaId===m.id);
+    const ing=vm.reduce((t,v)=>t+(v.ingreso||0),0);
+    const cost=costoDeVentas(data,vm,m).costo;
+    const mg=m.margenGanancia!=null&&m.margenGanancia!==""?+m.margenGanancia:40;
+    const k=ing>0?cost/ing:1/(1+mg/100);
+    const r=comPOS[m.id]||{efectivo:0,bruto:0,comision:0,tasa:0};
+    return{m,ef:r.efectivo,pos:r.bruto,com:r.comision,tasa:r.tasa,gEf:r.efectivo*(1-k),gPos:r.bruto*(1-k)-r.comision};
+  });
+  const tPago=filasPago.reduce((a,f)=>({ef:a.ef+f.ef,pos:a.pos+f.pos,com:a.com+f.com,gEf:a.gEf+f.gEf,gPos:a.gPos+f.gPos}),{ef:0,pos:0,com:0,gEf:0,gPos:0});
   const stockBajo=data.stock.filter(s=>s.cantidad<=s.minimo);
   const dias=[...new Set(ventasMes.map(v=>v.fecha))].sort();
   const acum=dias.map(d=>({fecha:d,total:ventasMes.filter(v=>v.fecha<=d).reduce((s,v)=>s+(v.ingreso||0),0)}));
@@ -709,6 +725,22 @@ function Dashboard({data,recargar=null}){
         ))}
       </div>
       {ingSinPlano>0&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>ℹ️ El costo incluye una <strong>estimación</strong> para S/ {ingSinPlano.toFixed(2)} de ventas de Atento sin planograma (se calcula con el % de ganancia de cada máquina). Con la foto de la máquina pasa a costo real.</div>}
+      {(tPago.ef+tPago.pos)>0&&(
+        <div className="section" style={{marginBottom:14}}>
+          <div className="section-header"><h3>💵 vs 💳 Ganancia por medio de pago — {nombreMes(mes)}</h3></div>
+          <div style={{padding:"4px 14px 10px",fontSize:11,color:"var(--muted)"}}>Efectivo (monedas y billetes) no paga comisión. Tarjeta y QR sí pagan la comisión del POS. La ganancia es ventas − costo del producto − comisión; el alquiler y los gastos se descuentan aparte en la utilidad.</div>
+          <div className="cards" style={{padding:"0 14px 12px"}}>
+            <div className="card"><div className="card-label">💵 Ganancia con efectivo</div><div className="card-value green">{fmt(tPago.gEf)}</div><div className="card-sub">ventas {fmt(tPago.ef)} · sin comisión</div></div>
+            <div className="card"><div className="card-label">💳 Ganancia con POS (tarjeta + QR)</div><div className="card-value blue">{fmt(tPago.gPos)}</div><div className="card-sub">ventas {fmt(tPago.pos)} · comisión −{fmt(tPago.com)}</div></div>
+          </div>
+          <div className="table-wrap"><table>
+            <thead><tr><th>Máquina</th><th>💵 Efectivo</th><th>Ganancia efectivo</th><th>💳 Tarjeta/QR</th><th>Comisión</th><th>Ganancia POS</th></tr></thead>
+            <tbody>{filasPago.map(f=>(
+              <tr key={f.m.id}><td><strong>{f.m.nombre}</strong></td><td>{fmt(f.ef)}</td><td style={{color:"var(--green)",fontWeight:600}}>{fmt(f.gEf)}</td><td>{fmt(f.pos)}</td><td style={{color:"var(--red)"}}>{f.com>0?"−"+fmt(f.com)+" ("+f.tasa+"%)":"—"}</td><td style={{color:"var(--accent2)",fontWeight:600}}>{fmt(f.gPos)}</td></tr>
+            ))}</tbody>
+          </table></div>
+        </div>
+      )}
       {acum.length>0&&(
         <div className="section" style={{marginBottom:14}}>
           <div className="section-header"><h3>Avance de ventas — {nombreMes(mes)}{maqFiltro!=="todas"&&` · ${maqActivas.find(m=>m.id===maqFiltro)?.nombre}`}</h3></div>
@@ -3741,6 +3773,24 @@ function ControlSencillo({data,save,del,esAdmin=false,sesionUsuario=null}){
       {confirmDel&&<ConfirmDelete texto="¿Eliminar este registro de sencillo?" onConfirm={()=>{del("sencillo",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
+}
+
+// ─── Alerta: máquinas a las que les falta subir el reporte de ventas de Atento ───
+const _ddmm=(iso)=>{const p=String(iso||"").split("-");return p.length===3?p[2]+"/"+p[1]:iso;};
+function ventasFaltantes(data){
+  const ayer=sumarDias(ahoraLocal().fecha,-1);
+  const ultima={};
+  (data.ventas||[]).forEach(v=>{if(v.origen==="atento"&&v.fecha&&(!ultima[v.maquinaId]||v.fecha>ultima[v.maquinaId]))ultima[v.maquinaId]=v.fecha;});
+  const out=[];
+  (data.maquinas||[]).filter(m=>m.activa).forEach(m=>{
+    const u=ultima[m.id];
+    if(!u){if(String(m.comercioAtento||"").trim())out.push({maq:m,ultima:null,desde:null,dias:null});return;}
+    if(u>=ayer)return;
+    const desde=sumarDias(u,1);
+    const dias=Math.round((new Date(ayer+"T12:00:00")-new Date(desde+"T12:00:00"))/86400000)+1;
+    out.push({maq:m,ultima:u,desde,hasta:ayer,dias});
+  });
+  return out.sort((a,b)=>(b.dias||999)-(a.dias||999));
 }
 
 // ─── Pre-Kit: qué se vendió en la máquina + qué llevar (y qué más se puede llevar) ───
@@ -8483,6 +8533,7 @@ export default function App(){
   const [sesionUsuario,setSesionUsuario]=useState(null);
   const [vistaLotes,setVistaLotes]=useState(null);
   const [bannerVencOculto,setBannerVencOculto]=useState(false);
+  const [bannerVentasOculto,setBannerVentasOculto]=useState(false);
   useEffect(()=>{if(tab!=="lotes")setVistaLotes(null);},[tab]);
   const [fotoPendiente,setFotoPendiente]=useState(null); // máquina recién recargada: se ofrece subir su foto
   const [maqFotoPre,setMaqFotoPre]=useState(null);       // máquina ya elegida al abrir "Foto de la máquina"
@@ -8639,6 +8690,22 @@ export default function App(){
                 <span style={{flex:1,minWidth:200}}>⏰ <strong>{al.length}</strong> producto(s) vencen pronto o ya vencieron{venc>0&&<> — <strong style={{color:"var(--red)"}}>{venc} ya vencido(s)</strong></>}. Retíralos.</span>
                 <button className="btn btn-primary btn-sm" onClick={()=>{setVistaLotes("vencer");setTab("lotes");}}>Ver lista</button>
                 <button className="btn btn-secondary btn-sm" onClick={()=>setBannerVencOculto(true)}>Ocultar</button>
+              </div>);
+          })()}
+          {(esAdmin||esAlmacenero)&&idsOk.includes("ventasAtento")&&!bannerVentasOculto&&(()=>{
+            const fl=ventasFaltantes(data);
+            if(!fl.length)return null;
+            return(
+              <div style={{background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:220}}>
+                  📡 <strong>Falta subir ventas de Atento</strong> en {fl.length} máquina(s):
+                  <div style={{marginTop:4,fontSize:12,color:"var(--muted)",lineHeight:1.6}}>
+                    {fl.slice(0,6).map(f=><div key={f.maq.id}><strong style={{color:"var(--text)"}}>{String(f.maq.nombre).trim()}</strong>{f.ultima?<> — falta desde el <strong>{_ddmm(f.desde)}</strong> hasta ayer ({f.dias} día{f.dias>1?"s":""})</>:<> — aún no se subió ningún reporte</>}</div>)}
+                    {fl.length>6&&<div>y {fl.length-6} más…</div>}
+                  </div>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={()=>setTab("ventasAtento")}>Subir ventas</button>
+                <button className="btn btn-secondary btn-sm" onClick={()=>setBannerVentasOculto(true)}>Ocultar</button>
               </div>);
           })()}
           <RC/>
