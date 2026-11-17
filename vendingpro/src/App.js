@@ -682,6 +682,8 @@ function Dashboard({data,recargar=null}){
   const rg=ratioGlobalCosto(data);
   const cp=maqList.reduce((s,m)=>s+costoDeVentas(data,ventasMes.filter(v=>v.maquinaId===m.id),m).costo,0);
   const ingSinPlano=maqList.reduce((s,m)=>s+costoDeVentas(data,ventasMes.filter(v=>v.maquinaId===m.id),m).ingS,0);
+  const cpReal=maqList.reduce((s,m)=>s+costoDeVentas(data,ventasMes.filter(v=>v.maquinaId===m.id),m).costoR,0);
+  const cpEst=cp-cpReal;
   const [movRep,setMovRep]=useState([]);
   useEffect(()=>{(async()=>{const [y,m]=mes.split("-").map(Number);const fin=mes+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0");
     const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",mes+"-01").lte("fecha",fin);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[mes,data.repuestos]);
@@ -690,6 +692,26 @@ function Dashboard({data,recargar=null}){
   const [iniM,finM]=rangoDeMes(mes);
   const comPOS=useComisionesPOS(data,iniM,finM);
   const tcom=maqList.reduce((s,m)=>s+(comPOS[m.id]?.comision||0),0);
+  // Costo por producto del mes: real si el producto tiene costo; estimado (venta ÷ (1 + % ganancia de la máquina)) si la venta no tiene producto
+  const costoProd=useMemo(()=>{
+    const [ini,fin]=rangoDeMes(mes);
+    const filas={};
+    maqList.forEach(m=>{
+      const mg=m.margenGanancia!=null&&m.margenGanancia!==""?+m.margenGanancia:40;
+      const ratio=1/(1+mg/100);
+      ventasPorProductoMaq(data,m.id,ini,fin).lista.forEach(r=>{
+        const p=r.productoId?(data.productos||[]).find(x=>x.id===r.productoId):null;
+        const real=!!(p&&p.costo>0);
+        const key=r.productoId?"p"+r.productoId:(r.identificado?"n"+String(r.nombre).toLowerCase():"sin");
+        if(!filas[key])filas[key]={key,nombre:key==="sin"?"Sin producto identificado":r.nombre,sinId:key==="sin",qty:0,ingreso:0,costo:0,est:false};
+        const f=filas[key];
+        f.qty+=r.qty;f.ingreso+=r.ingreso;
+        if(real)f.costo+=p.costo*r.qty;else{f.costo+=r.ingreso*ratio;f.est=true;}
+      });
+    });
+    const lista=Object.values(filas).sort((a,b)=>b.costo-a.costo);
+    return{lista,total:lista.reduce((t,f)=>t+f.costo,0),hayEst:lista.some(f=>f.est)};
+  },[data,mes,maqFiltro]);
   const util=tv-cp-ta-tg-tr-tcom;
   // Ganancia por medio de pago: efectivo (sin comisión) vs POS (tarjeta/QR, menos comisión). Costo repartido según el peso de cada medio en las ventas de la máquina.
   const filasPago=maqList.map(m=>{
@@ -720,11 +742,31 @@ function Dashboard({data,recargar=null}){
         </select>
       </div>
       <div className="cards">
-        {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg+tr),"red",`${gastosMes.length} reg.${tr>0?" + repuestos "+fmt(tr):""}`],["Comisión POS",fmt(tcom),"red","tarjeta y QR"],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
+        {[["Ventas",fmt(tv),"green",`${ventasMes.length} registros`],["Costo de productos",fmt(cp),"red",cpEst>0?`real ${fmt(cpReal)} + estimado ${fmt(cpEst)}`:"costo real"],["Cobranza",fmt(tc),"amber",`${cobranzasMes.length} visitas`],["Alquiler",fmt(ta),"blue",`${maqList.length} máq.`],["Gastos extras",fmt(tg+tr),"red",`${gastosMes.length} reg.${tr>0?" + repuestos "+fmt(tr):""}`],["Comisión POS",fmt(tcom),"red","tarjeta y QR"],["Utilidad",fmt(util),util>=0?"green":"red","neto del mes"]].map(([l,v,c,s])=>(
           <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${c}`}>{v}</div><div className="card-sub">{s}</div></div>
         ))}
       </div>
       {ingSinPlano>0&&<div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>ℹ️ El costo incluye una <strong>estimación</strong> para S/ {ingSinPlano.toFixed(2)} de ventas de Atento sin planograma (se calcula con el % de ganancia de cada máquina). Con la foto de la máquina pasa a costo real.</div>}
+      {costoProd.lista.length>0&&(
+        <div className="section" style={{marginBottom:14}}>
+          <div className="section-header"><h3>📦 Costo por producto — {nombreMes(mes)}</h3></div>
+          <div className="table-wrap"><table>
+            <thead><tr><th>Producto</th><th>Unidades</th><th>Ventas</th><th>Costo</th><th>Tipo</th></tr></thead>
+            <tbody>
+              {costoProd.lista.map(f=>(
+                <tr key={f.key}>
+                  <td><strong style={f.sinId?{color:"var(--muted)"}:undefined}>{f.nombre}</strong></td>
+                  <td>{f.qty}</td><td>{fmt(f.ingreso)}</td>
+                  <td style={{fontWeight:600}}>{fmt(f.costo)}</td>
+                  <td>{f.est?<span className="badge amber">Estimado</span>:<span className="badge green">Real</span>}</td>
+                </tr>
+              ))}
+              <tr><td><strong>Total</strong></td><td><strong>{costoProd.lista.reduce((t,f)=>t+f.qty,0)}</strong></td><td><strong>{fmt(costoProd.lista.reduce((t,f)=>t+f.ingreso,0))}</strong></td><td><strong>{fmt(costoProd.total)}</strong></td><td></td></tr>
+            </tbody>
+          </table></div>
+          {costoProd.hayEst&&<div style={{padding:"8px 14px 12px",fontSize:11,color:"var(--muted)"}}>ℹ️ Los costos «Estimado» no son reales: se calculan con el % de ganancia de la máquina porque falta el planograma (foto) que identifica el producto.</div>}
+        </div>
+      )}
       {(tPago.ef+tPago.pos)>0&&(
         <div className="section" style={{marginBottom:14}}>
           <div className="section-header"><h3>💵 vs 💳 Ganancia por medio de pago — {nombreMes(mes)}</h3></div>
@@ -1186,8 +1228,30 @@ function DepositoPOS({data}){
 }
 
 // ─── RENTABILIDAD ────────────────────────────────────────────────────────────────
+// ─── Calificación de rentabilidad por máquina ───
+// Se combina utilidad mínima (S/ al mes) y margen sobre ventas (%). Los umbrales se editan en la pantalla.
+const UMBRALES_RENT_DEF={minimo:500,rent:20,muy:40};
+function leerUmbralesRent(){try{const j=JSON.parse(localStorage.getItem("gamatic_umbrales_rent2")||"null");if(j&&j.minimo>=0&&j.rent>=0&&j.muy>=0)return j;}catch(e){}return UMBRALES_RENT_DEF;}
+function calificarRentabilidad(util,ing,u,minimoEf,diasConVentas){
+  const margen=ing>0?util/ing*100:0;
+  let nivel,etiqueta,css,badge;
+  if(ing<=0){nivel="sin";etiqueta="Sin ventas en el mes";css="neutral";badge="amber";}
+  else if(util<0){nivel="neg";etiqueta="❌ No rentable — pierde dinero; revisa alquiler, gastos o costos";css="negative";badge="red";}
+  else if(util<minimoEf||margen<u.rent){nivel="poco";etiqueta="🟠 Poco rentable — gana, pero "+(util<minimoEf?"menos que tu utilidad mínima ("+fmt(minimoEf)+")":"con margen menor a "+u.rent+"%");css="neutral";badge="amber";}
+  else if(margen>=u.muy){nivel="muy";etiqueta="🌟 Muy rentable — margen de "+margen.toFixed(1)+"% y utilidad sobre el mínimo";css="positive";badge="green";}
+  else{nivel="ok";etiqueta="✅ Rentable — cumple la utilidad mínima y el margen";css="positive";badge="green";}
+  return{nivel,etiqueta,css,badge,margen,pocosDatos:ing>0&&diasConVentas<7};
+}
 function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const [mes,setMes]=useState(mesActual());
+  const [umbrales,setUmbrales]=useState(leerUmbralesRent);
+  const cambiarUmbral=(k2,v)=>{const n={...umbrales,[k2]:v===""?"":+v};setUmbrales(n);try{if(n.minimo!==""&&n.rent!==""&&n.muy!=="")localStorage.setItem("gamatic_umbrales_rent2",JSON.stringify(n));}catch(e){}};
+  const uOk={minimo:+umbrales.minimo||0,rent:+umbrales.rent||0,muy:+umbrales.muy||0};
+  // Si el mes aún no termina, la utilidad mínima se prorratea por los días transcurridos
+  const [yR,mR]=mes.split("-").map(Number);const diasMes=new Date(yR,mR,0).getDate();
+  const hoyR=ahoraLocal().fecha;
+  const factorMes=mes===hoyR.slice(0,7)?Math.max(1,+hoyR.slice(8,10))/diasMes:1;
+  const minimoEf=uOk.minimo*factorMes;
   const maqActivas=data.maquinas.filter(m=>m.activa);
   const ventasMes=data.ventas.filter(v=>v.fecha?.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
   const gastosMes=data.gastos.filter(g=>g.fecha?.startsWith(mes));
@@ -1201,6 +1265,28 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
     <div>
       <MesNav mes={mes} setMes={setMes}/>
       <AvisoCostosAtento data={data} maqIds={maqActivas.map(m=>m.id)} recargar={recargar}/>
+      <details open style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",marginBottom:14,fontSize:12}}>
+        <summary style={{cursor:"pointer",fontWeight:700,fontSize:13}}>ℹ️ ¿Cómo se calcula la rentabilidad?</summary>
+        <div style={{marginTop:10,lineHeight:1.7,color:"var(--muted)"}}>
+          <div><strong style={{color:"var(--text)"}}>Utilidad</strong> = Ingresos − Costo del producto − Alquiler − Gastos extras − Repuestos − Comisión POS (solo tarjeta y QR; el efectivo no paga comisión).</div>
+          <div><strong style={{color:"var(--text)"}}>Margen</strong> = Utilidad ÷ Ingresos × 100.</div>
+          <div><strong style={{color:"var(--text)"}}>Costo del producto</strong>: real cuando la venta tiene producto (por la foto de la máquina); si no, se estima con el % de ganancia de la máquina.</div>
+          <div><strong style={{color:"var(--text)"}}>Recuperación de la inversión</strong> (si registras el costo de la máquina en Máquinas): Inversión ÷ utilidad mensual = meses para recuperarla. En el mes en curso se usa una proyección al mes completo.</div>
+          <div style={{marginTop:8,color:"var(--text)",fontWeight:600}}>Cómo se califica cada máquina:</div>
+          <div>❌ <strong>No rentable</strong>: la utilidad es negativa.</div>
+          <div>🟠 <strong>Poco rentable</strong>: gana, pero menos que la utilidad mínima o con margen menor a {uOk.rent}%.</div>
+          <div>✅ <strong>Rentable</strong>: cumple la utilidad mínima y un margen de {uOk.rent}% o más.</div>
+          <div>🌟 <strong>Muy rentable</strong>: cumple la utilidad mínima y un margen de {uOk.muy}% o más.</div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",margin:"10px 0 4px",alignItems:"flex-end"}}>
+            {[["minimo","Utilidad mínima al mes (S/)"],["rent","Margen para «Rentable» (%)"],["muy","Margen para «Muy rentable» (%)"]].map(([k3,l])=>(
+              <label key={k3} style={{display:"flex",flexDirection:"column",gap:3,fontSize:11,color:"var(--muted)"}}>{l}
+                <input type="number" min="0" value={umbrales[k3]} onChange={e=>cambiarUmbral(k3,e.target.value)} style={{width:150,padding:"6px 8px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:13}}/>
+              </label>
+            ))}
+          </div>
+          <div style={{fontSize:11}}>Estos umbrales se guardan en este navegador.{factorMes<1&&<> Como el mes aún no termina, la utilidad mínima se ajusta a los días transcurridos: <strong>{fmt(minimoEf)}</strong> en lugar de {fmt(uOk.minimo)}.</>} Si una máquina tiene menos de 7 días con ventas se avisa «pocos datos».</div>
+        </div>
+      </details>
       {maqsFiltro&&maqsFiltro.length>0&&<div style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.25)",borderRadius:10,padding:"9px 14px",marginBottom:12,fontSize:12,color:"var(--green)"}}>
         📅 Solo mostrando tus <strong>{maqsFiltro.length} máquina(s) asignadas hoy</strong>.
       </div>}
@@ -1212,13 +1298,18 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
         const rep=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
         const com=comPOS[m.id]?.comision||0;
         const util=ing-cost-(m.alquiler||0)-gm-rep-com;
-        const roi=ing>0?((util/ing)*100).toFixed(1):0;
-        const tipo=util>50?"positive":util>=0?"neutral":"negative";
+        const diasVentas=new Set(vm.map(v=>v.fecha)).size;
+        const cal=calificarRentabilidad(util,ing,uOk,minimoEf,diasVentas);
+        const roi=cal.margen.toFixed(1);
+        const inv=+m.costoInversion||0;
+        const utilMes=factorMes<1?((ing-cost-com)/factorMes)-(m.alquiler||0)-(gm+rep)/factorMes:util;
+        const mesesRec=inv>0&&utilMes>0?inv/utilMes:null;
+        const tipo=cal.css==="positive"?"positive":cal.css==="negative"?"negative":"neutral";
         return(
           <div key={m.id} className={`profit-card profit-${tipo}`}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
               <div><div style={{fontWeight:700,fontSize:14}}>{m.nombre}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{m.ubicacion}</div></div>
-              <span className={`badge ${tipo==="positive"?"green":tipo==="negative"?"red":"amber"}`}>ROI: {roi}%</span>
+              <span className={`badge ${cal.badge}`}>Margen: {roi}%</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:8}}>
               {[["Ingresos",fmt(ing),"var(--green)"],["Costo prod."+(ce.ingS>0?" (estimado)":""),fmt(cost),"var(--muted)",ce.ingS>0?"real "+fmt(ce.costoR)+" + estimado "+fmt(ce.costoE):""],["Alquiler",fmt(m.alquiler),"var(--red)"],["Gastos extras",fmt(gm),"var(--red)"],["Repuestos",fmt(rep),"var(--red)"],...(m.conPos?[["Comisión POS ("+(+m.comisionPos||0)+"%)",fmt(com),"var(--red)"]]:[]),["Utilidad",fmt(util),util>=0?"var(--green)":"var(--red)"]].map(([l,v,c,sub])=>(
@@ -1229,12 +1320,17 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
                 </div>
               ))}
             </div>
+            {inv>0&&<div style={{padding:"7px 10px",background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.25)",borderRadius:8,fontSize:12,marginBottom:8}}>
+              🏦 Inversión <strong>{fmt(inv)}</strong> · {mesesRec!=null
+                ?<>se recupera en unos <strong>{mesesRec<10?mesesRec.toFixed(1):Math.round(mesesRec)} meses</strong>{mesesRec>=12&&<> (≈ {(mesesRec/12).toFixed(1)} años)</>} con la utilidad {factorMes<1?"proyectada del mes":"de este mes"} ({fmt(utilMes)})</>
+                :<span style={{color:"var(--red)"}}>con la utilidad de este mes no se recupera</span>}
+            </div>}
             {ce.ingS>0&&<div style={{padding:"7px 10px",background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,fontSize:11,color:"var(--amber)",marginBottom:8}}>
               ⚠️ {(ce.pctEst*100).toFixed(0)}% de las ventas ({fmt(ce.ingS)}) no tiene planograma: su costo está <strong>estimado al {(ce.ratio*100).toFixed(0)}%</strong> de la venta ({ce.metodo}). Sube la foto de la máquina para tener el costo real.
             </div>}
             {!(+m.alquiler>0)&&<div style={{padding:"7px 10px",background:"rgba(100,116,139,.12)",borderRadius:8,fontSize:11,color:"var(--muted)",marginBottom:8}}>ℹ️ Esta máquina tiene alquiler S/ 0: revisa si falta registrarlo en Máquinas.</div>}
             <div style={{padding:"7px 10px",background:"rgba(0,0,0,.2)",borderRadius:8,fontSize:12}}>
-              {util>=100&&"✅ Muy rentable"}{util>=0&&util<100&&"⚠️ Rentable con margen ajustado"}{util<0&&"❌ No rentable — revisar alquiler o gastos"}
+              <strong>{cal.etiqueta}</strong>{cal.pocosDatos&&<span style={{color:"var(--muted)"}}> · pocos datos ({diasVentas} día{diasVentas>1?"s":""} con ventas)</span>}
             </div>
           </div>
         );
@@ -1627,12 +1723,12 @@ function Proveedores({data,save,del,soloEditar=false}){
 // ─── MÁQUINAS ─────────────────────────────────────────────────────────────────
 function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
   const [modal,setModal]=useState(false);const [editando,setEditando]=useState(null);const [confirmDel,setConfirmDel]=useState(null);
-  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO),margenGanancia:"40"};const [form,setForm]=useState(EF);
+  const EF={nombre:"",ubicacion:"",alquiler:"",comercioAtento:"",conPos:false,comisionPos:String(COMISION_POS_DEFECTO),margenGanancia:"40",costoInversion:""};const [form,setForm]=useState(EF);
   const doSave=async()=>{
     if(!form.nombre||!form.ubicacion)return;
     setModal(false);setForm(EF);setEditando(null);
-    if(editando)await save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia});
-    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,activa:true});}
+    if(editando)await save("maquinas",editando.id,{...editando,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0});
+    else{const id=uid();await save("maquinas",id,{id,nombre:form.nombre,ubicacion:form.ubicacion,alquiler:+form.alquiler,comercioAtento:form.comercioAtento||"",conPos:!!form.conPos,comisionPos:form.conPos?(+form.comisionPos||0):0,margenGanancia:form.margenGanancia===""?40:+form.margenGanancia,costoInversion:+form.costoInversion||0,activa:true});}
   };
   const toggleActiva=async(m)=>save("maquinas",m.id,{...m,activa:!m.activa});
   const puedeVerAlquiler=esAdmin||soloEditar;
@@ -1665,7 +1761,7 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
             <td><div onClick={()=>save("maquinas",m.id,{...m,conPos:!m.conPos,comisionPos:!m.conPos?(+m.comisionPos||COMISION_POS_DEFECTO):(+m.comisionPos||0)})} title="Toca para cambiar entre Con POS y Sin POS" style={{cursor:"pointer",display:"inline-block"}}>{m.conPos?<span className="badge blue">POS {+m.comisionPos||0}%</span>:<span className="badge" style={{opacity:.7}}>Sin POS</span>}</div></td>
             <td><div onClick={()=>toggleActiva(m)} style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,userSelect:"none",background:m.activa?"rgba(16,185,129,.15)":"rgba(239,68,68,.15)",color:m.activa?"var(--green)":"var(--red)"}}><span style={{width:6,height:6,borderRadius:"50%",background:m.activa?"var(--green)":"var(--red)",display:"inline-block"}}/>{m.activa?"Activa":"Inactiva"}</div></td>
             <td><div style={{display:"flex",gap:5}}>
-              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO),margenGanancia:String(m.margenGanancia!=null?m.margenGanancia:40)});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
+              <button className="btn btn-secondary btn-sm" onClick={()=>{setForm({nombre:m.nombre,ubicacion:m.ubicacion,alquiler:String(m.alquiler),comercioAtento:m.comercioAtento||"",conPos:!!m.conPos,comisionPos:String(m.comisionPos||COMISION_POS_DEFECTO),margenGanancia:String(m.margenGanancia!=null?m.margenGanancia:40),costoInversion:m.costoInversion?String(m.costoInversion):""});setEditando(m);setModal(true);}}><Icon name="edit" size={12}/> Editar</button>
               {!soloEditar&&<button className="btn btn-danger btn-sm" onClick={()=>setConfirmDel(m)}><Icon name="trash" size={12}/></button>}
             </div></td>
           </tr>))}</tbody>
@@ -1677,6 +1773,8 @@ function Maquinas({data,save,del,esAdmin,esAbastecedor=false,soloEditar=false}){
         <div className="form-group"><label>Nombre / Código</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} placeholder="Ej: Máquina D4"/></div>
         <div className="form-group"><label>Ubicación</label><input value={form.ubicacion} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: CC Real Plaza - Piso 2"/></div>
         <div className="form-group"><label>Alquiler mensual (S/)</label><input type="number" step="0.01" value={form.alquiler} onChange={e=>setForm({...form,alquiler:e.target.value})}/></div>
+        <div className="form-group"><label>Costo de la máquina / inversión (S/)</label><input type="number" step="0.01" min="0" value={form.costoInversion} onChange={e=>setForm({...form,costoInversion:e.target.value})} placeholder="Lo que costó comprar e instalar la máquina"/>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Sirve para calcular en cuántos meses se recupera la inversión (se ve en Rentabilidad).</div></div>
         <div className="form-group"><label>% de ganancia que se aplica a los productos</label>
           <input type="number" step="0.1" min="0" value={form.margenGanancia} onChange={e=>setForm({...form,margenGanancia:e.target.value})}/>
           <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Normalmente 40% (en algunas máquinas 30%). Se suma al costo para el precio de venta y se usa para estimar el costo cuando todavía no hay planograma.</div>
@@ -3795,13 +3893,13 @@ function ventasFaltantes(data){
 
 // ─── Pre-Kit: qué se vendió en la máquina + qué llevar (y qué más se puede llevar) ───
 // Cada venta toma su producto: el que trae la venta, o el de la foto (planograma) vigente en esa fecha.
-function ventasPorProductoMaq(data,maqId,desde){
+function ventasPorProductoMaq(data,maqId,desde,hasta){
   const planes=(data.planogramas||[]).filter(p=>p.maquinaId===maqId)
     .sort((a,b)=>((a.fecha||"")+(a.hora||"")).localeCompare((b.fecha||"")+(b.hora||"")));
   const prods=data.productos||[];
   const porNombre={};prods.forEach(p=>{porNombre[String(p.nombre||"").trim().toLowerCase()]=p;});
   const res={};let sinId=0,sinIdMonto=0,primera=null;
-  (data.ventas||[]).filter(v=>v.maquinaId===maqId&&(v.fecha||"")>=desde).forEach(v=>{
+  (data.ventas||[]).filter(v=>v.maquinaId===maqId&&(v.fecha||"")>=desde&&(!hasta||(v.fecha||"")<=hasta)).forEach(v=>{
     if(!primera||v.fecha<primera)primera=v.fecha;
     let prodId=v.productoId||null,nombre=null;
     if(!prodId){
