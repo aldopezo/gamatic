@@ -9180,7 +9180,7 @@ const GRUPOS=[
   {id:"g_productos",label:"Productos",icon:"product",hijos:[["productos","Productos y stock"],["lotes","Lotes y proveedores"],["proveedores","Proveedores"],["adminListasPrecios","Listas de precios"]]},
   {id:"g_movimientos",label:"Movimientos",icon:"transfer",hijos:[["traslados","Traslados"],["devoluciones","Devolución de productos"]]},
   {id:"g_ventas",label:"Ventas",icon:"chart",hijos:[["ventas","Ventas"],["ventasAtento","Importar Atento"],["reportes","Reportes"]]},
-  {id:"g_cobranzas",label:"Cobranzas",icon:"money",hijos:[["cobranzas","Cobranzas"],["devolucionesClientes","Devoluciones a clientes"],["sencillo","Control de sencillo"],["depositoPos","Depósito POS"]]},
+  {id:"g_cobranzas",label:"Cobranzas",icon:"money",hijos:[["cobranzas","Cobranzas"],["sencillo","Control de sencillo"],["depositoPos","Depósito POS"]]},
   {id:"g_cafeteras",label:"Cafeteras",icon:"coffee",hijos:[["cafeteras","Control"],["ventasCafeteras","Ventas"]]},
   {id:"g_equipo",label:"Equipo",icon:"users",hijos:[["gestionUsuarios","Personal y usuarios"],["gestionRoles","Roles y permisos"],["horario","Horario semanal"]]},
 ];
@@ -9188,7 +9188,7 @@ const MENU_AGRUPADO=[
   {section:"Resumen",items:["mihorario","dashboard","rentabilidad","recomendaciones","cierreDia"]},
   {section:"Operaciones",items:["g_maquinas","g_mantenimiento"]},
   {section:"Almacén",items:["g_productos","g_movimientos","repuestos"]},
-  {section:"Ventas y cobros",items:["g_ventas","g_cobranzas","gastos"]},
+  {section:"Ventas y cobros",items:["g_ventas","g_cobranzas","devolucionesClientes","gastos"]},
   {section:"Cafeteras",items:["g_cafeteras"]},
   {section:"Administración",items:["g_equipo"]},
 ];
