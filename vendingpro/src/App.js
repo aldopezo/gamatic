@@ -4167,7 +4167,7 @@ function Tickets({data,save,del,esAdmin=false}){
     <div>
       <div className="cards">
         {[["🔴 Abiertos",abiertos,"red"],["🟡 En proceso",enProceso,"amber"],["✅ Resueltos",resueltos,"green"]].map(([l,v,col])=>(
-          <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${col}`}>{v}</div><div className="card-sub">tickets</div></div>
+          <div key={l} className="card"><div className="card-label">{l}</div><div className={`card-value ${col}`}>{v}</div><div className="card-sub">tickets de mantenimiento</div></div>
         ))}
       </div>
       <div style={{marginBottom:14}}>
@@ -4181,12 +4181,12 @@ function Tickets({data,save,del,esAdmin=false}){
           ))}
         </div>
         <div style={{display:"flex",justifyContent:"flex-end"}}>
-          <button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Nuevo ticket</button>
+          <button className="btn btn-primary btn-sm" onClick={()=>{setForm(EF);setEditando(null);setModal(true);}}><Icon name="plus" size={13}/> Nuevo ticket de mantenimiento</button>
         </div>
       </div>
 
       {ticketsFiltrados.length===0
-        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin tickets{filtroEstado!=="todos"?` con estado "${filtroEstado}"`:""}.</div></div>
+        ?<div className="section"><div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>Sin tickets de mantenimiento{filtroEstado!=="todos"?` con estado "${filtroEstado}"`:""}.</div></div>
         :ticketsFiltrados.map(t=>{
           const maq=data.maquinas.find(m=>m.id===t.maquinaId);
           return(
@@ -4231,8 +4231,8 @@ function Tickets({data,save,del,esAdmin=false}){
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
             <div style={{width:40,height:40,borderRadius:10,background:"rgba(239,68,68,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🔧</div>
             <div>
-              <div style={{fontSize:16,fontWeight:700}}>{editando?"Editar ticket":"Nuevo ticket"}</div>
-              {editando&&<div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Ticket #{editando.id?.slice(-4)}</div>}
+              <div style={{fontSize:16,fontWeight:700}}>{editando?"Editar ticket de mantenimiento":"Nuevo ticket de mantenimiento"}</div>
+              {editando&&<div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Ticket de mantenimiento #{editando.id?.slice(-4)}</div>}
             </div>
           </div>
           <div className="form-row">
@@ -4288,11 +4288,11 @@ function Tickets({data,save,del,esAdmin=false}){
           </div>
           <div style={{display:"flex",gap:9,justifyContent:"flex-end",marginTop:16}}>
             <button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button>
-            <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear ticket"}</button>
+            <button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Crear ticket de mantenimiento"}</button>
           </div>
         </div>
       </div>}
-      {confirmDel&&<ConfirmDelete texto="¿Eliminar este ticket?" onConfirm={()=>{del("tickets",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+      {confirmDel&&<ConfirmDelete texto="¿Eliminar este ticket de mantenimiento?" onConfirm={()=>{del("tickets",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
 }
@@ -8984,7 +8984,7 @@ function Repuestos({data,sesionUsuario=null,esAdmin=false,recargar=null}){
                     <td style={{fontWeight:800,color:m.tipo==="salida"||m.cantidad<0?"var(--red)":"var(--green)"}}>{m.tipo==="salida"?"-":m.cantidad>0?"+":""}{m.cantidad}</td>
                     <td style={{fontSize:12,color:"var(--muted)"}}>{m.stockAntes} → <strong style={{color:"var(--text)"}}>{m.stockDespues}</strong></td>
                     <td style={{fontSize:12}}>{m.maquinaId?maqNombre(m.maquinaId,m.maquinaNombre):(m.maquinaNombre||"—")}</td>
-                    <td style={{fontSize:12}}>{m.motivo||"—"}{m.ticketId&&<span style={{marginLeft:6,fontSize:10,color:"var(--accent)"}}>🔧 ticket</span>}{m.nota&&<div style={{fontSize:10,color:"var(--muted)"}}>{m.nota}</div>}</td>
+                    <td style={{fontSize:12}}>{m.motivo||"—"}{m.ticketId&&<span style={{marginLeft:6,fontSize:10,color:"var(--accent)"}}>🔧 ticket de mantenimiento</span>}{m.nota&&<div style={{fontSize:10,color:"var(--muted)"}}>{m.nota}</div>}</td>
                     <td style={{fontSize:12}}>{String(m.usuarioNombre||"—").trim()}</td>
                   </tr>
                 );
@@ -9051,8 +9051,8 @@ function Repuestos({data,sesionUsuario=null,esAdmin=false,recargar=null}){
                 </div>
                 <div className="form-group"><label>Ticket de mantenimiento (opcional)</label>
                   <select value={mov.ticketId} onChange={e=>setMov({...mov,ticketId:e.target.value})}>
-                    <option value="">— Sin ticket —</option>
-                    {ticketsDisp.map(tk=><option key={tk.id} value={tk.id}>{(tk.tipo||"Ticket")+": "+String(tk.descripcion||"").slice(0,50)+" ("+maqNombre(tk.maquinaId)+")"}</option>)}
+                    <option value="">— Sin ticket de mantenimiento —</option>
+                    {ticketsDisp.map(tk=><option key={tk.id} value={tk.id}>{(tk.tipo||"Ticket de mantenimiento")+": "+String(tk.descripcion||"").slice(0,50)+" ("+maqNombre(tk.maquinaId)+")"}</option>)}
                   </select>
                 </div>
               </>
@@ -9119,7 +9119,7 @@ const ADMIN_NAV=[
   {id:"sencillo",label:"Control de sencillo",icon:"coin"},
   {id:"abastecimiento",label:"Máquinas por abastecer",icon:"kit"},
   {id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
-  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
+  {id:"tickets",label:"Tickets de mantenimiento",icon:"wrench"},
   {id:"repuestos",label:"Almacén de repuestos",icon:"stock"},
   {id:"gastos",label:"Gastos adicionales",icon:"bolt"},
   {section:"Cafeteras"},
@@ -9144,7 +9144,7 @@ const ABASTECEDOR_NAV=[
   {id:"abastecimiento",label:"Máquinas por abastecer",icon:"kit"},
   {id:"prekit",label:"Pre-Kit reposición",icon:"kit"},
   {id:"traslados",label:"Traslados",icon:"transfer"},
-  {id:"tickets",label:"Tickets mantenimiento",icon:"wrench"},
+  {id:"tickets",label:"Tickets de mantenimiento",icon:"wrench"},
   {section:"Cafeteras"},
   {id:"ventasCafeteras",label:"Ventas cafeteras",icon:"coffee"},
   {section:"Consultas"},
@@ -9176,7 +9176,7 @@ const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Al
 // ─── Menú agrupado (admin y almacenero): cada grupo reúne módulos relacionados como pestañas ───
 const GRUPOS=[
   {id:"g_maquinas",label:"Máquinas",icon:"machine",hijos:[["maquinas","Lista"],["stockMaquina","Stock por máquina"],["planograma","Foto de recarga"],["fotosPorLeer","Fotos por leer"],["historialPlanogramas","Historial de planogramas"]]},
-  {id:"g_mantenimiento",label:"Mantenimiento",icon:"wrench",hijos:[["abastecimiento","Máquinas por abastecer"],["prekit","Pre-Kit reposición"],["tickets","Tickets"]]},
+  {id:"g_mantenimiento",label:"Mantenimiento",icon:"wrench",hijos:[["abastecimiento","Máquinas por abastecer"],["prekit","Pre-Kit reposición"],["tickets","Tickets de mantenimiento"]]},
   {id:"g_productos",label:"Productos",icon:"product",hijos:[["productos","Productos y stock"],["lotes","Lotes y proveedores"],["proveedores","Proveedores"],["adminListasPrecios","Listas de precios"]]},
   {id:"g_movimientos",label:"Movimientos",icon:"transfer",hijos:[["traslados","Traslados"],["devoluciones","Devolución de productos"]]},
   {id:"g_ventas",label:"Ventas",icon:"chart",hijos:[["ventas","Ventas"],["ventasAtento","Importar Atento"],["reportes","Reportes"]]},
