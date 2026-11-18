@@ -313,6 +313,7 @@ const TABLE_MAP={
   devoluciones:'devoluciones',
   devolucionesClientes:'devoluciones_clientes',
   recargas:'recargas',
+  recomendaciones:'recomendaciones',
   stockMaquina:'stock_maquina',
   sencillo:'sencillo',
   tickets:'tickets',
@@ -379,7 +380,7 @@ function useFirebase(){
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
-        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos','lotes','devoluciones_clientes','recargas'];
+        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos','lotes','devoluciones_clientes','recargas','recomendaciones'];
       // Supabase devuelve máx. 1000 filas por consulta: se pide por páginas para no perder ventas
       const traerTodo=async(t)=>{
         const cols=t==='ventas_atento'?COLS_ATENTO:'*';
@@ -408,14 +409,14 @@ function useFirebase(){
       const [productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,stockMaquina,sencillo,
         tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
-        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas]=results.map(r=>toCamel(r.data||[]));
+        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas,recomendaciones]=results.map(r=>toCamel(r.data||[]));
 
       if(!mountedRef.current)return;
       const newData={
         productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,
         stockMaquina,sencillo,tickets,productosEco,personal,
-        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas,
+        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas,recomendaciones,
         horario:horarioObj,
       };
       // Solo actualiza si los datos cambiaron — evita re-renders innecesarios que cierran modales
@@ -1757,6 +1758,192 @@ function Abastecimiento({data,save,sesionUsuario=null}){
         <div className="form-group"><label>Nota (opcional)</label><input value={modal.nota} onChange={e=>setModal({...modal,nota:e.target.value})} placeholder="Ej: recarga completa"/></div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>setModal(null)}>Cancelar</button><button className="btn btn-primary" onClick={guardar}>Guardar</button></div>
       </div></div>}
+    </div>
+  );
+}
+
+// ─── Bandeja de recomendaciones: qué decisiones tomar con cada máquina en el mes ───
+const SEV_REC={accion:{o:0,l:"🔴 Acción",c:"red"},revisar:{o:1,l:"🟠 Revisar",c:"amber"},oportunidad:{o:2,l:"🟢 Oportunidad",c:"green"},info:{o:3,l:"ℹ️ Dato",c:""}};
+function generarRecomendaciones(data,mes,comPOS,movRep){
+  const hoy=ahoraLocal().fecha;
+  const u=leerUmbralesRent();const uOk={minimo:+u.minimo||0,rent:+u.rent||0,muy:+u.muy||0};
+  const [y,mo]=mes.split("-").map(Number);
+  const diasMes=new Date(y,mo,0).getDate();
+  const esActual=mes===hoy.slice(0,7);
+  const diasTrans=esActual?Math.max(1,+hoy.slice(8,10)):diasMes;
+  const factorMes=diasTrans/diasMes;
+  const prev=sumarDias(mes+"-01",-1).slice(0,7);
+  const diasPrev=+sumarDias(mes+"-01",-1).slice(8,10);
+  const recargas=esActual?estimarRecargas(data,leerCfgRecarga()):[];
+  const out=[];
+  (data.maquinas||[]).filter(m=>m.activa&&m.tipo!=="cafetera"&&!(data.cafeteras||[]).some(c=>c.maquinaId===m.id)).forEach(m=>{
+    const nom=String(m.nombre).trim();
+    const add=(regla,sev,titulo,detalle,accion)=>out.push({id:mes+"|"+m.id+"|"+regla,mes,m,regla,sev,titulo,detalle,accion});
+    const vm=data.ventas.filter(v=>v.maquinaId===m.id&&v.fecha?.startsWith(mes));
+    const ing=vm.reduce((s,v)=>s+(v.ingreso||0),0);
+    const ce=costoDeVentas(data,vm,m);
+    const gm=data.gastos.filter(g=>g.maquinaId===m.id&&g.fecha?.startsWith(mes)).reduce((s,g)=>s+(g.monto||0),0);
+    const rp=movRep.filter(r=>r.maquinaId===m.id).reduce((s,r)=>s+(r.cantidad||0)*(r.costoUnitario||0),0);
+    const dvs=(data.devolucionesClientes||[]).filter(d=>d.maquinaId===m.id&&d.fecha?.startsWith(mes));
+    const dv=dvs.reduce((s,d)=>s+(d.monto||0),0);
+    const pos=comPOS[m.id]||{efectivo:0,bruto:0,comision:0};
+    const util=ing-ce.costo-(m.alquiler||0)-gm-rp-dv-pos.comision;
+    const dias=new Set(vm.map(v=>v.fecha)).size;
+    const cal=calificarRentabilidad(util,ing,uOk,uOk.minimo*factorMes,dias);
+    const alq=+m.alquiler||0;
+    const ingPrev=data.ventas.filter(v=>v.maquinaId===m.id&&v.fecha?.startsWith(prev)).reduce((s,v)=>s+(v.ingreso||0),0);
+
+    // 1. Sin ventas / pérdida / poco rentable / muy rentable
+    if(ing<=0){
+      add("sin_ventas","accion","Sin ventas este mes","No hay ventas registradas de "+nom+" en el mes.","Revisa si falta subir el reporte de Atento o si la máquina está con falla o apagada. Si ya no opera, pásala a Parada.");
+    }else if(cal.nivel==="neg"){
+      const alquilerPesa=alq>0&&alq/ing>=0.2;
+      add("perdida","accion","Pierde dinero: "+fmt(util),"Utilidad de "+fmt(util)+" sobre ventas de "+fmt(ing)+(alq>0?" (alquiler "+fmt(alq)+")":"")+".",
+        alquilerPesa?"El alquiler pesa mucho. Renegocia el alquiler o pide un pago variable según ventas; si no se puede, evalúa reubicarla.":"Revisa precios y costos; si las ventas son bajas por la ubicación, evalúa reubicarla. Si persiste el próximo mes, considera retirarla.");
+    }else if(cal.nivel==="poco"){
+      const porMargen=cal.margen<uOk.rent;
+      add("poco_rentable","revisar","Poco rentable ("+cal.margen.toFixed(0)+"% de margen)","Utilidad "+fmt(util)+(porMargen?" con margen menor a "+uOk.rent+"%.":", menor a la mínima esperada ("+fmt(uOk.minimo*factorMes)+")."),
+        porMargen?"Revisa precios de venta y el costo de los productos; cambia los productos de margen bajo.":"Vende poco para lo que cuesta: mejora el surtido con los productos más vendidos, prueba una promoción o evalúa reubicarla.");
+    }else if(cal.nivel==="muy"){
+      add("muy_rentable","oportunidad","Máquina estrella: "+cal.margen.toFixed(0)+"% de margen","Utilidad "+fmt(util)+" sobre ventas de "+fmt(ing)+".","Prioriza su abastecimiento para que no se quede sin productos y considera ampliar el surtido o poner otra máquina en un lugar parecido.");
+    }
+
+    // 2. Alquiler alto frente a ventas
+    if(alq>0&&ing>0&&alq/ing>=0.25&&cal.nivel!=="neg"){
+      add("alquiler_alto","revisar","El alquiler se lleva el "+(alq/ing*100).toFixed(0)+"% de las ventas","Alquiler "+fmt(alq)+" contra ventas de "+fmt(ing)+" en el mes.","Renegocia el alquiler o propone pagar un porcentaje de las ventas.");
+    }
+
+    // 3. Tendencia de ventas por día vs mes anterior
+    if(ingPrev>0&&ing>0&&diasTrans>=7){
+      const pd=ing/diasTrans,pp=ingPrev/diasPrev,cambio=(pd/pp-1)*100;
+      if(cambio<=-25)add("ventas_bajan","revisar","Las ventas bajaron "+Math.abs(cambio).toFixed(0)+"%","Vende "+fmt(pd)+" por día contra "+fmt(pp)+" el mes anterior.","Revisa si hubo fallas o espirales vacías, cambia productos que no rotan y confirma que se está abasteciendo a tiempo.");
+      else if(cambio>=25)add("ventas_suben","oportunidad","Las ventas subieron "+cambio.toFixed(0)+"%","Vende "+fmt(pd)+" por día contra "+fmt(pp)+" el mes anterior.","Refuerza su abastecimiento y el stock de los productos que más salen.");
+    }
+
+    // 4. Devoluciones a clientes
+    if(dvs.length>=3||(ing>0&&dv/ing>=0.03)){
+      add("devoluciones","revisar","Muchas devoluciones a clientes","Se devolvieron "+fmt(dv)+" en "+dvs.length+" ocasión(es)"+(ing>0?" ("+(dv/ing*100).toFixed(1)+"% de sus ventas)":"")+".","Probable falla de la máquina o atascos: pide una revisión técnica (ticket de mantenimiento).");
+    }
+
+    // 5. POS casi sin uso
+    if(m.conPos&&ing>=300){
+      const tot=pos.bruto+pos.efectivo;
+      if(tot>0&&pos.bruto/tot<0.1)add("pos_sin_uso","info","Casi nadie paga con tarjeta o QR","Solo el "+(pos.bruto/tot*100).toFixed(0)+"% de lo cobrado fue con POS.","Evalúa si conviene mantener el POS en esta máquina o si hay un problema de lectura/conectividad.");
+    }
+
+    // 6. Espirales que casi no venden
+    {
+      const venEsp={},conocidas={};
+      data.ventas.filter(v=>v.maquinaId===m.id&&(v.fecha?.startsWith(mes)||v.fecha?.startsWith(prev))).forEach(v=>{const n=parseInt(v.espiral,10);if(n>=1&&n<=99){conocidas[n]=true;if(v.fecha.startsWith(mes))venEsp[n]=(venEsp[n]||0)+(v.cantidad||1);}});
+      const nums=Object.keys(conocidas).map(Number);
+      const muertas=nums.filter(n=>(venEsp[n]||0)<=1).sort((a,b)=>a-b);
+      if(diasTrans>=14&&nums.length>=20&&muertas.length>=3){
+        add("espirales_muertas","revisar",muertas.length+" espirales casi no venden","Con 1 venta o ninguna en el mes: espirales "+muertas.slice(0,12).join(", ")+(muertas.length>12?"…":"")+".","Cambia esos productos por otros de mejor rotación.");
+      }
+    }
+
+    // 7. Abastecimiento (solo mes en curso)
+    const rc=recargas.find(r=>r.m.id===m.id);
+    if(rc&&(rc.nivel==="urgente"||rc.nivel==="pronto")){
+      add("recarga",rc.nivel==="urgente"?"accion":"revisar","Necesita abastecimiento ("+rc.pct.toFixed(0)+"% vendido)","Se vendieron "+rc.vendidas+" unidades desde la última recarga ("+rc.u.fecha+")"+(rc.vacias.length?"; espirales probablemente vacías: "+rc.vacias.slice(0,10).join(", ")+".":"."),"Programa su abastecimiento; en «Máquinas por abastecer» puedes marcarla cuando la recargues.");
+    }else if(rc&&rc.nivel==="sinFecha"){
+      add("recarga_sin_fecha","info","Falta registrar su última recarga","No hay fecha de última recarga, por eso no se puede estimar cuándo abastecerla.","Regístrala en «Máquinas por abastecer».");
+    }
+
+    // 8. Costo estimado
+    if(ing>0&&ce.ingS/ing>=0.5){
+      add("costo_estimado","info","Costos estimados: "+(ce.ingS/ing*100).toFixed(0)+"% de las ventas","No hay foto de recarga que identifique los productos vendidos, así que la utilidad es aproximada.","Sube la foto de recarga (con «foto pasada» si es antigua) y pulsa Recalcular costos en Rentabilidad.");
+    }
+
+    // 9. Recuperación de la inversión
+    const inv=+m.costoInversion||0;
+    if(inv>0&&ing>0){
+      const utilMes=factorMes<1?((ing-ce.costo-pos.comision)/factorMes)-alq-(gm+rp+dv)/factorMes:util;
+      if(utilMes>0&&inv/utilMes>24)add("inversion_lenta","revisar","La inversión tardaría "+(inv/utilMes).toFixed(0)+" meses en recuperarse","Inversión "+fmt(inv)+" con utilidad mensual de "+fmt(utilMes)+".","Busca subir ventas o bajar costos; si no mejora, evalúa mover la máquina a un lugar con más tráfico.");
+      else if(utilMes<=0)add("inversion_lenta","accion","La inversión no se está recuperando","Inversión "+fmt(inv)+" y utilidad del mes de "+fmt(utilMes)+".","Corrige la rentabilidad de esta máquina o evalúa reubicarla.");
+    }
+  });
+  return out.sort((a,b)=>(SEV_REC[a.sev].o-SEV_REC[b.sev].o)||String(a.m.nombre).localeCompare(String(b.m.nombre)));
+}
+function Recomendaciones({data,save,sesionUsuario=null}){
+  const [mes,setMes]=useState(ahoraLocal().fecha.slice(0,7));
+  const [filtroEstado,setFiltroEstado]=useState("pendiente");
+  const [filtroSev,setFiltroSev]=useState("todas");
+  const [filtroMaq,setFiltroMaq]=useState("todas");
+  const [iniR,finR]=rangoDeMes(mes);
+  const comPOS=useComisionesPOS(data,iniR,finR);
+  const [movRep,setMovRep]=useState([]);
+  useEffect(()=>{(async()=>{const {data:r}=await supabase.from("repuestos_movimientos").select("*").eq("tipo","salida").gte("fecha",iniR).lte("fecha",finR);setMovRep(toCamel(r||[]));})().catch(()=>setMovRep([]));},[iniR,finR,(data.ventas||[]).length]);
+  const recs=useMemo(()=>generarRecomendaciones(data,mes,comPOS,movRep),[data,mes,comPOS,movRep]);
+  const estados={};(data.recomendaciones||[]).forEach(r=>{estados[r.id]=r;});
+  const estadoDe=(id)=>estados[id]?.estado||"pendiente";
+  const marcar=async(r,estado)=>{
+    if(estado==="pendiente"){await save("recomendaciones",r.id,{id:r.id,mes:r.mes,maquinaId:r.m.id,regla:r.regla,estado:"pendiente",usuario:sesionUsuario?.nombre||"",fecha:ahoraLocal().fecha});return;}
+    await save("recomendaciones",r.id,{id:r.id,mes:r.mes,maquinaId:r.m.id,regla:r.regla,estado,usuario:sesionUsuario?.nombre||"",fecha:ahoraLocal().fecha});
+    notificar(estado==="hecha"?"Marcada como hecha":"Recomendación descartada");
+  };
+  const maqs=[...new Map(recs.map(r=>[r.m.id,r.m])).values()];
+  const cuenta=(est)=>recs.filter(r=>estadoDe(r.id)===est).length;
+  const visibles=recs.filter(r=>(filtroEstado==="todas"||estadoDe(r.id)===filtroEstado)&&(filtroSev==="todas"||r.sev===filtroSev)&&(filtroMaq==="todas"||r.m.id===filtroMaq));
+  const pend=recs.filter(r=>estadoDe(r.id)==="pendiente");
+  const cs=(s)=>pend.filter(r=>r.sev===s).length;
+  return(
+    <div>
+      <MesNav mes={mes} setMes={setMes}/>
+      <div className="cards">
+        <div className="card"><div className="card-label">🔴 Acción</div><div className="card-value red">{cs("accion")}</div><div className="card-sub">pendientes</div></div>
+        <div className="card"><div className="card-label">🟠 Revisar</div><div className="card-value amber">{cs("revisar")}</div><div className="card-sub">pendientes</div></div>
+        <div className="card"><div className="card-label">🟢 Oportunidades</div><div className="card-value green">{cs("oportunidad")}</div><div className="card-sub">pendientes</div></div>
+        <div className="card"><div className="card-label">✅ Resueltas</div><div className="card-value">{cuenta("hecha")+cuenta("descartada")}</div><div className="card-sub">de {recs.length} en {nombreMes(mes)}</div></div>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:10,fontSize:12,color:"var(--muted)"}}>
+        Mostrar:
+        {[["pendiente","Pendientes"],["hecha","Hechas"],["descartada","Descartadas"],["todas","Todas"]].map(([k,l])=>(
+          <button key={k} className={`btn btn-sm ${filtroEstado===k?"btn-primary":"btn-secondary"}`} onClick={()=>setFiltroEstado(k)}>{l}{k!=="todas"?" ("+cuenta(k)+")":""}</button>
+        ))}
+        <select value={filtroSev} onChange={e=>setFiltroSev(e.target.value)} style={{padding:"6px 8px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:12}}>
+          <option value="todas">Todas las prioridades</option>{Object.entries(SEV_REC).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}
+        </select>
+        <select value={filtroMaq} onChange={e=>setFiltroMaq(e.target.value)} style={{padding:"6px 8px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:12}}>
+          <option value="todas">Todas las máquinas</option>{maqs.map(m=><option key={m.id} value={m.id}>{String(m.nombre).trim()}</option>)}
+        </select>
+      </div>
+      {visibles.length===0
+        ?<div style={{padding:30,textAlign:"center",color:"var(--muted)",fontSize:13}}>{recs.length===0?"Sin recomendaciones para "+nombreMes(mes)+".":filtroEstado==="pendiente"?"🎉 No tienes recomendaciones pendientes con estos filtros.":"Nada para mostrar con estos filtros."}</div>
+        :visibles.map(r=>{
+          const est=estadoDe(r.id);const sv=SEV_REC[r.sev];
+          return(
+            <div key={r.id} style={{background:"var(--surface)",border:"1px solid var(--border)",borderLeft:"4px solid "+(r.sev==="accion"?"var(--red)":r.sev==="revisar"?"var(--accent)":r.sev==="oportunidad"?"var(--green)":"var(--muted)"),borderRadius:10,padding:"12px 14px",marginBottom:10,opacity:est==="pendiente"?1:.6}}>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+                <span className={`badge ${sv.c}`}>{sv.l}</span>
+                <strong style={{fontSize:13}}>{String(r.m.nombre).trim()}</strong>
+                <span style={{fontSize:11,color:"var(--muted)"}}>{r.m.ubicacion}</span>
+                {est!=="pendiente"&&<span className="badge" style={{marginLeft:"auto"}}>{est==="hecha"?"✅ Hecha":"🚫 Descartada"}{estados[r.id]?.usuario?" · "+estados[r.id].usuario:""}</span>}
+              </div>
+              <div style={{fontWeight:700,fontSize:14,marginBottom:3}}>{r.titulo}</div>
+              <div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>{r.detalle}</div>
+              <div style={{fontSize:12,marginBottom:8}}>💡 <strong>Qué hacer:</strong> {r.accion}</div>
+              <div style={{display:"flex",gap:6}}>
+                {est==="pendiente"
+                  ?<><button className="btn btn-primary btn-sm" onClick={()=>marcar(r,"hecha")}>✅ Hecha</button><button className="btn btn-secondary btn-sm" onClick={()=>marcar(r,"descartada")}>🚫 Descartar</button></>
+                  :<button className="btn btn-secondary btn-sm" onClick={()=>marcar(r,"pendiente")}>↩️ Reabrir</button>}
+              </div>
+            </div>);
+        })}
+      <details style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",marginTop:14,fontSize:12}}>
+        <summary style={{cursor:"pointer",fontWeight:700,fontSize:13}}>ℹ️ ¿Cómo se generan estas recomendaciones?</summary>
+        <div style={{marginTop:10,color:"var(--muted)",lineHeight:1.7}}>
+          Se calculan solas para cada mes con las ventas, costos y registros de cada máquina que trabaja. Las que ya resolviste o descartaste no vuelven a salir ese mes; en el mes siguiente se vuelven a evaluar.
+          <div>• <strong>Sin ventas / pierde dinero / poco rentable / estrella:</strong> según la calificación de Rentabilidad.</div>
+          <div>• <strong>Alquiler alto:</strong> el alquiler es el 25% o más de las ventas.</div>
+          <div>• <strong>Ventas suben o bajan:</strong> ventas por día 25% o más distintas frente al mes anterior (desde el día 7 del mes).</div>
+          <div>• <strong>Devoluciones:</strong> 3 o más en el mes, o 3% o más de las ventas.</div>
+          <div>• <strong>Espirales que no venden:</strong> 3 o más con una venta o ninguna en el mes (desde el día 14).</div>
+          <div>• <strong>Abastecimiento:</strong> según lo vendido desde la última recarga (solo mes en curso).</div>
+          <div>• <strong>Inversión:</strong> tarda más de 24 meses en recuperarse, o no se recupera.</div>
+          <div>• <strong>Datos:</strong> costos estimados, POS casi sin uso o falta la fecha de última recarga.</div>
+        </div>
+      </details>
     </div>
   );
 }
@@ -8910,6 +9097,7 @@ const ADMIN_NAV=[
   {id:"dashboard",label:"Dashboard",icon:"chart"},
   {id:"cierreDia",label:"Cierre del día",icon:"bolt"},
   {id:"rentabilidad",label:"Rentabilidad",icon:"trend"},
+  {id:"recomendaciones",label:"Recomendaciones",icon:"bolt"},
   {id:"horario",label:"Horario semanal",icon:"calendar"},
   {section:"Catálogo"},
   {id:"productos",label:"Productos y stock",icon:"product"},
@@ -8978,7 +9166,7 @@ const TITLES={
   gastos:"Gastos adicionales",productos:"Productos y stock",proveedores:"Proveedores",maquinas:"Máquinas",
   stock:"Stock almacén",traslados:"Traslados",ventas:"Ventas",cobranzas:"Cobranzas",
   precios:"Precios de venta",preciosEco:"Lista de precios económica",
-  historialPlanogramas:"Historial de planogramas",lotes:"Lotes y proveedores",depositoPos:"Depósito POS",abastecimiento:"Máquinas por abastecer",devoluciones:"Devolución de productos",devolucionesClientes:"Devoluciones a clientes",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de recarga de máquina",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
+  historialPlanogramas:"Historial de planogramas",lotes:"Lotes y proveedores",depositoPos:"Depósito POS",abastecimiento:"Máquinas por abastecer",recomendaciones:"Recomendaciones",devoluciones:"Devolución de productos",devolucionesClientes:"Devoluciones a clientes",cierreDia:"Cierre del día",personal:"Personal",gestionUsuarios:"Gestión de usuarios",adminListasPrecios:"Listas de precios",listaPreciosCampo:"Lista de precios",cafeteras:"Control de cafeteras",ventasCafeteras:"Ventas de cafeteras",planograma:"Foto de recarga de máquina",fotosPorLeer:"Fotos por leer",repuestos:"Almacén de repuestos",ventasAtento:"Ventas Atento",gestionRoles:"Roles y permisos",sugerencias:"Sugerencias",stockMaquina:"Stock por máquina",sencillo:"Control de sencillo",tickets:"Tickets de mantenimiento",prekit:"Pre-Kit de reposición",reportes:"Reportes de ventas",
 };
 const ROL_ICONO={admin:"🔐",abastecedor:"🔧",almacenero:"🏭",undefined:"👤"};
 const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Almacenero"};
@@ -8997,7 +9185,7 @@ const GRUPOS=[
   {id:"g_equipo",label:"Equipo",icon:"users",hijos:[["gestionUsuarios","Personal y usuarios"],["gestionRoles","Roles y permisos"],["horario","Horario semanal"]]},
 ];
 const MENU_AGRUPADO=[
-  {section:"Resumen",items:["mihorario","dashboard","rentabilidad","cierreDia"]},
+  {section:"Resumen",items:["mihorario","dashboard","rentabilidad","recomendaciones","cierreDia"]},
   {section:"Operaciones",items:["g_maquinas","g_mantenimiento"]},
   {section:"Almacén",items:["g_productos","g_movimientos","repuestos"]},
   {section:"Ventas y cobros",items:["g_ventas","g_cobranzas","gastos"]},
@@ -9156,6 +9344,7 @@ export default function App(){
     case "fotosPorLeer": return <FotosPorLeer data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "ventasAtento": return <VentasAtento data={data} save={saveWrapped} del={delWrapped} sesionUsuario={sesionUsuario} recargar={()=>loadAll(true)}/>;
     case "listaPreciosCampo": return <ListaPreciosCampo data={data} maqsFiltro={maqsAsignadasHoy}/>;
+    case "recomendaciones": return <Recomendaciones data={data} save={saveWrapped} sesionUsuario={sesionUsuario}/>;
     case "rentabilidad": return <Rentabilidad data={data} maqsFiltro={maqsAsignadasHoy} recargar={()=>loadAll(true)}/>;
     case "horario":      return <HorarioAdmin data={data} save={saveWrapped}/>;
     case "mihorario":    return <MiHorario data={data} save={saveWrapped} puedeComentarMaq={esAbastecedor||esAdmin} sesionUsuario={sesionUsuario}/>;
