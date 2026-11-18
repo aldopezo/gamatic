@@ -144,8 +144,8 @@ const css=`
   .modal h3{font-size:16px;font-weight:700;margin-bottom:16px}
   .form-group{margin-bottom:12px}
   .form-group label{display:block;font-size:10px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
-  .form-group input,.form-group select,.form-group textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:70px;padding:9px 12px;background:#ffffff;border:1px solid rgba(245,158,11,.3);border-radius:8px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}
-  .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
+  .form-group input,.form-group select{width:100%;padding:9px 12px;background:#ffffff;border:1px solid rgba(245,158,11,.3);border-radius:8px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}
+  .form-group input:focus,.form-group select:focus{border-color:var(--accent)}
   .form-group select option{background:var(--surface2)}
   .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .modal-actions{display:flex;gap:9px;justify-content:flex-end;margin-top:16px}
@@ -1642,7 +1642,7 @@ function DevolucionesClientes({data,save,del,esAdmin=false,maqsFiltro=null,sesio
           <div className="form-group"><label>Fecha</label><input type="date" value={form.fecha} onChange={e=>setForm({...form,fecha:e.target.value})}/></div>
           <div className="form-group"><label>Hora</label><input type="time" value={form.hora} onChange={e=>setForm({...form,hora:e.target.value})}/></div>
         </div>
-        <div className="form-group"><label>Observación (opcional)</label><textarea rows={2} value={form.observacion} onChange={e=>setForm({...form,observacion:e.target.value})} placeholder="Detalle de lo que pasó"/></div>
+        <div className="form-group"><label>Observación (opcional)</label><textarea rows={2} value={form.observacion} onChange={e=>setForm({...form,observacion:e.target.value})} placeholder="Detalle de lo que pasó" style={{width:"100%",boxSizing:"border-box",padding:"9px 12px",background:"#ffffff",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,color:"var(--text)",fontSize:14,fontFamily:"'DM Sans',sans-serif",outline:"none",resize:"vertical"}}/></div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave}>{editando?"Guardar cambios":"Guardar"}</button></div>
       </div></div>}
       {confirmDel&&<ConfirmDelete texto={`¿Eliminar la devolución de ${confirmDel.cliente} por ${fmt(confirmDel.monto)}?`} onConfirm={()=>{del("devolucionesClientes",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
