@@ -1262,7 +1262,12 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
   const factorMes=mes===hoyR.slice(0,7)?Math.max(1,+hoyR.slice(8,10))/diasMes:1;
   const minimoEf=uOk.minimo*factorMes;
   const maqActivas=data.maquinas.filter(m=>m.activa);
-  const ventasMes=data.ventas.filter(v=>v.fecha?.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
+  const ventasReales=data.ventas.filter(v=>v.fecha?.startsWith(mes)&&maqActivas.find(m=>m.id===v.maquinaId));
+  // Máquinas SIN POS (solo efectivo): el ingreso se estima con lo cobrado en Cobranzas. Con POS se usan las ventas de Atento.
+  const ventasCob=(data.cobranzas||[]).filter(c=>c.fecha?.startsWith(mes)&&(+c.monto||0)>0&&maqActivas.find(m=>m.id===c.maquinaId&&!m.conPos))
+    .map(c=>({id:"cob-"+c.id,fecha:c.fecha,maquinaId:c.maquinaId,productoId:null,cantidad:0,ingreso:+c.monto||0,origen:"cobranza"}));
+  const ventasMes=[...ventasReales,...ventasCob];
+  const estimadaCob=new Set(ventasCob.map(v=>v.maquinaId));
   const gastosMes=data.gastos.filter(g=>g.fecha?.startsWith(mes));
   const devMesR=(data.devolucionesClientes||[]).filter(d=>d.fecha?.startsWith(mes));
   const rg=ratioGlobalCosto(data);
@@ -1291,6 +1296,7 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
         <div style={{marginTop:10,lineHeight:1.7,color:"var(--muted)"}}>
           <div><strong style={{color:"var(--text)"}}>Utilidad</strong> = Ingresos − Costo del producto − Alquiler − Gastos extras − Repuestos − Devoluciones a clientes − Comisión POS (solo tarjeta y QR; el efectivo no paga comisión).</div>
           <div><strong style={{color:"var(--text)"}}>Margen</strong> = Utilidad ÷ Ingresos × 100.</div>
+          <div><strong style={{color:"var(--text)"}}>Máquinas solo efectivo</strong>: si una máquina no tiene POS, su ingreso se toma de lo cobrado en Cobranzas (con POS se usan las ventas de Atento) y el costo se estima con su % de ganancia.</div>
           <div><strong style={{color:"var(--text)"}}>Costo del producto</strong>: real cuando la venta tiene producto (por la foto de la máquina); si no, se estima con el % de ganancia de la máquina.</div>
           <div><strong style={{color:"var(--text)"}}>Recuperación de la inversión</strong> (si registras el costo de la máquina en Máquinas): Inversión ÷ utilidad mensual = meses para recuperarla. En el mes en curso se usa una proyección al mes completo.</div>
           <div style={{marginTop:8,color:"var(--text)",fontWeight:600}}>Cómo se califica cada máquina:</div>
@@ -1364,7 +1370,10 @@ function Rentabilidad({data,maqsFiltro=null,recargar=null}){
                 ?<>se recupera en unos <strong>{mesesRec<10?mesesRec.toFixed(1):Math.round(mesesRec)} meses</strong>{mesesRec>=12&&<> (≈ {(mesesRec/12).toFixed(1)} años)</>} con la utilidad {factorMes<1?"proyectada del mes":"de este mes"} ({fmt(utilMes)})</>
                 :<span style={{color:"var(--red)"}}>con la utilidad de este mes no se recupera</span>}
             </div>}
-            {ce.ingS>0&&<div style={{padding:"7px 10px",background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,fontSize:11,color:"var(--amber)",marginBottom:8}}>
+            {estimadaCob.has(m.id)&&<div style={{padding:"7px 10px",background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.3)",borderRadius:8,fontSize:11,color:"var(--green)",marginBottom:8}}>
+              💵 Esta máquina no tiene POS: el ingreso ({fmt(ing)}) es lo <strong>cobrado en Cobranzas</strong> del mes y el costo del producto se estima con su % de ganancia. Es un estimado.
+            </div>}
+            {ce.ingS>0&&!estimadaCob.has(m.id)&&<div style={{padding:"7px 10px",background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.3)",borderRadius:8,fontSize:11,color:"var(--amber)",marginBottom:8}}>
               ⚠️ {(ce.pctEst*100).toFixed(0)}% de las ventas ({fmt(ce.ingS)}) no tiene planograma: su costo está <strong>estimado al {(ce.ratio*100).toFixed(0)}%</strong> de la venta ({ce.metodo}). Sube la foto de la máquina para tener el costo real.
             </div>}
             {!(+m.alquiler>0)&&<div style={{padding:"7px 10px",background:"rgba(100,116,139,.12)",borderRadius:8,fontSize:11,color:"var(--muted)",marginBottom:8}}>ℹ️ Esta máquina tiene alquiler S/ 0: revisa si falta registrarlo en Máquinas.</div>}
