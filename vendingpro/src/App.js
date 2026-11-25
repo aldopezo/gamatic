@@ -2044,7 +2044,35 @@ function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre="
         await crearLoteRPC({productoId:pid,proveedorId:prov?.id,proveedorNombre:form.proveedor,cantidad:dif,costo:+form.costo,fechaIngreso:form.fechaReg||ahoraLocal().fecha,fechaVenc:form.fechaVenc,nota:"Ingreso inicial",usuario:usuarioNombre});
         if(form.minimo!=="")await supabase.from("stock").update({minimo:+form.minimo}).eq("producto_id",pid);
       }else if(tieneLotes){
-        if(s&&form.minimo!=="")await save("stock",s.id,{...s,minimo:+form.minimo});
+        // Cambio de fecha de vencimiento: se corrige en el/los lote(s) que tienen esa fecha (la más próxima)
+        const vencOrig=s?.fechaVenc||"";
+        if(form.fechaVenc&&form.fechaVenc!==vencOrig){
+          const conStock=lotesDe(data,pid);
+          let objetivo=conStock.filter(l=>(l.fechaVencimiento||"")===vencOrig);
+          if(!objetivo.length)objetivo=conStock;
+          for(const l of objetivo){
+            const {error}=await supabase.from("lotes").update({fecha_vencimiento:form.fechaVenc}).eq("id",l.id);
+            if(error)throw error;
+          }
+          const resto=conStock.filter(l=>!objetivo.includes(l)).map(l=>l.fechaVencimiento).filter(Boolean);
+          const minV=[form.fechaVenc,...resto].sort()[0];
+          await supabase.from("stock").update({fecha_venc:minV,fecha_vencimiento:minV}).eq("producto_id",pid);
+        }
+        if(dif>0){
+          // Corrección hacia arriba: entra como un lote de ajuste
+          const prov=(data.proveedores||[]).find(x=>(x.nombre||"").trim().toLowerCase()===(form.proveedor||"").trim().toLowerCase());
+          await crearLoteRPC({productoId:pid,proveedorId:prov?.id,proveedorNombre:form.proveedor,cantidad:dif,costo:+form.costo,fechaIngreso:ahoraLocal().fecha,fechaVenc:form.fechaVenc,nota:"Ajuste de inventario (edición del producto)",usuario:usuarioNombre});
+        }else if(dif<0){
+          // Corrección hacia abajo: se descuenta de los lotes que vencen primero
+          let falta=-dif;
+          for(const l of lotesDe(data,pid)){
+            if(falta<=0)break;
+            const q=Math.min(falta,l.cantidadActual);
+            await moverLoteRPC({loteId:l.id,tipo:"ajuste",cantidad:q,motivo:"Corrección de stock (edición del producto)",usuario:usuarioNombre,nota:"Ajuste de inventario"});
+            falta-=q;
+          }
+        }
+        if(form.minimo!==""){await supabase.from("stock").update({minimo:+form.minimo}).eq("producto_id",pid);}
       }else if(s||form.minimo!==""||form.fechaVenc!==""){
         const sid=s?s.id:uid();
         await save("stock",sid,{...(s||{}),id:sid,productoId:pid,cantidad:Math.max(0,nuevo),minimo:form.minimo===""?(s?s.minimo:10):+form.minimo,fechaVenc:form.fechaVenc||null,fechaReg:form.fechaReg||(s?s.fechaReg:null)||ahoraLocal().fecha});
@@ -2176,7 +2204,7 @@ function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre="
         <div style={{fontSize:11,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",margin:"14px 0 6px",paddingTop:10,borderTop:"1px solid rgba(245,158,11,.2)"}}>📦 Stock en almacén</div>
         <div style={{fontSize:11,color:"var(--muted)",marginBottom:8}}>{editando?"Corrige aquí la cantidad actual. Para sumar unidades usa el botón ➕ de la lista.":"Opcional: puedes dejarlo vacío y registrarlo después, editando el producto."}</div>
         <div className="form-row">
-          <div className="form-group"><label>{editando?"Cantidad en stock":"Cantidad inicial"}</label><input type="number" min="0" value={form.cantidad} disabled={!!editando&&lotesDe(data,editando.id,false).length>0} onChange={e=>setForm({...form,cantidad:e.target.value})} placeholder="0"/>{!!editando&&lotesDe(data,editando.id,false).length>0&&<div style={{fontSize:10,color:"var(--muted)",marginTop:3}}>Cambia con ingresos (➕) y salidas por lote.</div>}</div>
+          <div className="form-group"><label>{editando?"Cantidad en stock":"Cantidad inicial"}</label><input type="number" min="0" value={form.cantidad} onChange={e=>setForm({...form,cantidad:e.target.value})} placeholder="0"/>{!!editando&&lotesDe(data,editando.id,false).length>0&&<div style={{fontSize:10,color:"var(--muted)",marginTop:3}}>Si la cambias, se registra como ajuste de inventario en los lotes.</div>}</div>
           <div className="form-group"><label>Stock mínimo</label><input type="number" min="0" value={form.minimo} onChange={e=>setForm({...form,minimo:e.target.value})} placeholder="10"/></div>
         </div>
         <div className="form-row">
