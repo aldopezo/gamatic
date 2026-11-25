@@ -6454,12 +6454,12 @@ function Planograma({data,save,del,sesionUsuario=null,maqsFiltro=null,maqInicial
         <input type="checkbox" checked={fotoPasada} onChange={e=>{setFotoPasada(e.target.checked);if(!e.target.checked){setFechaPasada("");}}}/>
         Es una foto pasada (de otro día)
       </label>
-      {fotoPasada&&<div style={{marginTop:8}}>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <div><div style={{fontSize:10,color:"var(--muted)",marginBottom:2}}>Fecha del abastecimiento</div><input type="date" value={fechaPasada} max={ahoraLocal().fecha} onChange={e=>setFechaPasada(e.target.value)}/></div>
-          <div><div style={{fontSize:10,color:"var(--muted)",marginBottom:2}}>Hora aproximada</div><input type="time" value={horaPasada} onChange={e=>setHoraPasada(e.target.value)}/></div>
+      {fotoPasada&&<div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed rgba(59,130,246,.3)"}}>
+        <div className="form-row" style={{marginBottom:0}}>
+          <div className="form-group" style={{marginBottom:8}}><label>Fecha del abastecimiento</label><input type="date" value={fechaPasada} max={ahoraLocal().fecha} onChange={e=>setFechaPasada(e.target.value)}/></div>
+          <div className="form-group" style={{marginBottom:8}}><label>Hora aproximada</label><input type="time" value={horaPasada} onChange={e=>setHoraPasada(e.target.value)}/></div>
         </div>
-        <div style={{fontSize:11,color:fechaPasadaInvalida?"var(--red)":"var(--muted)",marginTop:6}}>{fechaPasadaInvalida?"Elige una fecha que no sea futura.":"Las ventas desde esa fecha y hora se asignarán a estos productos. Si no recuerdas la hora, pon la de la mañana."}</div>
+        <div style={{fontSize:11,lineHeight:1.4,color:fechaPasadaInvalida?"var(--red)":"var(--muted)"}}>{fechaPasadaInvalida?"⚠️ Elige una fecha que no sea futura.":"Las ventas desde esa fecha y hora se asignarán a estos productos. Si no recuerdas la hora, pon la de la mañana."}</div>
       </div>}
     </div>
   ):null;
@@ -9203,11 +9203,12 @@ const ROL_NOMBRE={admin:"Administrador",abastecedor:"Abastecedor",almacenero:"Al
 // Módulos que puede ver un usuario: los de su rol base, o los de su rol personalizado si tiene uno
 // ─── Menú agrupado (admin y almacenero): cada grupo reúne módulos relacionados como pestañas ───
 const GRUPOS=[
-  {id:"g_maquinas",label:"Máquinas",icon:"machine",hijos:[["maquinas","Lista"],["stockMaquina","Stock por máquina"],["planograma","Foto de recarga"],["fotosPorLeer","Fotos por leer"],["historialPlanogramas","Historial de planogramas"]]},
+  {id:"g_maquinas",label:"Máquinas",icon:"machine",hijos:[["maquinas","Lista"],["stockMaquina","Stock por máquina"]]},
   {id:"g_mantenimiento",label:"Mantenimiento",icon:"wrench",hijos:[["abastecimiento","Máquinas por abastecer"],["prekit","Pre-Kit reposición"],["tickets","Tickets de mantenimiento"]]},
   {id:"g_productos",label:"Productos",icon:"product",hijos:[["productos","Productos y stock"],["lotes","Lotes y proveedores"],["proveedores","Proveedores"],["adminListasPrecios","Listas de precios"]]},
   {id:"g_movimientos",label:"Movimientos",icon:"transfer",hijos:[["traslados","Traslados"],["devoluciones","Devolución de productos"]]},
   {id:"g_ventas",label:"Ventas",icon:"chart",hijos:[["ventas","Ventas"],["ventasAtento","Importar Atento"],["reportes","Reportes"]]},
+  {id:"g_fotos",label:"Fotos de recarga",icon:"camera",hijos:[["planograma","Foto de recarga"],["fotosPorLeer","Fotos por leer"],["historialPlanogramas","Historial de planogramas"]]},
   {id:"g_cobranzas",label:"Cobranzas",icon:"money",hijos:[["cobranzas","Cobranzas"],["sencillo","Control de sencillo"],["depositoPos","Depósito POS"]]},
   {id:"g_cafeteras",label:"Cafeteras",icon:"coffee",hijos:[["cafeteras","Control"],["ventasCafeteras","Ventas"]]},
   {id:"g_equipo",label:"Equipo",icon:"users",hijos:[["gestionUsuarios","Personal y usuarios"],["gestionRoles","Roles y permisos"],["horario","Horario semanal"]]},
@@ -9216,7 +9217,7 @@ const MENU_AGRUPADO=[
   {section:"Resumen",items:["mihorario","dashboard","rentabilidad","recomendaciones","cierreDia"]},
   {section:"Operaciones",items:["g_maquinas","g_mantenimiento"]},
   {section:"Almacén",items:["g_productos","g_movimientos","repuestos"]},
-  {section:"Ventas y cobros",items:["g_ventas","g_cobranzas","devolucionesClientes","gastos"]},
+  {section:"Ventas y cobros",items:["g_ventas","g_fotos","g_cobranzas","devolucionesClientes","gastos"]},
   {section:"Cafeteras",items:["g_cafeteras"]},
   {section:"Administración",items:["g_equipo"]},
 ];
