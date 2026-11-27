@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://nhtnwwhclseiaaobroro.supabase.co";
@@ -1180,7 +1180,7 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
                   const ls=lineasDe(i.id);const abierto=ingAbierto===i.id;
                   const uni=ls.reduce((t,l)=>t+(l.cantidadInicial||0),0);
                   const tot=ls.reduce((t,l)=>t+(l.cantidadInicial||0)*(+l.costoUnitario||0),0);
-                  return(<React.Fragment key={i.id}>
+                  return(<Fragment key={i.id}>
                     <tr style={{cursor:"pointer"}} onClick={()=>setIngAbierto(abierto?null:i.id)}>
                       <td>{i.fecha}</td><td>{i.hora||"—"}</td><td><strong>{i.proveedorNombre}</strong></td><td>{i.factura||"—"}</td>
                       <td>{ls.length}</td><td>{uni}</td><td>{fmt(tot)}</td><td style={{color:"var(--muted)"}}>{i.usuarioNombre||"—"}{i.editadoPor&&<div style={{fontSize:10,color:"var(--amber)"}}>✏️ editado por {i.editadoPor}</div>}</td>
@@ -1192,7 +1192,7 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
                         <tbody>{ls.map(l=><tr key={l.id}><td>{prodDe(l.productoId)?.nombre||"—"}</td><td>{l.cantidadInicial}</td><td>{fmt(l.costoUnitario)}</td><td>{fmt((l.cantidadInicial||0)*(+l.costoUnitario||0))}</td><td>{l.fechaVencimiento||"Sin fecha"}</td><td>{l.cantidadActual}</td></tr>)}</tbody>
                       </table>
                     </td></tr>}
-                  </React.Fragment>);
+                  </Fragment>);
                 })}
               </tbody>
             </table></div>}
