@@ -967,6 +967,22 @@ function calcularProveedores(lotes,movs,productos,pesos){
   });
   return out.sort((a,b)=>a.producto.localeCompare(b.producto));
 }
+// ─── Sesión: se conserva al actualizar la página y se cierra tras 3 horas sin uso ───
+const SESION_KEY="gamatic_sesion";
+const SESION_MS=3*60*60*1000;
+function leerSesion(){
+  try{
+    const j=JSON.parse(localStorage.getItem(SESION_KEY)||"null");
+    if(j&&j.rol&&j.usuario&&Date.now()-(+j.t||0)<SESION_MS)return j;
+    if(j)localStorage.removeItem(SESION_KEY);
+  }catch(e){}
+  return null;
+}
+function guardarSesion(p){
+  try{const a=leerSesion()||{};localStorage.setItem(SESION_KEY,JSON.stringify({...a,...p,t:Date.now()}));}catch(e){}
+}
+function borrarSesion(){try{localStorage.removeItem(SESION_KEY);}catch(e){}}
+
 function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,vistaInicial=null}){
   const [vista,setVista]=useState(vistaInicial||"ingresos");
   useEffect(()=>{if(vistaInicial)setVista(vistaInicial);},[vistaInicial]);
@@ -9414,12 +9430,12 @@ export default function App(){
     const ids=new Set(act.map(m=>m.id));
     return{...dataBruta,maquinas:lista,cafeteras:(dataBruta.cafeteras||[]).filter(c=>!c.maquinaId||ids.has(c.maquinaId))};
   },[dataBruta]);
-  const [usuario,setUsuario]=useState(null);
-  const [tab,setTab]=useState("dashboard");
+  const [usuario,setUsuario]=useState(()=>leerSesion()?.rol||null);
+  const [tab,setTab]=useState(()=>leerSesion()?.tab||"dashboard");
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const cerrar=()=>setSidebarOpen(false);
   const navegar=(id)=>{setTab(id);cerrar();};
-  const [sesionUsuario,setSesionUsuario]=useState(null);
+  const [sesionUsuario,setSesionUsuario]=useState(()=>leerSesion()?.usuario||null);
   const [vistaLotes,setVistaLotes]=useState(null);
   const [bannerVencOculto,setBannerVencOculto]=useState(false);
   const [bannerVentasOculto,setBannerVentasOculto]=useState(false);
@@ -9427,6 +9443,21 @@ export default function App(){
   useEffect(()=>{if(tab!=="lotes")setVistaLotes(null);},[tab]);
   const [fotoPendiente,setFotoPendiente]=useState(null); // máquina recién recargada: se ofrece subir su foto
   const [maqFotoPre,setMaqFotoPre]=useState(null);       // máquina ya elegida al abrir "Foto de recarga"
+  const cerrarSesion=()=>{borrarSesion();setUsuario(null);setSesionUsuario(null);};
+  // Mientras haya uso se renueva la sesión; sin uso por 3 horas se cierra sola
+  useEffect(()=>{
+    if(!usuario)return;
+    let ult=0;
+    const marcar=()=>{const n=Date.now();if(n-ult>30000){ult=n;guardarSesion({});}};
+    const evs=["click","keydown","touchstart","mousemove","scroll"];
+    evs.forEach(e=>window.addEventListener(e,marcar,{passive:true}));
+    const revisar=()=>{if(!leerSesion())cerrarSesion();};
+    const iv=setInterval(revisar,60000);
+    document.addEventListener("visibilitychange",revisar);
+    guardarSesion({});
+    return()=>{evs.forEach(e=>window.removeEventListener(e,marcar));clearInterval(iv);document.removeEventListener("visibilitychange",revisar);};
+  },[usuario]);
+  useEffect(()=>{if(usuario)guardarSesion({tab});},[tab,usuario]);
 
   // Máquinas asignadas hoy — calculado siempre (antes de cualquier return)
   const maqsAsignadasHoy=(()=>{
@@ -9446,7 +9477,8 @@ export default function App(){
   useEffect(()=>{
     if(!data||!usuario||!sesionUsuario)return;
     const vivo=(data.usuarios||[]).find(u=>u.id===sesionUsuario.id);
-    if(vivo&&vivo.rol&&vivo.rol!==usuario){setUsuario(vivo.rol);return;}
+    if(sesionUsuario.id!=="u_admin"&&(data.usuarios||[]).length>0&&(!vivo||vivo.activo===false)){cerrarSesion();return;}
+    if(vivo&&vivo.rol&&vivo.rol!==usuario){setUsuario(vivo.rol);guardarSesion({rol:vivo.rol});return;}
     const rolId=vivo?vivo.rolId:sesionUsuario.rolId;
     const ids=idsPermitidos(vivo?vivo.rol:usuario,rolId,data.roles);
     if(ids.length&&!ids.includes(tab))setTab(ids[0]);
@@ -9464,6 +9496,7 @@ export default function App(){
   if(!usuario)return(<><style>{css}</style><LoginScreen usuarios={data?.usuarios||[]} onLogin={(info)=>{
     const rol=info.usuario.rol;
     setUsuario(rol);setSesionUsuario(info.usuario);
+    {const {password:_pw,token:_tk,...seguro}=info.usuario;guardarSesion({rol,usuario:seguro});}
     // Pantalla inicial: la de su rol, o el primer módulo permitido si su rol personalizado no la incluye
     const inicial=rol==="admin"?"dashboard":rol==="almacenero"?"productos":"mihorario";
     const ids=idsPermitidos(rol,info.usuario.rolId,data.roles);
@@ -9560,7 +9593,7 @@ export default function App(){
             :<div key={item.hoja.id} className={`nav-item ${tab===item.hoja.id?"active":""}`} onClick={()=>navegar(item.hoja.id)}><Icon name={item.hoja.icon} size={15}/>{item.hoja.label}{item.hoja.id==="fotosPorLeer"&&nFotosPend>0&&<span style={{marginLeft:8,background:"var(--accent)",color:"#000",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{nFotosPend}</span>}</div>
           )}
         </nav>
-        <div className="logout-btn" onClick={()=>{setUsuario(null);setSesionUsuario(null);}}><Icon name="logout" size={15}/> Cerrar sesión</div>
+        <div className="logout-btn" onClick={cerrarSesion}><Icon name="logout" size={15}/> Cerrar sesión</div>
       </aside>
       <main className="main">
         <div className="topbar">
