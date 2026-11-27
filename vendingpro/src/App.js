@@ -987,6 +987,8 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
   const [vista,setVista]=useState(vistaInicial||"ingresos");
   useEffect(()=>{if(vistaInicial)setVista(vistaInicial);},[vistaInicial]);
   const [ingAbierto,setIngAbierto]=useState(null);
+  const [editIng,setEditIng]=useState(null); // {ing,proveedorId,factura,lineas:[{loteId,productoId,nombre,cantidad,costo,fechaVenc,salido,nuevo,quitar}]}
+  const [guardandoIng,setGuardandoIng]=useState(false);
   const [ingProv,setIngProv]=useState("todos");
   const [diasAviso,setDiasAviso]=useState(diasAvisoVenc());
   const [q,setQ]=useState("");
@@ -1025,6 +1027,57 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
   const valorVencido=vencidos.reduce((t,l)=>t+l.cantidadActual*(+l.costoUnitario||0),0);
   const mermaRegistrada=movs.filter(m=>m.tipo==="merma"||m.tipo==="devolucion").reduce((t,m)=>{const l=lotes.find(x=>x.id===m.loteId);return t+(m.cantidad||0)*(l?+l.costoUnitario||0:0);},0);
 
+  const abrirEditarIng=(i)=>{
+    const ls=(data.lotes||[]).filter(l=>l.ingresoId===i.id);
+    setEditIng({ing:i,proveedorId:i.proveedorId||"",factura:i.factura||"",lineas:ls.map(l=>({loteId:l.id,nuevo:false,productoId:l.productoId,nombre:prodDe(l.productoId)?.nombre||"—",cantidad:String(l.cantidadInicial),costo:String(l.costoUnitario??""),fechaVenc:l.fechaVencimiento||"",salido:(l.cantidadInicial||0)-(l.cantidadActual||0),quitar:false}))});
+  };
+  const guardarEdicionIng=async()=>{
+    const e=editIng;if(!e||guardandoIng)return;
+    const prov=(data.proveedores||[]).find(x=>x.id===e.proveedorId);
+    if(!prov){alert("Elige el proveedor.");return;}
+    const activas=e.lineas.filter(x=>!x.quitar);
+    if(activas.length===0){alert("El lote debe tener al menos un producto.");return;}
+    for(const x of activas){
+      const n=+x.cantidad;
+      if(!(n>0)){alert("Pon una cantidad mayor a 0 en «"+x.nombre+"».");return;}
+      if(n<x.salido){alert("«"+x.nombre+"»: ya salieron "+x.salido+" unidades de este lote; la cantidad no puede ser menor.");return;}
+    }
+    setGuardandoIng(true);
+    try{
+      const usuarioE=sesionUsuario?.nombre||"";
+      const {error:e0}=await supabase.from("ingresos_lote").update({proveedor_id:prov.id,proveedor_nombre:prov.nombre,factura:e.factura||null,editado_por:usuarioE,editado_en:new Date().toISOString()}).eq("id",e.ing.id);
+      if(e0)throw e0;
+      const afectados=new Set();
+      for(const x of e.lineas){
+        afectados.add(x.productoId);
+        if(x.quitar&&x.loteId){const {error}=await supabase.from("lotes").delete().eq("id",x.loteId);if(error)throw error;continue;}
+        if(x.quitar)continue;
+        const n=+x.cantidad;
+        if(x.nuevo){
+          const idL=await crearLoteRPC({productoId:x.productoId,proveedorId:prov.id,proveedorNombre:prov.nombre,cantidad:n,costo:+x.costo||0,fechaIngreso:e.ing.fecha,fechaVenc:x.fechaVenc,factura:e.factura,nota:"Nuevo lote (agregado al editar)",usuario:usuarioE});
+          const {error}=await supabase.from("lotes").update({ingreso_id:e.ing.id}).eq("id",idL);if(error)throw error;
+        }else{
+          const {error}=await supabase.from("lotes").update({cantidad_inicial:n,cantidad_actual:n-x.salido,costo_unitario:+x.costo||0,fecha_vencimiento:x.fechaVenc||null,proveedor_id:prov.id,proveedor_nombre:prov.nombre,factura:e.factura||null}).eq("id",x.loteId);
+          if(error)throw error;
+        }
+      }
+      for(const pid of afectados){
+        await supabase.rpc("_sync_stock_producto",{p_producto:pid});
+        // El costo del producto pasa a ser el promedio ponderado de sus lotes con stock
+        const {data:ls}=await supabase.from("lotes").select("cantidad_actual,costo_unitario").eq("producto_id",pid).gt("cantidad_actual",0);
+        const u=(ls||[]).reduce((t,l)=>t+l.cantidad_actual,0);
+        if(u>0){
+          const prom=(ls||[]).reduce((t,l)=>t+l.cantidad_actual*(+l.costo_unitario||0),0)/u;
+          const p=prodDe(pid);
+          if(p&&prom>0&&Math.abs(prom-(p.costo||0))>0.004)await supabase.from("productos").update({costo:+prom.toFixed(2)}).eq("id",pid);
+        }
+      }
+      notificar("Lote actualizado");
+      setEditIng(null);
+      if(recargar)await recargar();
+    }catch(err){alert("No se pudo guardar los cambios: "+(err.message||err));}
+    setGuardandoIng(false);
+  };
   const guardarMov=async()=>{
     const n=+modal.cantidad;
     if(!n||n<=0||n>modal.lote.cantidadActual)return;
@@ -1061,6 +1114,51 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
       </div>
       {error&&<div className="alert-box">{error}</div>}
 
+      {editIng&&(()=>{
+        const L=editIng.lineas;
+        const setL=(i,c,v)=>setEditIng(e=>({...e,lineas:e.lineas.map((x,j)=>j===i?{...x,[c]:v}:x)}));
+        const idsUsados=new Set(L.filter(x=>!x.quitar).map(x=>x.productoId));
+        const disponibles=(data.productos||[]).filter(p=>!idsUsados.has(p.id)).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+        return(
+        <div className="modal-overlay"><div className="modal" style={{maxWidth:820,width:"96%",maxHeight:"92vh",display:"flex",flexDirection:"column"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>✏️ Editar lote</h3><CloseBtn onClick={()=>setEditIng(null)}/></div>
+          <div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>Registrado el {editIng.ing.fecha} a las {editIng.ing.hora||"—"} por {editIng.ing.usuarioNombre||"—"}. La fecha y hora originales no cambian. Al guardar se actualizan el stock y el costo de los productos.</div>
+          <div className="form-row">
+            <div className="form-group"><label>Proveedor</label>
+              <select value={editIng.proveedorId} onChange={e=>setEditIng({...editIng,proveedorId:e.target.value})}>
+                {(data.proveedores||[]).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(pv=><option key={pv.id} value={pv.id}>{pv.nombre}</option>)}
+              </select></div>
+            <div className="form-group"><label>N° de recibo / factura</label><input value={editIng.factura} onChange={e=>setEditIng({...editIng,factura:e.target.value})}/></div>
+          </div>
+          <div style={{overflowY:"auto",flex:1,border:"1px solid var(--border)",borderRadius:10}}>
+            <table style={{width:"100%"}}>
+              <thead><tr><th>Producto</th><th style={{width:90}}>Cantidad</th><th style={{width:105}}>Costo unit.</th><th style={{width:145}}>Vencimiento</th><th style={{width:70}}>Ya salió</th><th style={{width:60}}></th></tr></thead>
+              <tbody>
+                {L.map((x,i)=>(
+                  <tr key={i} style={{opacity:x.quitar?.4:1,textDecoration:x.quitar?"line-through":"none"}}>
+                    <td><strong style={{fontSize:12}}>{x.nombre}</strong>{x.nuevo&&<span className="badge green" style={{marginLeft:6}}>nuevo</span>}</td>
+                    <td><input type="number" min="0" disabled={x.quitar} value={x.cantidad} onChange={e=>setL(i,"cantidad",e.target.value)} style={{width:"100%",padding:"6px 8px"}}/></td>
+                    <td><input type="number" min="0" step="0.01" disabled={x.quitar} value={x.costo} onChange={e=>setL(i,"costo",e.target.value)} style={{width:"100%",padding:"6px 8px"}}/></td>
+                    <td><input type="date" disabled={x.quitar} value={x.fechaVenc||""} onChange={e=>setL(i,"fechaVenc",e.target.value)} style={{width:"100%",padding:"6px 8px"}}/></td>
+                    <td style={{textAlign:"center",fontSize:12}}>{x.salido>0?<span style={{color:"var(--amber)"}}>{x.salido}</span>:"—"}</td>
+                    <td>{x.salido>0&&!x.nuevo?null:<button className="btn btn-secondary btn-sm" title={x.quitar?"Restaurar":"Quitar del lote"} onClick={()=>x.nuevo?setEditIng(e=>({...e,lineas:e.lineas.filter((_,j)=>j!==i)})):setL(i,"quitar",!x.quitar)}>{x.quitar?"↩️":"🗑️"}</button>}</td>
+                  </tr>))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{marginTop:10,display:"flex",gap:8,alignItems:"center"}}>
+            <select value="" onChange={e=>{const p=(data.productos||[]).find(z=>z.id===e.target.value);if(p)setEditIng(ei=>({...ei,lineas:[...ei.lineas,{loteId:null,nuevo:true,productoId:p.id,nombre:p.nombre,cantidad:"",costo:String(p.costo||""),fechaVenc:"",salido:0,quitar:false}]}));}} style={{flex:1,padding:"8px 10px"}}>
+              <option value="">➕ Agregar un producto al lote…</option>
+              {disponibles.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+          </div>
+          <div className="modal-actions" style={{marginTop:12,display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button className="btn btn-secondary" onClick={()=>setEditIng(null)}>Cancelar</button>
+            <button className="btn btn-primary" disabled={guardandoIng} onClick={guardarEdicionIng}>{guardandoIng?"Guardando…":"Guardar cambios"}</button>
+          </div>
+        </div></div>);
+      })()}
+
       {vista==="ingresos"&&(()=>{
         const ings=(data.ingresosLote||[]).filter(i=>ingProv==="todos"||i.proveedorId===ingProv)
           .sort((a,b)=>((b.fecha||"")+(b.hora||"")).localeCompare((a.fecha||"")+(a.hora||"")));
@@ -1085,8 +1183,8 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
                   return(<React.Fragment key={i.id}>
                     <tr style={{cursor:"pointer"}} onClick={()=>setIngAbierto(abierto?null:i.id)}>
                       <td>{i.fecha}</td><td>{i.hora||"—"}</td><td><strong>{i.proveedorNombre}</strong></td><td>{i.factura||"—"}</td>
-                      <td>{ls.length}</td><td>{uni}</td><td>{fmt(tot)}</td><td style={{color:"var(--muted)"}}>{i.usuarioNombre||"—"}</td>
-                      <td><button className="btn btn-secondary btn-sm">{abierto?"▲ Ocultar":"▼ Ver productos"}</button></td>
+                      <td>{ls.length}</td><td>{uni}</td><td>{fmt(tot)}</td><td style={{color:"var(--muted)"}}>{i.usuarioNombre||"—"}{i.editadoPor&&<div style={{fontSize:10,color:"var(--amber)"}}>✏️ editado por {i.editadoPor}</div>}</td>
+                      <td style={{whiteSpace:"nowrap"}}><button className="btn btn-secondary btn-sm">{abierto?"▲ Ocultar":"▼ Ver productos"}</button>{esAdmin&&<button className="btn btn-secondary btn-sm" style={{marginLeft:4}} onClick={ev=>{ev.stopPropagation();abrirEditarIng(i);}}>✏️ Editar</button>}</td>
                     </tr>
                     {abierto&&<tr><td colSpan={9} style={{background:"rgba(0,0,0,.03)",padding:"8px 14px"}}>
                       <table style={{width:"100%"}}>
