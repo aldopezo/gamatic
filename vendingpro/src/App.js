@@ -314,6 +314,7 @@ const TABLE_MAP={
   devolucionesClientes:'devoluciones_clientes',
   recargas:'recargas',
   recomendaciones:'recomendaciones',
+  ingresosLote:'ingresos_lote',
   stockMaquina:'stock_maquina',
   sencillo:'sencillo',
   tickets:'tickets',
@@ -380,7 +381,7 @@ function useFirebase(){
       const tables=['productos','proveedores','maquinas','stock','traslados','ventas',
         'cobranzas','gastos','sugerencias','devoluciones','stock_maquina','sencillo',
         'tickets','productos_eco','personal','usuarios','listas_precios','cafeteras',
-        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos','lotes','devoluciones_clientes','recargas','recomendaciones'];
+        'ventas_cafeteras','planogramas','ventas_atento','roles','fotos_maquina','repuestos','lotes','devoluciones_clientes','recargas','recomendaciones','ingresos_lote'];
       // Supabase devuelve máx. 1000 filas por consulta: se pide por páginas para no perder ventas
       const traerTodo=async(t)=>{
         const cols=t==='ventas_atento'?COLS_ATENTO:'*';
@@ -409,14 +410,14 @@ function useFirebase(){
       const [productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,stockMaquina,sencillo,
         tickets,productosEco,personal,usuarios,listasPrecios,cafeteras,
-        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas,recomendaciones]=results.map(r=>toCamel(r.data||[]));
+        ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas,recomendaciones,ingresosLote]=results.map(r=>toCamel(r.data||[]));
 
       if(!mountedRef.current)return;
       const newData={
         productos,proveedores,maquinas,stock,traslados,ventas,
         cobranzas,gastos,sugerencias,devoluciones,
         stockMaquina,sencillo,tickets,productosEco,personal,
-        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas,recomendaciones,
+        usuarios,listasPrecios,cafeteras,ventasCafeteras,planogramas,ventasAtento,roles,fotosMaquina,repuestos,lotes,devolucionesClientes,recargas,recomendaciones,ingresosLote,
         horario:horarioObj,
       };
       // Solo actualiza si los datos cambiaron — evita re-renders innecesarios que cierran modales
@@ -967,8 +968,10 @@ function calcularProveedores(lotes,movs,productos,pesos){
   return out.sort((a,b)=>a.producto.localeCompare(b.producto));
 }
 function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,vistaInicial=null}){
-  const [vista,setVista]=useState(vistaInicial||"lotes");
+  const [vista,setVista]=useState(vistaInicial||"ingresos");
   useEffect(()=>{if(vistaInicial)setVista(vistaInicial);},[vistaInicial]);
+  const [ingAbierto,setIngAbierto]=useState(null);
+  const [ingProv,setIngProv]=useState("todos");
   const [diasAviso,setDiasAviso]=useState(diasAvisoVenc());
   const [q,setQ]=useState("");
   const [soloStock,setSoloStock]=useState(true);
@@ -1036,11 +1039,51 @@ function LotesProveedores({data,sesionUsuario=null,recargar=null,esAdmin=false,v
         ))}
       </div>
       <div className="tabbar">
-        {[["lotes","📦 Lotes"],["vencer","⏰ Por vencer"],["proveedores","🏷️ Comparar proveedores"]].map(([k,l])=>(
+        {[["ingresos","🧾 Ingresos de lotes"],["lotes","📦 Lotes"],["vencer","⏰ Por vencer"],["proveedores","🏷️ Comparar proveedores"]].map(([k,l])=>(
           <button key={k} className={`tab-pill${vista===k?" active":""}`} onClick={()=>setVista(k)}>{l}</button>
         ))}
       </div>
       {error&&<div className="alert-box">{error}</div>}
+
+      {vista==="ingresos"&&(()=>{
+        const ings=(data.ingresosLote||[]).filter(i=>ingProv==="todos"||i.proveedorId===ingProv)
+          .sort((a,b)=>((b.fecha||"")+(b.hora||"")).localeCompare((a.fecha||"")+(a.hora||"")));
+        const lineasDe=(id)=>lotes.filter(l=>l.ingresoId===id);
+        const provs=[...new Map((data.ingresosLote||[]).map(i=>[i.proveedorId,i.proveedorNombre])).entries()];
+        return(
+        <div className="section">
+          <div className="section-header"><h3>Ingresos de lotes (un recibo = un lote)</h3>
+            <select value={ingProv} onChange={e=>setIngProv(e.target.value)} style={{padding:"6px 8px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontSize:12}}>
+              <option value="todos">Todos los proveedores</option>{provs.map(([id,n])=><option key={id} value={id}>{n}</option>)}
+            </select>
+          </div>
+          {ings.length===0
+            ?<div style={{padding:30,textAlign:"center",color:"var(--muted)",fontSize:13}}>Aún no hay lotes registrados. Créalos en <strong>Productos y stock → 📦 Nuevo lote</strong>.</div>
+            :<div className="table-wrap"><table>
+              <thead><tr><th>Fecha</th><th>Hora</th><th>Proveedor</th><th>Recibo</th><th>Productos</th><th>Unidades</th><th>Costo total</th><th>Registró</th><th></th></tr></thead>
+              <tbody>
+                {ings.map(i=>{
+                  const ls=lineasDe(i.id);const abierto=ingAbierto===i.id;
+                  const uni=ls.reduce((t,l)=>t+(l.cantidadInicial||0),0);
+                  const tot=ls.reduce((t,l)=>t+(l.cantidadInicial||0)*(+l.costoUnitario||0),0);
+                  return(<React.Fragment key={i.id}>
+                    <tr style={{cursor:"pointer"}} onClick={()=>setIngAbierto(abierto?null:i.id)}>
+                      <td>{i.fecha}</td><td>{i.hora||"—"}</td><td><strong>{i.proveedorNombre}</strong></td><td>{i.factura||"—"}</td>
+                      <td>{ls.length}</td><td>{uni}</td><td>{fmt(tot)}</td><td style={{color:"var(--muted)"}}>{i.usuarioNombre||"—"}</td>
+                      <td><button className="btn btn-secondary btn-sm">{abierto?"▲ Ocultar":"▼ Ver productos"}</button></td>
+                    </tr>
+                    {abierto&&<tr><td colSpan={9} style={{background:"rgba(0,0,0,.03)",padding:"8px 14px"}}>
+                      <table style={{width:"100%"}}>
+                        <thead><tr><th>Producto</th><th>Cantidad</th><th>Costo unit.</th><th>Subtotal</th><th>Vence</th><th>Quedan</th></tr></thead>
+                        <tbody>{ls.map(l=><tr key={l.id}><td>{prodDe(l.productoId)?.nombre||"—"}</td><td>{l.cantidadInicial}</td><td>{fmt(l.costoUnitario)}</td><td>{fmt((l.cantidadInicial||0)*(+l.costoUnitario||0))}</td><td>{l.fechaVencimiento||"Sin fecha"}</td><td>{l.cantidadActual}</td></tr>)}</tbody>
+                      </table>
+                    </td></tr>}
+                  </React.Fragment>);
+                })}
+              </tbody>
+            </table></div>}
+        </div>);
+      })()}
 
       {vista==="lotes"&&(
         <div className="section">
@@ -1990,9 +2033,11 @@ const costoPromedioLotes=(data,productoId)=>{
   return u>0?ls.reduce((t,l)=>t+l.cantidadActual*(+l.costoUnitario||0),0)/u:null;
 };
 const crearLoteRPC=async({productoId,proveedorId,proveedorNombre,cantidad,costo,fechaIngreso,fechaVenc,factura,nota,usuario})=>{
-  const {error}=await supabase.rpc("crear_lote",{p_id:uid(),p_producto_id:productoId,p_proveedor_id:proveedorId||null,p_proveedor_nombre:proveedorNombre||"",
+  const idLote=uid();
+  const {error}=await supabase.rpc("crear_lote",{p_id:idLote,p_producto_id:productoId,p_proveedor_id:proveedorId||null,p_proveedor_nombre:proveedorNombre||"",
     p_cantidad:+cantidad,p_costo:+costo||0,p_fecha_ingreso:fechaIngreso||ahoraLocal().fecha,p_fecha_venc:fechaVenc||null,p_factura:factura||null,p_nota:nota||null,p_usuario:usuario||""});
   if(error)throw error;
+  return idLote;
 };
 const moverLoteRPC=async({loteId,tipo,cantidad,fecha,maquinaId,motivo,usuario,nota})=>{
   const {error}=await supabase.rpc("mover_lote",{p_lote_id:loteId,p_tipo:tipo,p_cantidad:+cantidad,p_fecha:fecha||ahoraLocal().fecha,p_maquina_id:maquinaId||null,p_motivo:motivo||null,p_usuario:usuario||"",p_nota:nota||null});
@@ -2008,6 +2053,8 @@ function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre="
   const [precioEdit,setPrecioEdit]=useState("");
   const [editandoPrecioId,setEditandoPrecioId]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
+  const [nuevoLote,setNuevoLote]=useState(null); // {proveedorId,factura,q,filas:{[productoId]:{cantidad,costo,fechaVenc}}}
+  const [guardandoLote,setGuardandoLote]=useState(false);
   const [entrada,setEntrada]=useState(null); // {producto, cantidad, fechaVenc, costo, proveedorId, factura}
   const FORM0={nombre:"",costo:"",margen:"",precioVenta:"",proveedor:"",fecha:"",cantidad:"",minimo:"",fechaReg:"",fechaVenc:""};
   const [form,setForm]=useState(FORM0);
@@ -2093,6 +2140,51 @@ function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre="
   // @@fin-doSave
 
   // @@entrada
+  const eliminarProducto=async(p)=>{
+    try{
+      const cnt=async(tabla)=>{const {count,error}=await supabase.from(tabla).select("id",{count:"exact",head:true}).eq("producto_id",p.id);if(error)throw error;return count||0;};
+      const [nVen,nTras,nEco]=[await cnt("ventas"),await cnt("traslados"),await cnt("productos_eco")];
+      if(nTras>0||nEco>0){alert('No se puede eliminar "'+p.nombre+'": está en '+(nTras>0?nTras+" traslado(s)":"")+(nTras>0&&nEco>0?" y ":"")+(nEco>0?nEco+" lista(s) económica(s)":"")+". Quítalo de ahí primero.");return;}
+      if(nVen>0&&!window.confirm('"'+p.nombre+'" tiene '+nVen+' venta(s) registradas. Si lo eliminas, esas ventas se conservan pero quedan sin producto asociado (su costo se estimará). ¿Eliminar de todas formas?'))return;
+      if(nVen>0){
+        await supabase.from("ventas").update({producto_nombre:p.nombre}).eq("producto_id",p.id).is("producto_nombre",null);
+        const {error:e1}=await supabase.from("ventas").update({producto_id:null}).eq("producto_id",p.id);if(e1)throw e1;
+      }
+      const {error:e2}=await supabase.from("lotes").delete().eq("producto_id",p.id);if(e2)throw e2;
+      const {error:e3}=await supabase.from("productos").delete().eq("id",p.id);if(e3)throw e3;
+      notificar('Producto "'+p.nombre+'" eliminado');
+      if(recargar)await recargar();
+    }catch(err){alert("No se pudo eliminar el producto: "+(err.message||err));}
+  };
+  const guardarNuevoLote=async()=>{
+    const nl=nuevoLote;if(!nl||guardandoLote)return;
+    const prov=(data.proveedores||[]).find(x=>x.id===nl.proveedorId);
+    const lineas=Object.entries(nl.filas).filter(([,f])=>+f.cantidad>0);
+    if(!prov){alert("Elige el proveedor del recibo.");return;}
+    if(lineas.length===0){alert("Pon la cantidad de al menos un producto.");return;}
+    setGuardandoLote(true);
+    try{
+      const ahora=ahoraLocal();const ingId=uid();
+      await save("ingresosLote",ingId,{id:ingId,fecha:ahora.fecha,hora:ahora.hora.slice(0,5),proveedorId:prov.id,proveedorNombre:prov.nombre,factura:nl.factura||null,usuarioNombre:usuarioNombre||""});
+      const idsLotes=[];
+      for(const [pid,f] of lineas){
+        const p=(data.productos||[]).find(x=>x.id===pid);if(!p)continue;
+        const n=+f.cantidad;const costo=+f.costo>0?+f.costo:(+p.costo||0);
+        const idL=await crearLoteRPC({productoId:pid,proveedorId:prov.id,proveedorNombre:prov.nombre,cantidad:n,costo,fechaIngreso:ahora.fecha,fechaVenc:f.fechaVenc,factura:nl.factura,nota:"Nuevo lote",usuario:usuarioNombre});
+        idsLotes.push(idL);
+        // El costo del producto pasa a ser el promedio ponderado de los lotes con stock
+        const ls=[...lotesDe(data,pid),{cantidadActual:n,costoUnitario:costo}];
+        const u=ls.reduce((t,l)=>t+l.cantidadActual,0);
+        const prom=u>0?ls.reduce((t,l)=>t+l.cantidadActual*(+l.costoUnitario||0),0)/u:p.costo;
+        if(prom>0&&Math.abs(prom-(p.costo||0))>0.004)await save("productos",pid,{...p,costo:+prom.toFixed(2)});
+      }
+      if(idsLotes.length){const {error}=await supabase.from("lotes").update({ingreso_id:ingId}).in("id",idsLotes);if(error)throw error;}
+      notificar("Lote guardado: "+idsLotes.length+" producto(s) de "+prov.nombre);
+      setNuevoLote(null);
+      if(recargar)await recargar();
+    }catch(err){alert("No se pudo guardar el lote: "+(err.message||""));}
+    setGuardandoLote(false);
+  };
   const guardarEntrada=async()=>{
     const n=+(entrada&&entrada.cantidad);
     if(!n||n<=0)return;
@@ -2142,6 +2234,7 @@ function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre="
           <h3>Productos y stock del almacén</h3>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:11,color:"var(--muted)"}}>Inventario al costo: <strong style={{color:"var(--text)"}}>{fmt(valorStock)}</strong></span>
+            <button className="btn btn-secondary btn-sm" onClick={()=>setNuevoLote({proveedorId:"",factura:"",q:"",filas:{}})}>📦 Nuevo lote</button>
             <button className="btn btn-primary btn-sm" onClick={abrirNuevo}><Icon name="plus" size={13}/> Agregar</button>
           </div>
         </div>
@@ -2223,6 +2316,47 @@ function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre="
         <div className="modal-actions"><button className="btn btn-secondary" onClick={()=>{setModal(false);setEditando(null);}}>Cancelar</button><button className="btn btn-primary" onClick={doSave} disabled={!form.nombre||!form.costo}>{editando?"Guardar cambios":"Guardar"}</button></div>
       </div></div>}
 
+      {nuevoLote&&(()=>{
+        const fl=nuevoLote.filas;
+        const lista=(data.productos||[]).filter(p=>!nuevoLote.q||p.nombre.toLowerCase().includes(nuevoLote.q.toLowerCase())).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+        const conCant=Object.entries(fl).filter(([,f])=>+f.cantidad>0);
+        const setFila=(pid,campo,v)=>setNuevoLote(n=>({...n,filas:{...n.filas,[pid]:{...(n.filas[pid]||{}),[campo]:v}}}));
+        return(
+        <div className="modal-overlay"><div className="modal" style={{maxWidth:760,width:"96%",maxHeight:"92vh",display:"flex",flexDirection:"column"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><h3 style={{margin:0}}>📦 Nuevo lote</h3><CloseBtn onClick={()=>setNuevoLote(null)}/></div>
+          <div style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>Un lote = un recibo de un proveedor. Llena solo los productos que llegaron; los demás se dejan vacíos. Si no cambias el costo, se mantiene el actual.</div>
+          <div className="form-row">
+            <div className="form-group"><label>Proveedor</label>
+              <select value={nuevoLote.proveedorId} onChange={e=>setNuevoLote({...nuevoLote,proveedorId:e.target.value})}>
+                <option value="">— Elige el proveedor —</option>
+                {(data.proveedores||[]).slice().sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||"")).map(pv=><option key={pv.id} value={pv.id}>{pv.nombre}</option>)}
+              </select></div>
+            <div className="form-group"><label>N° de recibo / factura (opcional)</label><input value={nuevoLote.factura} onChange={e=>setNuevoLote({...nuevoLote,factura:e.target.value})} placeholder="Ej.: F001-1234"/></div>
+          </div>
+          <div className="form-group"><input value={nuevoLote.q} onChange={e=>setNuevoLote({...nuevoLote,q:e.target.value})} placeholder="🔍 Buscar producto…"/></div>
+          <div style={{overflowY:"auto",flex:1,border:"1px solid var(--border)",borderRadius:10}}>
+            <table style={{width:"100%"}}>
+              <thead><tr><th>Producto</th><th style={{width:90}}>Cantidad</th><th style={{width:110}}>Costo unit. (S/)</th><th style={{width:150}}>Vencimiento</th></tr></thead>
+              <tbody>
+                {lista.length===0&&<tr><td colSpan={4} style={{padding:20,textAlign:"center",color:"var(--muted)"}}>Sin productos</td></tr>}
+                {lista.map(p=>{const f=fl[p.id]||{};const act=+f.cantidad>0;return(
+                  <tr key={p.id} style={{background:act?"rgba(16,185,129,.07)":"transparent"}}>
+                    <td><strong style={{fontSize:12}}>{p.nombre}</strong></td>
+                    <td><input type="number" min="0" value={f.cantidad||""} onChange={e=>setFila(p.id,"cantidad",e.target.value)} placeholder="0" style={{width:"100%",padding:"6px 8px"}}/></td>
+                    <td><input type="number" min="0" step="0.01" value={f.costo||""} onChange={e=>setFila(p.id,"costo",e.target.value)} placeholder="S/" style={{width:"100%",padding:"6px 8px"}}/></td>
+                    <td><input type="date" value={f.fechaVenc||""} onChange={e=>setFila(p.id,"fechaVenc",e.target.value)} style={{width:"100%",padding:"6px 8px"}}/></td>
+                  </tr>);})}
+              </tbody>
+            </table>
+          </div>
+          <div className="modal-actions" style={{marginTop:12,display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:12,color:"var(--muted)",marginRight:"auto"}}>{conCant.length} producto(s) · {conCant.reduce((t,[,f])=>t+(+f.cantidad||0),0)} unidades</span>
+            <button className="btn btn-secondary" onClick={()=>setNuevoLote(null)}>Cancelar</button>
+            <button className="btn btn-primary" disabled={guardandoLote} onClick={guardarNuevoLote}>{guardandoLote?"Guardando…":"Guardar lote"}</button>
+          </div>
+        </div></div>);
+      })()}
+
       {entrada&&(()=>{
         const s=stockDe(entrada.producto.id);
         const actual=s?(+s.cantidad||0):0;
@@ -2245,7 +2379,7 @@ function Productos({data,save,del,soloEditar=false,recargar=null,usuarioNombre="
         );
       })()}
 
-      {confirmDel&&<ConfirmDelete texto={'¿Eliminar el producto "'+confirmDel.nombre+'" y su stock?'} onConfirm={()=>{del("productos",confirmDel.id);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
+      {confirmDel&&<ConfirmDelete texto={'¿Eliminar el producto "'+confirmDel.nombre+'" y su stock?'} onConfirm={()=>{eliminarProducto(confirmDel);setConfirmDel(null);}} onCancel={()=>setConfirmDel(null)}/>}
     </div>
   );
 }
